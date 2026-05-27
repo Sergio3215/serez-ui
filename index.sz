@@ -1,0 +1,21 @@
+// serez-ui v0.1 — Retained-mode terminal UI library for Serez-Code
+//
+// Usage:  import "serez-ui"
+//
+// Widgets:
+//   Text(content)          — single-line text, .align = "left"|"center"|"right"
+//   Separator()            — full-width horizontal rule, .char = "─"
+//   Spacer(height)         — blank vertical space
+//   Box(widget)            — Unicode border, .padding_h, .padding_v
+//   VStack()               — vertical stack, .add(widget)
+//   HStack()               — horizontal stack, .add(widget, width)
+//   App()                  — renderer, .width = 60, .render(root)
+
+import "src/utils"
+import "src/widget_text"
+import "src/widget_separator"
+import "src/widget_spacer"
+import "src/widget_box"
+import "src/widget_vstack"
+import "src/widget_hstack"
+import "src/app"

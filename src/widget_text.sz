@@ -1,0 +1,25 @@
+// Text — single-line text widget
+//
+// let t = new Text("hello")
+// t.align = "center"  // "left" (default) | "center" | "right"
+// t.render(width) → [padded_line]
+
+export public class Text {
+    public Text(content) {
+        this.content = content
+        this.align = "left"
+    }
+
+    public render(width) {
+        let s = this.content
+        let line = ""
+        if (this.align == "center") {
+            line = centerText(s, width)
+        } else if (this.align == "right") {
+            line = alignRight(s, width)
+        } else {
+            line = padRight(s, width)
+        }
+        return [line]
+    }
+}

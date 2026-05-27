@@ -1,0 +1,7 @@
+{
+  "name": "serez-ui",
+  "version": "0.1.0",
+  "description": "Retained-mode terminal UI library for Serez-Code",
+  "main": "index.sz",
+  "author": "Sergio"
+}

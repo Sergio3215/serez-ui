@@ -1,0 +1,33 @@
+// Layout utility functions — used by all widgets
+
+// Repeat string s exactly n times
+fn repeatStr(s, n) {
+    let result = ""
+    let i = 0
+    while (i < n) {
+        result = result + s
+        i = i + 1
+    }
+    return result
+}
+
+// Pad string to exactly width chars, truncating if over
+fn padRight(s, width) {
+    if (s.length() > width) { return s.substring(0, width) }
+    return s.padEnd(width)
+}
+
+// Center string in exactly width chars
+fn centerText(s, width) {
+    if (s.length() >= width) { return s.substring(0, width) }
+    let total_pad = width - s.length()
+    let left_pad = total_pad / 2
+    let padded = s.padStart(s.length() + left_pad)
+    return padded.padEnd(width)
+}
+
+// Right-align string in exactly width chars
+fn alignRight(s, width) {
+    if (s.length() >= width) { return s.substring(0, width) }
+    return s.padStart(width)
+}

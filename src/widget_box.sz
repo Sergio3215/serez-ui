@@ -1,0 +1,51 @@
+// Box — draws a Unicode border around any widget
+//
+// let b = new Box(inner_widget)
+// b.padding_h = 1   // horizontal padding chars inside border (default 1)
+// b.padding_v = 0   // blank lines inside border top/bottom (default 0)
+// b.render(width) → ["┌──┐", "│..│", "└──┘"]
+//
+// Total width includes the border (│ on each side) and padding.
+// Inner widget renders at: width - 2 - 2*padding_h
+
+export public class Box {
+    public Box(content) {
+        this.content = content
+        this.padding_h = 1
+        this.padding_v = 0
+    }
+
+    public render(width) {
+        let inner_w = width - 2 - 2 * this.padding_h
+        if (inner_w < 0) { inner_w = 0 }
+
+        let inner_lines = this.content.render(inner_w)
+        let pad = repeatStr(" ", this.padding_h)
+        let top    = "┌" + repeatStr("─", width - 2) + "┐"
+        let bottom = "└" + repeatStr("─", width - 2) + "┘"
+        let blank  = "│" + repeatStr(" ", width - 2) + "│"
+
+        let result = [top]
+
+        let pv = 0
+        while (pv < this.padding_v) {
+            result.push(blank)
+            pv = pv + 1
+        }
+
+        let i = 0
+        while (i < inner_lines.length()) {
+            result.push("│" + pad + inner_lines[i] + pad + "│")
+            i = i + 1
+        }
+
+        pv = 0
+        while (pv < this.padding_v) {
+            result.push(blank)
+            pv = pv + 1
+        }
+
+        result.push(bottom)
+        return result
+    }
+}
