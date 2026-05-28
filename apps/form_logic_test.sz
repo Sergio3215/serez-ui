@@ -1,0 +1,79 @@
+// form_logic_test.szx — Verifica la reactividad del formulario v0.5.0
+// sin arrancar el EventLoop (simula pulsaciones e inspecciona el VDOM).
+
+import "serez-ui"
+
+// Evento de tecla falso: onKey solo lee .code
+class FakeKey {
+    public FakeKey(string c) {
+        this.code = c
+    }
+}
+
+class LoginForm:Window {
+    public LoginForm() {
+        super()
+        this.name     = ""
+        this.password = ""
+        this.active   = 0
+        this.status   = ""
+    }
+
+    public void onKey(any evt) {
+        let code = evt.code
+        if (code == "Tab") { this.active = 1 - this.active; return; }
+        if (code == "Backspace") {
+            if (this.active == 0 && this.name.length() > 0) {
+                this.name = this.name.substring(0, this.name.length() - 1)
+            }
+            if (this.active == 1 && this.password.length() > 0) {
+                this.password = this.password.substring(0, this.password.length() - 1)
+            }
+            return
+        }
+        if (code.length() == 1) {
+            if (this.active == 0) { this.name = this.name + code }
+            else { this.password = this.password + code }
+        }
+    }
+
+    public render() {
+        let canSubmit = this.name.length() > 0
+        return (
+            h("div", [], [h("h1", [], ["Login"]), h("Input", [["value", this.name], ["placeholder", "user"]], []), h("Input", [["value", this.password], ["placeholder", "pass"], ["type", "password"]], []), h("Button", [["disabled", !canSubmit]], ["Enviar"])])
+        )
+    }
+}
+
+let app = new LoginForm()
+app.mount()
+
+// Estado inicial: name vacío → Button deshabilitado
+let v0 = app.getVDom()
+let btn0 = v0.getChildren()[3]
+out "inicial btn disabled (esperado true): " + btn0.getProp("disabled")
+
+// Escribir "an" en usuario
+app.onKey(new FakeKey("a"))
+app.onKey(new FakeKey("n"))
+app.update()
+let v1 = app.getVDom()
+let nameInput = v1.getChildren()[1]
+let btn1 = v1.getChildren()[3]
+out "name value (esperado an): " + nameInput.getProp("value")
+out "btn disabled (esperado false): " + btn1.getProp("disabled")
+
+// Tab → campo contraseña, escribir "xy"
+app.onKey(new FakeKey("Tab"))
+app.onKey(new FakeKey("x"))
+app.onKey(new FakeKey("y"))
+app.update()
+let v2 = app.getVDom()
+let passInput = v2.getChildren()[2]
+out "password value (esperado xy): " + passInput.getProp("value")
+
+// Backspace en contraseña
+app.onKey(new FakeKey("Backspace"))
+app.update()
+let v3 = app.getVDom()
+out "password tras backspace (esperado x): " + v3.getChildren()[2].getProp("value")

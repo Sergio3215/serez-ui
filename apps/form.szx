@@ -1,0 +1,96 @@
+// form.szx — Demo de componentes built-in de serez-ui v0.5.0
+//
+// Muestra los componentes Button e Input (modelo React/JSX) con sus props:
+//   Input  → value, placeholder, type="password"
+//   Button → disabled (depende del estado del formulario)
+//
+// Controles:
+//   Tab        → cambiar de campo (usuario / contraseña)
+//   teclas     → escribir en el campo activo
+//   Backspace  → borrar
+//   Enter      → enviar
+//   Esc        → salir
+//
+// Ejecutar (desde E:\01 Proyectos\Propio\):
+//   & "serez-ui\tools\szx.ps1" serez-ui\apps\form.szx
+
+import "serez-ui"
+
+class LoginForm:Window {
+    public LoginForm() {
+        super()
+        this.name     = ""
+        this.password = ""
+        this.active   = 0    // 0 = usuario, 1 = contraseña
+        this.status   = "Tab: cambiar campo  ·  Enter: enviar  ·  Esc: salir"
+    }
+
+    // onKey es llamado por EventLoop en cada pulsación
+    public void onKey(any evt) {
+        let code = evt.code
+
+        if (code == "Tab") {
+            this.active = 1 - this.active
+            return
+        }
+
+        if (code == "Enter") {
+            if (this.name.length() > 0) {
+                this.status = "Enviado · bienvenido, " + this.name + "!"
+            } else {
+                this.status = "El usuario es obligatorio"
+            }
+            return
+        }
+
+        if (code == "Backspace") {
+            if (this.active == 0 && this.name.length() > 0) {
+                this.name = this.name.substring(0, this.name.length() - 1)
+            }
+            if (this.active == 1 && this.password.length() > 0) {
+                this.password = this.password.substring(0, this.password.length() - 1)
+            }
+            return
+        }
+
+        // Carácter imprimible (un solo char)
+        if (code.length() == 1) {
+            if (this.active == 0) {
+                this.name = this.name + code
+            } else {
+                this.password = this.password + code
+            }
+        }
+    }
+
+    public render() {
+        let canSubmit = this.name.length() > 0
+
+        let userMark = ""
+        let passMark = ""
+        if (this.active == 0) {
+            userMark = "  <--"
+        } else {
+            passMark = "  <--"
+        }
+
+        return (
+            <div>
+                <h1>serez-ui v0.5 — Formulario</h1>
+                <hr />
+                <p>Usuario{userMark}</p>
+                <Input value={this.name} placeholder="tu-usuario" />
+                <p>Contrasena{passMark}</p>
+                <Input value={this.password} placeholder="secreta" type="password" />
+                <hr />
+                <Button onClick={() => { this.status = "click en Enviar" }} disabled={!canSubmit}>Enviar</Button>
+                <p>{this.status}</p>
+            </div>
+        )
+    }
+}
+
+let app  = new LoginForm()
+let loop = new EventLoop(app)
+loop.setQuitKey("Esc")
+loop.start()

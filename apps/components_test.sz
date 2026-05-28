@@ -1,0 +1,59 @@
+// components_test.sz — Verificación headless de los built-in v0.5.0
+//
+// Ejecutar (desde E:\01 Proyectos\Propio\):
+//   Serez-code\target\release\sz.exe serez-ui\apps\components_test.sz
+
+import "serez-ui"
+
+class Checker {
+    public Checker() {
+        this.pass = 0
+        this.fail = 0
+    }
+    public void check(string label, bool cond) {
+        if (cond) {
+            this.pass = this.pass + 1
+            out "  PASS  " + label
+        } else {
+            this.fail = this.fail + 1
+            out "  FAIL  " + label
+        }
+    }
+    public void summary() {
+        out ""
+        out "Resultado: " + this.pass + " PASS, " + this.fail + " FAIL"
+    }
+}
+
+let t = new Checker()
+
+out "=== Button ==="
+let b = Button([["onClick", () => 1], ["disabled", true]], ["Guardar"])
+t.check("tag == Button", b.getTag() == "Button")
+t.check("children[0] == Guardar", b.getChildren()[0] == "Guardar")
+t.check("disabled prop == true", b.getProp("disabled") == true)
+t.check("onClick prop presente", b.hasProp("onClick"))
+
+out ""
+out "=== Input ==="
+let inp = Input([["value", "hola"], ["placeholder", "nombre"], ["type", "password"]], [])
+t.check("tag == Input", inp.getTag() == "Input")
+t.check("value == hola", inp.getProp("value") == "hola")
+t.check("placeholder == nombre", inp.getProp("placeholder") == "nombre")
+t.check("type == password", inp.getProp("type") == "password")
+t.check("sin children", inp.getChildren().length() == 0)
+
+out ""
+out "=== Registro built-in ==="
+t.check("Button es built-in", isBuiltinComponent("Button"))
+t.check("Input es built-in", isBuiltinComponent("Input"))
+t.check("div NO es built-in", !isBuiltinComponent("div"))
+
+out ""
+out "=== Composicion en arbol VDOM ==="
+let tree = h("div", [], [h("h1", [], ["Login"]), Input([["value", ""], ["placeholder", "user"]], []), Button([["disabled", true]], ["Enviar"])])
+t.check("raiz div con 3 hijos", tree.getTag() == "div" && tree.getChildren().length() == 3)
+t.check("hijo 1 es Input", tree.getChildren()[1].getTag() == "Input")
+t.check("hijo 2 es Button", tree.getChildren()[2].getTag() == "Button")
+
+t.summary()

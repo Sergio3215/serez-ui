@@ -1,0 +1,52 @@
+// components.sz — Componentes built-in de serez-ui (v0.5.0)
+//
+// Modelo React: cada componente built-in es una función que recibe props y
+// children y devuelve un VNode con su tag canónico. El Renderer sabe dibujar
+// esos tags. Pensados para resultar familiares a desarrolladores de React/TS.
+//
+//   import "serez-ui"
+//   Button([["onClick", save]], ["Guardar"])
+//   Input([["value", name], ["placeholder", "Nombre"], ["onChange", onName]], [])
+//
+// En .szx se escriben como tags y el traductor los convierte a estas llamadas:
+//   <Button onClick={save}>Guardar</Button>      → h("Button", ..., ["Guardar"])
+//   <Input value={name} placeholder="Nombre" />  → h("Input", ..., [])
+//
+// La estructura (div, h1, p, span, hr, ul, li...) son tags HTML primitivos que
+// el Renderer maneja directamente. El layout es responsabilidad del CSS (v0.6).
+
+import "h"
+
+// ── Button ────────────────────────────────────────────────────────────────────
+// Componente interactivo. El texto del botón son sus children.
+//
+// Props (todas opcionales):
+//   onClick  : fn(evt)  — handler de click (despachado por el EventLoop)
+//   disabled : bool     — si true, se dibuja atenuado y no dispara onClick
+//
+//   <Button onClick={() => count = count + 1}>Incrementar</Button>
+export fn any Button(any props, any children) {
+    return new VNode("Button", props, children)
+}
+
+// ── Input ───────────────────────────────────────────────────────────────────--
+// Campo de formulario de una línea. Normalmente self-closing: <Input ... />
+//
+// Props (todas opcionales):
+//   value       : string   — valor actual del campo
+//   placeholder : string   — texto guía cuando value está vacío
+//   type        : string   — "text" (por defecto) o "password" (enmascara)
+//   onChange    : fn(evt)  — handler de cambio (despachado por el EventLoop)
+//   disabled    : bool     — si true, se dibuja atenuado y no acepta entrada
+//
+//   <Input value={name} placeholder="Tu nombre" onChange={onName} />
+export fn any Input(any props, any children) {
+    return new VNode("Input", props, children)
+}
+
+// ── Registro de built-ins ───────────────────────────────────────────────────--
+// Permite al runtime saber qué tags son componentes built-in de la librería
+// (en contraposición a los tags HTML primitivos).
+export fn bool isBuiltinComponent(string tag) {
+    return tag == "Button" || tag == "Input"
+}

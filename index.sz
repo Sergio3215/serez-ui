@@ -1,6 +1,19 @@
-// serez-ui v0.4 — Terminal UI library for Serez-Code
+// serez-ui v0.5 — Terminal UI library for Serez-Code
+//
+// Modelo React/JSX: componentes que extienden Window, hooks (useState/useEffect),
+// Virtual DOM transparente. Los .szx (JSX) se traducen a .sz con tools/translate.sz.
 //
 // Usage:  import "serez-ui"
+//
+// ── Built-in components (v0.5) ───────────────────────────────────────────────
+//   Button(props, children)  — botón interactivo. props: onClick, disabled
+//   Input(props, children)   — campo de formulario. props: value, placeholder,
+//                              type ("text"|"password"), onChange, disabled
+//   En .szx:  <Button onClick={fn}>texto</Button>   <Input value={v} />
+//
+// La estructura usa tags HTML primitivos que el Renderer dibuja directamente:
+//   div, h1, h2, h3, p, span, hr, ul, li, section, form
+//   El layout (apilar/columnas) es responsabilidad del CSS (v0.6).
 //
 // ── Window + State (v0.3) ────────────────────────────────────────────────────
 //   Window                   — clase base para todos los componentes
@@ -14,14 +27,9 @@
 //   diff(old, new)           — compara dos árboles, retorna patches
 //   Patch                    — operación de actualización
 //
-// ── Static Widgets (v0.1) ────────────────────────────────────────────────────
-//   Text(content)          — single-line text, .align = "left"|"center"|"right"
-//   Separator()            — full-width horizontal rule, .char = "─"
-//   Spacer(height)         — blank vertical space
-//   Box(widget)            — Unicode border, .padding_h, .padding_v
-//   VStack()               — vertical stack, .add(widget)
-//   HStack()               — horizontal stack, .add(widget, width)
-//   App()                  — renderer, .width = 60, .render(root)
+// ── TUI Renderer + Event Loop (v0.4) ──────────────────────────────────────────
+//   Renderer                 — dibuja un árbol VNode en la terminal
+//   EventLoop(app)           — ciclo render → evento → re-render
 //
 // ── JSX Translator ───────────────────────────────────────────────────────────
 //   tools/translate.sz     — convierte .szx a .sz
@@ -44,12 +52,5 @@ import "src/renderer"
 import "src/events"
 import "src/event_loop"
 
-// Static widgets (v0.1)
-import "src/utils"
-import "src/widget_text"
-import "src/widget_separator"
-import "src/widget_spacer"
-import "src/widget_box"
-import "src/widget_vstack"
-import "src/widget_hstack"
-import "src/app"
+// Built-in components (v0.5)
+import "src/components"
