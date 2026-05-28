@@ -1,0 +1,294 @@
+// tools/translate.sz — Traductor .szx → .sz para serez-ui
+//
+// Convierte sintaxis JSX-like a llamadas h() válidas en serez-code.
+//
+// Uso:
+//   sz tools/translate.sz <input.szx> <output.sz>
+
+use permissions { Env }
+
+// ── Helpers de caracteres ─────────────────────────────────────────────────────
+
+fn bool is_alpha(string c) {
+    return "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".includes(c)
+}
+
+fn bool is_alnum(string c) {
+    return "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-".includes(c)
+}
+
+fn bool is_ws(string c) {
+    return c == " " || c == "\t" || c == "\n" || c == "\r"
+}
+
+fn int skip_ws(string src, int i) {
+    let n = src.length()
+    while (i < n && is_ws(src.charAt(i))) {
+        i = i + 1
+    }
+    return i
+}
+
+// ── Parsers ───────────────────────────────────────────────────────────────────
+
+// Lee una expresión entre llaves {expr}, rastreando profundidad.
+// i apunta a '{'. Retorna [expr_sin_llaves, nuevo_i].
+fn any read_brace_expr(string src, int i) {
+    i = i + 1
+    let depth = 1
+    let result = ""
+    let n = src.length()
+    let in_str = false
+    let str_char = ""
+    let dq = "\""
+
+    while (i < n && depth > 0) {
+        let c = src.charAt(i)
+
+        if (in_str) {
+            if (c == str_char) { in_str = false; }
+            result = result + c
+            i = i + 1
+            continue
+        }
+
+        if (c == dq || c == "'") {
+            in_str = true
+            str_char = c
+            result = result + c
+            i = i + 1
+            continue
+        }
+
+        if (c == "\{") { depth = depth + 1; }
+        if (c == "}") {
+            depth = depth - 1
+            if (depth == 0) { i = i + 1; break; }
+        }
+
+        result = result + c
+        i = i + 1
+    }
+
+    return [result, i]
+}
+
+// Lee un nombre (letras, dígitos, guiones, subrayados).
+// Retorna [nombre, nuevo_i].
+fn any read_name(string src, int i) {
+    let name = ""
+    let n = src.length()
+    while (i < n && is_alnum(src.charAt(i))) {
+        name = name + src.charAt(i)
+        i = i + 1
+    }
+    return [name, i]
+}
+
+// Lee las props de un tag JSX hasta '>' o '/>'.
+// Retorna [props_str, nuevo_i].
+fn any read_props(string src, int i) {
+    let props = []
+    let n = src.length()
+    let dq = "\""
+
+    while (i < n) {
+        i = skip_ws(src, i)
+        if (i >= n) { break; }
+
+        let c = src.charAt(i)
+        if (c == ">" || c == "/") { break; }
+
+        // Leer nombre del prop
+        let name_res = read_name(src, i)
+        let prop_name = name_res[0]
+        i = parseInt(name_res[1])
+
+        if (prop_name.length() == 0) { break; }
+
+        i = skip_ws(src, i)
+
+        // Prop sin valor (booleano implícito)
+        if (i >= n || src.charAt(i) != "=") {
+            props.push("[" + dq + prop_name + dq + ", true]")
+            continue
+        }
+
+        i = i + 1  // saltar '='
+        i = skip_ws(src, i)
+
+        if (i >= n) { break; }
+
+        if (src.charAt(i) == "\{") {
+            // Valor como expresión: onClick={() => ...}
+            let expr_res = read_brace_expr(src, i)
+            let val = expr_res[0].trim()
+            i = parseInt(expr_res[1])
+            props.push("[" + dq + prop_name + dq + ", " + val + "]")
+        } else if (src.charAt(i) == dq) {
+            // Valor como string: class="container"
+            i = i + 1
+            let val = ""
+            while (i < n && src.charAt(i) != dq) {
+                val = val + src.charAt(i)
+                i = i + 1
+            }
+            i = i + 1  // saltar '"' de cierre
+            props.push("[" + dq + prop_name + dq + ", " + dq + val + dq + "]")
+        }
+    }
+
+    return ["[" + props.join(", ") + "]", i]
+}
+
+// Parsea un elemento JSX que empieza en '<'.
+// Retorna [h_call_string, nuevo_i].
+fn any parse_element(string src, int i) {
+    let n = src.length()
+    let dq = "\""
+    i = i + 1  // saltar '<'
+
+    // Leer nombre del tag
+    let name_res = read_name(src, i)
+    let tag = name_res[0]
+    i = parseInt(name_res[1])
+
+    // Leer props
+    let props_res = read_props(src, i)
+    let props_str = props_res[0]
+    i = parseInt(props_res[1])
+
+    i = skip_ws(src, i)
+
+    // Auto-cierre: />
+    if (i + 1 < n && src.charAt(i) == "/" && src.charAt(i + 1) == ">") {
+        i = i + 2
+        return ["h(" + dq + tag + dq + ", " + props_str + ", [])", i]
+    }
+
+    // Saltar '>'
+    if (i < n && src.charAt(i) == ">") { i = i + 1; }
+
+    // Leer hijos
+    let children = []
+
+    while (i < n) {
+        i = skip_ws(src, i)
+        if (i >= n) { break; }
+
+        let c = src.charAt(i)
+
+        // Tag de cierre </tag>
+        if (c == "<" && i + 1 < n && src.charAt(i + 1) == "/") {
+            i = i + 2  // saltar '</'
+            while (i < n && src.charAt(i) != ">") { i = i + 1; }
+            i = i + 1  // saltar '>'
+            break
+        }
+
+        // Elemento anidado
+        if (c == "<" && i + 1 < n && is_alpha(src.charAt(i + 1))) {
+            let child_res = parse_element(src, i)
+            children.push(child_res[0])
+            i = parseInt(child_res[1])
+            continue
+        }
+
+        // Expresión {expr}
+        if (c == "\{") {
+            let expr_res = read_brace_expr(src, i)
+            let expr = expr_res[0].trim()
+            i = parseInt(expr_res[1])
+            if (expr.length() > 0) {
+                children.push(expr)
+            }
+            continue
+        }
+
+        // Texto plano
+        let text = ""
+        while (i < n && src.charAt(i) != "<" && src.charAt(i) != "\{") {
+            text = text + src.charAt(i)
+            i = i + 1
+        }
+        let trimmed = text.trim()
+        if (trimmed.length() > 0 && trimmed != "\n" && trimmed != "\r") {
+            children.push(dq + trimmed + dq)
+        }
+    }
+
+    return ["h(" + dq + tag + dq + ", " + props_str + ", [" + children.join(", ") + "])", i]
+}
+
+// ── Transformador principal ───────────────────────────────────────────────────
+
+fn string transform(string src) {
+    let result = ""
+    let i = 0
+    let n = src.length()
+    let in_str = false
+    let str_char = ""
+    let dq = "\""
+
+    while (i < n) {
+        let c = src.charAt(i)
+
+        // Rastrear strings para no parsear JSX dentro de ellas
+        if (!in_str && (c == dq || c == "'")) {
+            in_str = true
+            str_char = c
+            result = result + c
+            i = i + 1
+            continue
+        }
+        if (in_str && c == str_char) {
+            in_str = false
+            result = result + c
+            i = i + 1
+            continue
+        }
+        if (in_str) {
+            result = result + c
+            i = i + 1
+            continue
+        }
+
+        // Detectar JSX: '<' seguido de letra, con char previo no alfanumérico
+        if (c == "<" && i + 1 < n && is_alpha(src.charAt(i + 1))) {
+            let prev = " "
+            if (i > 0) { prev = src.charAt(i - 1); }
+            if (!is_alnum(prev)) {
+                let jsx_res = parse_element(src, i)
+                result = result + jsx_res[0]
+                i = parseInt(jsx_res[1])
+                continue
+            }
+        }
+
+        result = result + c
+        i = i + 1
+    }
+
+    return result
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+
+let args = Env.args()
+
+if (args.length() < 4) {
+    out "Uso: sz tools/translate.sz <input.szx> <output.sz>"
+    out "Ejemplo: sz tools/translate.sz apps/counter.szx apps/counter.sz"
+} else {
+    let input_path  = args[2]
+    let output_path = args[3]
+
+    if (!File.exists(input_path)) {
+        out "❌ Archivo no encontrado: {input_path}"
+    } else {
+        let source     = File.read(input_path)
+        let translated = transform(source)
+        File.write(output_path, translated)
+        out "✅ Traducido: {input_path} → {output_path}"
+    }
+}

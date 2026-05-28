@@ -1,0 +1,43 @@
+// VNode — nodo del Virtual DOM de serez-ui
+//
+// Cada nodo representa un elemento de la UI:
+//   tag      → nombre del elemento ("div", "Button", "h1", ...)
+//   props    → array de pares [nombre, valor]  ej. [["onClick", fn], ["id", "main"]]
+//   children → array de VNode o string (texto plano)
+//   key      → clave opcional para optimizar diff de listas
+
+export public class VNode {
+    public VNode(string tag, any props, any children) {
+        this.tag      = tag
+        this.props    = props
+        this.children = children
+        this.key      = null
+    }
+
+    public string getTag() {
+        return this.tag
+    }
+
+    public any getProps() {
+        return this.props
+    }
+
+    public any getChildren() {
+        return this.children
+    }
+
+    public any getProp(string name) {
+        let i = 0
+        while (i < this.props.length()) {
+            if (this.props[i][0] == name) {
+                return this.props[i][1]
+            }
+            i = i + 1
+        }
+        return null
+    }
+
+    public bool hasProp(string name) {
+        return this.getProp(name) != null
+    }
+}

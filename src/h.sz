@@ -1,0 +1,26 @@
+// h() — hyperscript: crea un VNode
+//
+// Es la función que el traductor genera al convertir JSX:
+//   <div class="box">hello</div>
+//   → h("div", [["class", "box"]], ["hello"])
+//
+// children puede contener:
+//   - strings (texto plano)
+//   - VNode (elementos anidados)
+//   - cualquier valor (expresiones {expr})
+
+import "vnode"
+
+export fn any h(string tag, any props, any children) {
+    return new VNode(tag, props, children)
+}
+
+// hText — crea un nodo de solo texto (shorthand)
+export fn any hText(string text) {
+    return new VNode("__text__", [], [text])
+}
+
+// hFrag — agrupa hijos sin un elemento raíz (equivalente a Fragment)
+export fn any hFrag(any children) {
+    return new VNode("__fragment__", [], children)
+}

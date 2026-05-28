@@ -1,0 +1,35 @@
+// counter.szx — Demo del traductor JSX de serez-ui v0.2.0
+//
+// Ejecutar con: .\tools\szx.ps1 apps\counter.szx
+// (desde E:\01 Proyectos\Propio\)
+
+import "serez-ui"
+
+class Counter {
+    count = 0
+
+    public Counter() {
+        this.count = 0
+    }
+
+    public render() {
+        let c = this.count
+        return (
+            h("div", [], [h("h1", [], [c]), h("Button", [], ["Incrementar"]), h("Button", [], ["Decrementar"])])
+        )
+    }
+}
+
+let app = new Counter()
+let tree = app.render()
+
+out "Tag raiz: " + tree.getTag()
+out "Hijos: " + tree.getChildren().length()
+
+let h1_node = tree.getChildren()[0]
+out "Primer hijo (h1): " + h1_node.getTag()
+out "Valor: " + h1_node.getChildren()[0]
+
+let btn1 = tree.getChildren()[1]
+out "Boton 1: " + btn1.getTag()
+out "Texto: " + btn1.getChildren()[0]

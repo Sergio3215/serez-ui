@@ -1,0 +1,41 @@
+// Patch — operación de actualización del Virtual DOM
+//
+// El diff produce un array de Patch que el renderer aplica
+// para actualizar solo lo que cambió.
+//
+// Tipos:
+//   "replace"         → reemplazar nodo completo
+//   "update_props"    → actualizar propiedades del nodo
+//   "update_text"     → actualizar texto de un nodo __text__
+//   "insert"          → insertar hijo nuevo
+//   "remove"          → eliminar hijo
+//   "reorder"         → mover hijo a nueva posición
+
+export public class Patch {
+    public Patch(string type, any data) {
+        this.type = type
+        this.data = data
+    }
+}
+
+// Constructores semánticos
+
+export fn any patchReplace(any new_node) {
+    return new Patch("replace", new_node)
+}
+
+export fn any patchUpdateProps(any old_props, any new_props) {
+    return new Patch("update_props", [old_props, new_props])
+}
+
+export fn any patchUpdateText(string new_text) {
+    return new Patch("update_text", new_text)
+}
+
+export fn any patchInsert(int index, any node) {
+    return new Patch("insert", [index, node])
+}
+
+export fn any patchRemove(int index) {
+    return new Patch("remove", index)
+}
