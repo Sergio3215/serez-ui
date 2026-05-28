@@ -1,6 +1,12 @@
-// serez-ui v0.2 — Terminal UI library for Serez-Code
+// serez-ui v0.3 — Terminal UI library for Serez-Code
 //
 // Usage:  import "serez-ui"
+//
+// ── Window + State (v0.3) ────────────────────────────────────────────────────
+//   Window                   — clase base para todos los componentes
+//   useState(initial)        — crea un StateCell con valor inicial
+//   useEffect(fn, deps)      — crea un EffectCell para efectos secundarios
+//   memo(render_fn)          — crea un MemoCell para evitar re-renders
 //
 // ── Virtual DOM (v0.2) ────────────────────────────────────────────────────────
 //   h(tag, props, children)  — crea un VNode
@@ -26,6 +32,12 @@ import "src/vnode"
 import "src/h"
 import "src/patch"
 import "src/diff"
+
+// Window + State (v0.3)
+import "src/state"
+import "src/effect"
+import "src/memo"
+import "src/window"
 
 // Static widgets (v0.1)
 import "src/utils"

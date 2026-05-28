@@ -1,7 +1,7 @@
 {
   "name": "serez-ui",
-  "version": "0.2.0",
-  "description": "Terminal UI library for Serez-Code — Virtual DOM, JSX translator, event system",
+  "version": "0.3.0",
+  "description": "Terminal UI library for Serez-Code — Virtual DOM, JSX translator, Window, State, Effects",
   "main": "index.sz",
   "author": "Sergio3215",
   "dependencies": {},

@@ -9,7 +9,7 @@ import "vnode"
 import "patch"
 
 // Compara dos arrays de props y retorna los que cambiaron
-fn any diff_props(any old_props, any new_props) {
+export fn any diff_props(any old_props, any new_props) {
     let changed = []
     let i = 0
 
@@ -71,8 +71,11 @@ export fn any diff(any old_node, any new_node) {
         return patches
     }
 
-    // Ambos son strings (texto)
-    if (old_node is string &&new_node is string) {
+    // Valores primitivos (string, int, decimal, bool)
+    // Los hijos JSX pueden ser valores directos: h("h1", [], ["texto", 42])
+    let old_prim = old_node is string || old_node is int || old_node is decimal || old_node is bool
+    let new_prim = new_node is string || new_node is int || new_node is decimal || new_node is bool
+    if (old_prim || new_prim) {
         if (old_node != new_node) {
             patches.push(patchUpdateText(new_node))
         }

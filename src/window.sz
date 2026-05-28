@@ -1,0 +1,67 @@
+// window.sz — Clase base raíz para componentes serez-ui
+
+import "h"
+import "diff"
+
+export public class Window {
+    public Window() {
+        this.children = []
+        this.vdom     = null
+        this.mounted  = false
+        this.effects  = []
+    }
+
+    // Override en subclases — produce el árbol VNode
+    public any render() {
+        return h("div", [], [])
+    }
+
+    // Monta el componente: primer render
+    public any mount() {
+        this.vdom    = this.render()
+        this.mounted = true
+        this.runEffects()
+        return this.vdom
+    }
+
+    // Re-renderiza y retorna patches del diff con el árbol anterior
+    public any update() {
+        if (!this.mounted) { return []; }
+        let newVdom  = this.render()
+        let patches  = diff(this.vdom, newVdom)
+        this.vdom    = newVdom
+        this.runEffects()
+        return patches
+    }
+
+    // Desmonta el componente y libera efectos
+    public void unmount() {
+        this.mounted = false
+        let i = 0
+        while (i < this.effects.length()) {
+            this.effects[i].dispose()
+            i = i + 1
+        }
+    }
+
+    // Registra un EffectCell
+    public void addEffect(any effect) {
+        this.effects.push(effect)
+    }
+
+    public any getVDom() {
+        return this.vdom
+    }
+
+    public bool isMounted() {
+        return this.mounted
+    }
+
+    public void runEffects() {
+        let i = 0
+        while (i < this.effects.length()) {
+            this.effects[i].run()
+            i = i + 1
+        }
+    }
+}

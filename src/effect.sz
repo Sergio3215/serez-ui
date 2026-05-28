@@ -1,0 +1,68 @@
+// effect.sz — Efectos secundarios para componentes serez-ui
+//
+// Nota: 'fn' es keyword en serez-code. El parámetro se llama 'handler'.
+
+export public class EffectCell {
+    public EffectCell(any handler, any deps) {
+        this.handler  = handler
+        this.deps     = deps
+        this.prevDeps = null
+        this.cleanup  = null
+        this.ran      = false
+    }
+
+    public void run() {
+        let should = false
+        if (!this.ran) {
+            should = true
+        } else if (this.deps == null) {
+            should = true
+        } else {
+            should = this.depsChanged()
+        }
+
+        if (should) {
+            if (this.cleanup != null) {
+                this.cleanup()
+            }
+            let result = this.handler()
+            if (result != null) {
+                this.cleanup = result
+            }
+            this.prevDeps = this.deps
+            this.ran = true
+        }
+    }
+
+    public void forceRun() {
+        this.ran = false
+        this.run()
+    }
+
+    public void dispose() {
+        if (this.cleanup != null) {
+            this.cleanup()
+            this.cleanup = null
+        }
+        this.ran = false
+        this.prevDeps = null
+    }
+
+    public bool depsChanged() {
+        if (this.prevDeps == null) { return true; }
+        if (this.prevDeps.length() != this.deps.length()) { return true; }
+        let i = 0
+        while (i < this.deps.length()) {
+            if (this.deps[i] != this.prevDeps[i]) { return true; }
+            i = i + 1
+        }
+        return false
+    }
+}
+
+// useEffect(handler, deps) → EffectCell
+// handler — función sin args que retorna cleanup fn o null
+// deps    — array de dependencias; [] = solo en mount; null = siempre
+export fn any useEffect(any handler, any deps) {
+    return new EffectCell(handler, deps)
+}

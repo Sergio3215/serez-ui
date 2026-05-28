@@ -1,0 +1,107 @@
+// state_demo.szx — Demo de Window + useState + useEffect + memo (v0.3.0)
+//
+// Nota sobre serez-code: modificar objetos anidados desde fuera del componente
+// no hace writeback al campo exterior. El estado se actualiza directamente
+// como campos del componente (this.count = val) o desde métodos internos.
+
+import "serez-ui"
+
+// ── Componente contador con campos directos ───────────────────────────────────
+
+class Counter:Window {
+    public Counter() {
+        super()
+        this.count = 0
+        this.label = "Contador"
+    }
+
+    public render() {
+        return (
+            h("div", [], [h("h1", [], [this.label, ":", this.count]), h("Button", [], ["Incrementar"]), h("Button", [], ["Decrementar"])])
+        )
+    }
+}
+
+// ── Ciclo de vida ──────────────────────────────────────────────────────────────
+
+let app = new Counter()
+
+out "=== MOUNT ==="
+let vdom1 = app.mount()
+out "Tag raiz: " + vdom1.getTag()
+out "Hijos: " + vdom1.getChildren().length()
+out "Valor inicial count: " + vdom1.getChildren()[0].getChildren()[2]
+
+out ""
+out "=== UPDATE (count=1) ==="
+app.count = 1
+let patches1 = app.update()
+out "Patches: " + patches1.length()
+out "Nuevo count: " + app.getVDom().getChildren()[0].getChildren()[2]
+
+out ""
+out "=== UPDATE (count=5, label=Valor) ==="
+app.count = 5
+app.label = "Valor"
+let patches2 = app.update()
+out "Patches: " + patches2.length()
+out "label: " + app.getVDom().getChildren()[0].getChildren()[0]
+out "count: " + app.getVDom().getChildren()[0].getChildren()[2]
+
+out ""
+out "=== UNMOUNT ==="
+app.unmount()
+out "isMounted: " + app.isMounted()
+
+// ── useState — útil para tracking de cambios ──────────────────────────────────
+
+out ""
+out "=== useState (tracking de cambios) ==="
+let cell = useState(42)
+out "Valor: " + cell.read()
+out "hasChanged: " + cell.hasChanged()
+cell.write(100)
+out "Nuevo valor: " + cell.read()
+out "hasChanged: " + cell.hasChanged()
+cell.clearChanged()
+out "Tras clearChanged: " + cell.hasChanged()
+
+// ── useEffect ─────────────────────────────────────────────────────────────────
+
+out ""
+out "=== useEffect ==="
+fn void logEffect() {
+    out "Effect ejecutado"
+}
+
+let ef = useEffect(logEffect, [1])
+ef.run()
+out "ran: " + ef.ran
+
+let ef2 = useEffect(logEffect, [1])
+ef2.ran = true
+ef2.prevDeps = [1]
+ef2.run()
+out "Segunda vez (ran=true, prevDeps=[1], mismas deps, no ejecuta)"
+
+// ── memo ───────────────────────────────────────────────────────────────────────
+
+out ""
+out "=== memo ==="
+fn any renderItems(any items) {
+    return h("ul", [], items)
+}
+
+let listMemo = memo(renderItems)
+let items1 = ["a", "b", "c"]
+let v1 = listMemo.render(items1)
+out "Primer render: " + v1.getTag() + " - " + v1.getChildren().length() + " hijos"
+out "isCached: " + listMemo.isCached()
+
+let v2 = listMemo.render(items1)
+out "Segundo render (mismas props): " + v2.getTag()
+
+listMemo.invalidate()
+let items2 = ["x", "y"]
+let v3 = listMemo.render(items2)
+out "Tras invalidate, nuevas props: " + v3.getChildren().length() + " hijos"

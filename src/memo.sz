@@ -1,0 +1,48 @@
+// memo.sz — Memoización de componentes
+
+export public class MemoCell {
+    public MemoCell(any renderFn) {
+        this.renderFn  = renderFn
+        this.prevProps = null
+        this.cached    = null
+    }
+
+    public any render(any props) {
+        if (this.prevProps == null || !this.propsEqual(props, this.prevProps)) {
+            this.cached    = this.renderFn(props)
+            this.prevProps = props
+        }
+        return this.cached
+    }
+
+    public void invalidate() {
+        this.prevProps = null
+        this.cached    = null
+    }
+
+    public bool isCached() {
+        return this.cached != null && this.prevProps != null
+    }
+
+    public bool propsEqual(any a, any b) {
+        if (a == null && b == null) { return true; }
+        if (a == null || b == null) { return false; }
+        if (a is string && b is string) { return a == b; }
+        if (a is int && b is int)       { return a == b; }
+        if (a is bool && b is bool)     { return a == b; }
+        if (a is array && b is array) {
+            if (a.length() != b.length()) { return false; }
+            let i = 0
+            while (i < a.length()) {
+                if (!this.propsEqual(a[i], b[i])) { return false; }
+                i = i + 1
+            }
+            return true
+        }
+        return a == b
+    }
+}
+
+export fn any memo(any renderFn) {
+    return new MemoCell(renderFn)
+}

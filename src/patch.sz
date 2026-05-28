@@ -28,7 +28,7 @@ export fn any patchUpdateProps(any old_props, any new_props) {
     return new Patch("update_props", [old_props, new_props])
 }
 
-export fn any patchUpdateText(string new_text) {
+export fn any patchUpdateText(any new_text) {
     return new Patch("update_text", new_text)
 }
 

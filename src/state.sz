@@ -1,0 +1,34 @@
+// state.sz — Manejo de estado para componentes serez-ui
+//
+// Nota: 'get' y 'set' son keywords en serez-code.
+// Se usan 'read' y 'write' como nombres de método.
+
+export public class StateCell {
+    public StateCell(any initial) {
+        this.value   = initial
+        this.changed = false
+    }
+
+    public any read() {
+        return this.value
+    }
+
+    public void write(any newVal) {
+        this.changed = (this.value != newVal)
+        this.value   = newVal
+    }
+
+    public bool hasChanged() {
+        return this.changed
+    }
+
+    public void clearChanged() {
+        this.changed = false
+    }
+}
+
+// useState(initial) → StateCell
+// Usar .read() para leer, .write(val) para actualizar
+export fn any useState(any initial) {
+    return new StateCell(initial)
+}
