@@ -1,0 +1,45 @@
+// interactive.szx — Demo interactivo de serez-ui v0.4.0
+//
+// Controles:
+//   + / = → incrementa el contador
+//   -     → decrementa el contador
+//   r     → resetea a 0
+//   q     → salir
+
+import "serez-ui"
+
+class InteractiveCounter:Window {
+    public InteractiveCounter() {
+        super()
+        this.count = 0
+        this.info  = "Usa +  -  r para cambiar el valor. q para salir."
+    }
+
+    // onKey es llamado por EventLoop en cada pulsación
+    public void onKey(any evt) {
+        let code = evt.code
+        if (code == "+" || code == "=") {
+            this.count = this.count + 1
+            this.info  = "Incrementado → " + this.count
+        }
+        if (code == "-") {
+            this.count = this.count - 1
+            this.info  = "Decrementado → " + this.count
+        }
+        if (code == "r") {
+            this.count = 0
+            this.info  = "Reseteado"
+        }
+    }
+
+    public render() {
+        let c = this.count
+        return (
+            h("div", [], [h("h1", [], ["serez-ui v0.4 — Contador"]), h("h2", [], ["Valor:", c]), h("p", [], [this.info]), h("hr", [], []), h("Button", [], ["+   Incrementar"]), h("Button", [], ["-   Decrementar"]), h("Button", [], ["r   Resetear"]), h("Button", [], ["q   Salir"])])
+        )
+    }
+}
+
+let app  = new InteractiveCounter()
+let loop = new EventLoop(app)
+loop.start()

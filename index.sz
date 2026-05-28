@@ -1,4 +1,4 @@
-// serez-ui v0.3 — Terminal UI library for Serez-Code
+// serez-ui v0.4 — Terminal UI library for Serez-Code
 //
 // Usage:  import "serez-ui"
 //
@@ -38,6 +38,11 @@ import "src/state"
 import "src/effect"
 import "src/memo"
 import "src/window"
+
+// TUI Renderer + Event Loop (v0.4)
+import "src/renderer"
+import "src/events"
+import "src/event_loop"
 
 // Static widgets (v0.1)
 import "src/utils"

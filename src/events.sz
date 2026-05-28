@@ -1,0 +1,45 @@
+// events.sz — Tipos de eventos y helpers de despacho para serez-ui
+//
+// Eventos v1.0.0:
+//   onClick, onChange, onSubmit, onPressKey, onPressEnter, onPressLeave
+//   onHover, onUnHover, onMouseMove, onMouseEnter, onMouseLeave
+
+// Recorre el árbol VNode y dispara el handler para el eventName dado.
+// El handler recibe el evento como argumento.
+export fn void fireEvent(any vdom, string eventName, any evt) {
+    if (vdom == null) { return; }
+    let isPrim = vdom is string || vdom is int || vdom is decimal || vdom is bool
+    if (isPrim) { return; }
+
+    // Busca el prop con el nombre del evento
+    let handler = vdom.getProp(eventName)
+    if (handler != null) {
+        handler(evt)
+    }
+
+    // Recursa en hijos
+    let children = vdom.getChildren()
+    let i = 0
+    while (i < children.length()) {
+        fireEvent(children[i], eventName, evt)
+        i = i + 1
+    }
+}
+
+// Mapea un KeyEvent al nombre de evento serez-ui correspondiente
+export fn string keyEventName(any evt) {
+    let code = evt.code
+    if (code == "Enter")  { return "onPressEnter"; }
+    if (code == "Esc")    { return "onPressLeave"; }
+    return "onPressKey"
+}
+
+// Mapea un MouseEvent al nombre de evento correspondiente
+export fn string mouseEventName(any evt) {
+    let kind = evt.kind
+    if (kind == "down")       { return "onClick"; }
+    if (kind == "move")       { return "onMouseMove"; }
+    if (kind == "scrollDown") { return "onHover"; }
+    if (kind == "scrollUp")   { return "onUnHover"; }
+    return "onClick"
+}

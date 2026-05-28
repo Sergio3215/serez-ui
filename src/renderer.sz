@@ -1,0 +1,143 @@
+// renderer.sz — Convierte un árbol VNode a output de terminal
+//
+// Estrategia v0.4.0:
+//   - Terminal.setCursor(row, 0) para posicionar cada línea
+//   - out para escribir texto (agrega newline automáticamente)
+//   - Terminal.writeByte para caracteres de control sin newline
+//
+// Cada tag tiene su representación visual:
+//   h1      → "== texto ==" en grande
+//   h2      → "-- texto --"
+//   div     → bloque transparente (solo renderiza hijos)
+//   Button  → "[ texto ]"
+//   Input   → "> valor_"
+//   p/span  → texto plano
+//   ul      → lista con viñetas
+//   li      → "• texto"
+//   __text__→ texto plano
+
+use permissions { Terminal }
+
+export public class Renderer {
+    public Renderer() {
+        this.row     = 0
+        this.cols    = 80
+    }
+
+    // Render completo: limpia pantalla y redibuja desde la raíz
+    public void render(any vdom) {
+        this.row = 0
+        let size = Terminal.getSize()
+        this.cols = size[0]
+        Terminal.clear()
+        Terminal.setCursor(0, 0)
+        this.renderNode(vdom)
+    }
+
+    // Renderiza un nodo (recursivo)
+    public void renderNode(any node) {
+        if (node == null) { return; }
+
+        // Valores primitivos — línea de texto
+        let isPrim = node is string || node is int || node is decimal || node is bool
+        if (isPrim) {
+            Terminal.setCursor(this.row, 0)
+            out "" + node
+            this.row = this.row + 1
+            return
+        }
+
+        let tag      = node.getTag()
+        let children = node.getChildren()
+
+        if (tag == "h1") {
+            let text = "=== " + this.collectText(node) + " ==="
+            Terminal.setCursor(this.row, 0)
+            out text
+            this.row = this.row + 1
+
+        } else if (tag == "h2") {
+            let text = "-- " + this.collectText(node) + " --"
+            Terminal.setCursor(this.row, 0)
+            out text
+            this.row = this.row + 1
+
+        } else if (tag == "h3") {
+            Terminal.setCursor(this.row, 0)
+            out this.collectText(node)
+            this.row = this.row + 1
+
+        } else if (tag == "p") {
+            Terminal.setCursor(this.row, 0)
+            out this.collectText(node)
+            this.row = this.row + 1
+
+        } else if (tag == "span") {
+            Terminal.setCursor(this.row, 2)
+            out this.collectText(node)
+            this.row = this.row + 1
+
+        } else if (tag == "Button") {
+            let text = "[ " + this.collectText(node) + " ]"
+            Terminal.setCursor(this.row, 2)
+            out text
+            this.row = this.row + 1
+
+        } else if (tag == "Input") {
+            let placeholder = node.getProp("placeholder")
+            let val = node.getProp("value")
+            let display = ""
+            if (val != null) {
+                display = "" + val
+            } else if (placeholder != null) {
+                display = "" + placeholder
+            }
+            Terminal.setCursor(this.row, 0)
+            out "> " + display + "_"
+            this.row = this.row + 1
+
+        } else if (tag == "li") {
+            Terminal.setCursor(this.row, 2)
+            out "• " + this.collectText(node)
+            this.row = this.row + 1
+
+        } else if (tag == "hr") {
+            let sep = ""
+            let j = 0
+            while (j < 40) { sep = sep + "-"; j = j + 1; }
+            Terminal.setCursor(this.row, 0)
+            out sep
+            this.row = this.row + 1
+
+        } else {
+            // div, ul, section, form, __fragment__ — renderiza hijos
+            let i = 0
+            while (i < children.length()) {
+                this.renderNode(children[i])
+                i = i + 1
+            }
+        }
+    }
+
+    // Recolecta todo el texto de un nodo y sus hijos como string plano
+    public string collectText(any node) {
+        if (node == null)    { return ""; }
+        if (node is string)  { return node; }
+        if (node is int)     { return "" + node; }
+        if (node is decimal) { return "" + node; }
+        if (node is bool)    { return "" + node; }
+
+        let text     = ""
+        let children = node.getChildren()
+        let i        = 0
+        while (i < children.length()) {
+            text = text + this.collectText(children[i])
+            i = i + 1
+        }
+        return text
+    }
+
+    public int getCurrentRow() {
+        return this.row
+    }
+}

@@ -64,4 +64,10 @@ export public class Window {
             i = i + 1
         }
     }
+
+    // Override en subclases para manejar eventos de teclado
+    public void onKey(any evt) {}
+
+    // Override en subclases para manejar eventos de mouse
+    public void onMouse(any evt) {}
 }
