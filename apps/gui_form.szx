@@ -1,0 +1,45 @@
+// gui_form.szx — Demo: el modelo React/JSX de serez-ui renderizado en una
+// ventana GRÁFICA real (no terminal), usando GuiRenderer + GuiEventLoop.
+//
+// Mismos componentes built-in (Input, Button) y el mismo Window/estado que
+// la versión TUI, pero dibujado en píxeles con eventos onClick/onChange reales.
+//
+// Controles:
+//   clic en un campo → enfocarlo · teclear/Backspace → editar
+//   clic en "Enviar" → onClick · Esc o cerrar la ventana → salir
+//
+// Ejecutar (desde E:\01 Proyectos\Propio\):
+//   & "serez-ui\tools\szx.ps1" serez-ui\apps\gui_form.szx
+
+import "serez-ui"
+
+class LoginForm:Window {
+    public LoginForm() {
+        super()
+        this.name     = ""
+        this.password = ""
+        this.status   = "Haz clic en un campo y escribe"
+    }
+
+    public render() {
+        let canSubmit = this.name.length() > 0
+        return (
+            <div>
+                <h1>serez-ui GUI</h1>
+                <hr />
+                <p>Usuario</p>
+                <Input value={this.name} placeholder="tu-usuario" onChange={(v) => { this.name = v }} />
+                <p>Contrasena</p>
+                <Input value={this.password} type="password" placeholder="secreta" onChange={(v) => { this.password = v }} />
+                <Button onClick={() => { this.status = "Hola, " + this.name + "!" }} disabled={!canSubmit}>Enviar</Button>
+                <p>{this.status}</p>
+            </div>
+        )
+    }
+}
+
+let app  = new LoginForm()
+let loop = new GuiEventLoop(app)
+loop.setTitle("serez-ui — GUI form")
+loop.setSize(560, 460)
+loop.start()

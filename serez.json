@@ -5,5 +5,5 @@
   "main": "index.sz",
   "author": "Sergio3215",
   "dependencies": {},
-  "permissions": ["Env", "Terminal"]
+  "permissions": ["Env", "Terminal", "Gui"]
 }

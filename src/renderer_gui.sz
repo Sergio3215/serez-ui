@@ -1,0 +1,200 @@
+// renderer_gui.sz — Renderer GUI (píxeles) para serez-ui
+//
+// Recorre el árbol VNode y lo dibuja en una ventana real vía el namespace `Gui`
+// del core. Mismo modelo que el renderer TUI, pero en píxeles: layout de flujo
+// vertical simple (un nodo debajo de otro) con un box model básico.
+//
+// Registra "regiones" interactivas (Button / Input) con sus bounds en píxeles
+// para que el GuiEventLoop haga hit-testing del mouse y enfoque de inputs.
+//
+// El layout avanzado (flexbox/columnas) llegará con taffy + .szs; el texto
+// vectorial con cosmic-text. Aquí el texto es bitmap 8x8 escalado (Gui.drawText).
+
+use permissions { Gui }
+
+export public class GuiRenderer {
+    public GuiRenderer() {
+        this.pad        = 20
+        this.cy         = 0
+        this.w          = 640
+        this.regions    = []
+        this.inputCount = 0
+        this.mouseX     = -1
+        this.mouseY     = -1
+        this.mouseHeld  = false
+        this.focus      = 0
+
+        // Tema (oscuro)
+        this.colBg     = 0x0f172a
+        this.colText   = 0xe2e8f0
+        this.colMuted  = 0x94a3b8
+        this.colBtn    = 0x3b82f6
+        this.colBtnHov = 0x60a5fa
+        this.colBtnDn  = 0x1d4ed8
+        this.colInput  = 0x111827
+        this.colBorder = 0x334155
+        this.colFocus  = 0x3b82f6
+    }
+
+    public void setMouse(int x, int y, bool held) {
+        this.mouseX    = x
+        this.mouseY    = y
+        this.mouseHeld = held
+    }
+
+    public void setFocus(int idx) { this.focus = idx }
+
+    public any getRegions() { return this.regions }
+
+    // Render completo: limpia y redibuja desde la raíz
+    public void render(any vdom, int width) {
+        this.w          = width
+        this.cy         = this.pad
+        this.regions    = []
+        this.inputCount = 0
+        Gui.clear(this.colBg)
+        this.renderNode(vdom)
+    }
+
+    public void renderNode(any node) {
+        if (node == null) { return; }
+
+        let isPrim = node is string || node is int || node is decimal || node is bool
+        if (isPrim) {
+            Gui.drawText(this.pad, this.cy, "" + node, 2, this.colText)
+            this.cy = this.cy + 22
+            return
+        }
+
+        let tag      = node.getTag()
+        let children = node.getChildren()
+
+        if (tag == "h1") {
+            Gui.drawText(this.pad, this.cy, this.collectText(node), 3, this.colText)
+            this.cy = this.cy + 36
+
+        } else if (tag == "h2") {
+            Gui.drawText(this.pad, this.cy, this.collectText(node), 2, this.colText)
+            this.cy = this.cy + 26
+
+        } else if (tag == "p" || tag == "span" || tag == "h3" || tag == "li") {
+            Gui.drawText(this.pad, this.cy, this.collectText(node), 2, this.colMuted)
+            this.cy = this.cy + 24
+
+        } else if (tag == "hr") {
+            Gui.drawLine(this.pad, this.cy, this.w - this.pad, this.cy, this.colBorder)
+            this.cy = this.cy + 14
+
+        } else if (tag == "Button") {
+            this.renderButton(node)
+
+        } else if (tag == "Input") {
+            this.renderInput(node)
+
+        } else {
+            // div, section, form, ul, __fragment__ — contenedores transparentes
+            let i = 0
+            while (i < children.length()) {
+                this.renderNode(children[i])
+                i = i + 1
+            }
+        }
+    }
+
+    public void renderButton(any node) {
+        let label    = this.collectText(node)
+        let m        = Gui.measureText(label, 2)
+        let bw       = m[0] + 28
+        let bh       = 40
+        let bx       = this.pad
+        let by       = this.cy
+        let disabled = node.getProp("disabled") == true
+
+        let hover = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
+        let color = this.colBtn
+        if (disabled) {
+            color = this.colBorder
+        } else if (hover && this.mouseHeld) {
+            color = this.colBtnDn
+        } else if (hover) {
+            color = this.colBtnHov
+        }
+
+        Gui.fillRect(bx, by, bw, bh, color)
+        Gui.drawText(bx + 14, by + 12, label, 2, this.colText)
+
+        this.regions.push(["Button", bx, by, bw, bh, node])
+        this.cy = this.cy + bh + 10
+    }
+
+    public void renderInput(any node) {
+        let val         = node.getProp("value")
+        let placeholder = node.getProp("placeholder")
+        let type        = node.getProp("type")
+
+        let bx = this.pad
+        let by = this.cy
+        let bw = this.w - this.pad * 2
+        let bh = 34
+
+        let focused = this.inputCount == this.focus
+
+        // Caja + borde (resaltado si tiene foco)
+        Gui.fillRect(bx, by, bw, bh, this.colInput)
+        let bcol = this.colBorder
+        if (focused) { bcol = this.colFocus }
+        Gui.fillRect(bx, by, bw, 2, bcol)
+        Gui.fillRect(bx, by + bh - 2, bw, 2, bcol)
+
+        // Texto: value (enmascarado si password) o placeholder
+        let display = ""
+        let muted   = false
+        if (val != null && ("" + val).length() > 0) {
+            display = "" + val
+            if (type == "password") {
+                let masked = ""
+                let k = 0
+                while (k < display.length()) { masked = masked + "*"; k = k + 1; }
+                display = masked
+            }
+        } else if (placeholder != null) {
+            display = "" + placeholder
+            muted   = true
+        }
+
+        let tcol = this.colText
+        if (muted) { tcol = this.colMuted }
+        Gui.drawText(bx + 10, by + 9, display, 2, tcol)
+
+        // Cursor cuando tiene foco
+        if (focused) {
+            let cx = bx + 10
+            if (!muted) {
+                let mw = Gui.measureText(display, 2)
+                cx = bx + 10 + mw[0]
+            }
+            Gui.drawText(cx, by + 9, "_", 2, this.colText)
+        }
+
+        this.regions.push(["Input", bx, by, bw, bh, node])
+        this.inputCount = this.inputCount + 1
+        this.cy = this.cy + bh + 12
+    }
+
+    public string collectText(any node) {
+        if (node == null)    { return ""; }
+        if (node is string)  { return node; }
+        if (node is int)     { return "" + node; }
+        if (node is decimal) { return "" + node; }
+        if (node is bool)    { return "" + node; }
+
+        let text     = ""
+        let children = node.getChildren()
+        let i        = 0
+        while (i < children.length()) {
+            text = text + this.collectText(children[i])
+            i = i + 1
+        }
+        return text
+    }
+}

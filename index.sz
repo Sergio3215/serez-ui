@@ -54,3 +54,7 @@ import "src/event_loop"
 
 // Built-in components (v0.5)
 import "src/components"
+
+// GUI renderer + event loop (píxeles, vía el namespace Gui del core)
+import "src/renderer_gui"
+import "src/gui_event_loop"

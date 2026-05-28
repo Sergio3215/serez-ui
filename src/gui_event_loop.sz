@@ -1,0 +1,124 @@
+// gui_event_loop.sz — Event loop GUI para serez-ui
+//
+// Conecta el modelo de componentes React/JSX con el backend gráfico `Gui`.
+// Ciclo: leer entrada → despachar eventos → re-render → present.
+//
+//   let app  = new MiComponente()
+//   let loop = new GuiEventLoop(app)
+//   loop.setTitle("Mi App")
+//   loop.start()              // bloquea hasta cerrar la ventana o pulsar Esc
+//
+// Eventos despachados (modelo React):
+//   onClick   — al hacer clic dentro de los bounds de un <Button> (no disabled)
+//   onChange  — al teclear/borrar en el <Input> enfocado; recibe el nuevo valor
+//
+// El foco de inputs se mueve haciendo clic sobre ellos.
+
+import "renderer_gui"
+
+use permissions { Gui }
+
+export public class GuiEventLoop {
+    public GuiEventLoop(any app) {
+        this.app      = app
+        this.renderer = new GuiRenderer()
+        this.width    = 640
+        this.height   = 440
+        this.title    = "serez-ui"
+        this.focus    = 0
+    }
+
+    public void setSize(int w, int h) { this.width = w; this.height = h; }
+    public void setTitle(string t)    { this.title = t; }
+
+    public void start() {
+        Gui.open(this.title, this.width, this.height)
+        this.app.mount()
+
+        while (Gui.isOpen()) {
+            if (Gui.keyDown("Esc")) { break; }
+
+            // 1. Entrada (usa las regiones del frame anterior para hit-testing)
+            this.handleInput()
+
+            // 2. Re-render del VDOM desde el estado actual
+            this.app.update()
+            let tree = this.app.getVDom()
+
+            // 3. Dibujo
+            let m = Gui.mouse()
+            this.renderer.setMouse(m[0], m[1], Gui.mouseDown())
+            this.renderer.setFocus(this.focus)
+            this.renderer.render(tree, this.width)
+            Gui.present()
+        }
+
+        Gui.close()
+    }
+
+    public void handleInput() {
+        let regions = this.renderer.getRegions()
+
+        // Lista de nodos Input en orden (para dirigir el tecleo al enfocado)
+        let inputNodes = []
+        let i = 0
+        while (i < regions.length()) {
+            if (regions[i][0] == "Input") { inputNodes.push(regions[i][5]); }
+            i = i + 1
+        }
+
+        // Clic: dispara onClick de botones y mueve el foco a inputs
+        if (Gui.mousePressed()) {
+            let m  = Gui.mouse()
+            let mx = m[0]
+            let my = m[1]
+            let inputOrder = 0
+            let j = 0
+            while (j < regions.length()) {
+                let r      = regions[j]
+                let inside = mx >= r[1] && mx < r[1] + r[3] && my >= r[2] && my < r[2] + r[4]
+
+                if (r[0] == "Input") {
+                    if (inside) { this.focus = inputOrder; }
+                    inputOrder = inputOrder + 1
+                }
+
+                if (r[0] == "Button" && inside) {
+                    let node     = r[5]
+                    let disabled = node.getProp("disabled") == true
+                    if (!disabled) {
+                        let h = node.getProp("onClick")
+                        if (h != null) { h(); }
+                    }
+                }
+                j = j + 1
+            }
+        }
+
+        // Tecleo → input enfocado (input controlado: dispara onChange con el valor nuevo)
+        if (this.focus < inputNodes.length()) {
+            let node = inputNodes[this.focus]
+            let val  = node.getProp("value")
+            if (val == null) { val = ""; }
+            let cur    = "" + val
+            let newVal = cur
+
+            let typed = Gui.charsTyped()
+            if (typed.length() > 0) { newVal = newVal + typed; }
+
+            let keys = Gui.keysPressed()
+            let k = 0
+            while (k < keys.length()) {
+                if (keys[k] == "Backspace" && newVal.length() > 0) {
+                    newVal = newVal.substring(0, newVal.length() - 1)
+                }
+                k = k + 1
+            }
+
+            if (newVal != cur) {
+                let oc = node.getProp("onChange")
+                if (oc != null) { oc(newVal); }
+            }
+        }
+    }
+}
