@@ -1,0 +1,55 @@
+// css_test.sz — Verificación headless del motor CSS (.szs) v0.6.0
+//
+// Ejecutar (desde E:\01 Proyectos\Propio\):
+//   Serez-code\target\release\sz.exe serez-ui\apps\css_test.sz
+
+import "serez-ui"
+
+class Checker {
+    public Checker() { this.pass = 0; this.fail = 0; }
+    public void check(string label, bool cond) {
+        if (cond) { this.pass = this.pass + 1; out "  PASS  " + label; }
+        else      { this.fail = this.fail + 1; out "  FAIL  " + label; }
+    }
+    public void summary() { out ""; out "Resultado: " + this.pass + " PASS, " + this.fail + " FAIL"; }
+}
+
+let t = new Checker()
+
+// El .szs se lee de un archivo (no string literal) para evitar la
+// interpolación {} de serez-code. Esta es la vía real de uso.
+let src   = File.read("serez-ui/apps/_styles_test.szs")
+let sheet = parseCss(src)
+
+out "=== Color parsing ==="
+t.check("#ffffff -> 0xffffff", cssColor("#ffffff") == 0xffffff)
+t.check("#0f172a", cssColor("#0f172a") == 0x0f172a)
+t.check("#abc shorthand -> #aabbcc", cssColor("#abc") == 0xaabbcc)
+t.check("named white", cssColor("white") == 0xffffff)
+t.check("named blue", cssColor("blue") == 0x0000ff)
+t.check("invalido -> -1", cssColor("nope") == -1)
+
+out ""
+out "=== resolveProp h1 (incondicional) ==="
+t.check("h1 color = #ffd166", sheet.resolveProp("h1", "color", []) == "#ffd166")
+
+out ""
+out "=== resolveProp Button (dos props) ==="
+t.check("Button bg = #3b82f6", sheet.resolveProp("Button", "background-color", []) == "#3b82f6")
+t.check("Button color = white", sheet.resolveProp("Button", "color", []) == "white")
+
+out ""
+out "=== resolveProp body CONDICIONAL (reactivo) ==="
+let ctx0 = [["count", 0]]
+let ctxN = [["count", 5]]
+t.check("count==0 -> bg #0f172a", sheet.resolveProp("body", "background-color", ctx0) == "#0f172a")
+t.check("count!=0 -> bg #14532d", sheet.resolveProp("body", "background-color", ctxN) == "#14532d")
+t.check("colorProp body0 = 0x0f172a", sheet.colorProp("body", "background-color", 0, ctx0) == 0x0f172a)
+t.check("colorProp body5 = 0x14532d", sheet.colorProp("body", "background-color", 0, ctxN) == 0x14532d)
+
+out ""
+out "=== tag sin reglas -> null/fallback ==="
+t.check("p color = null", sheet.resolveProp("p", "color", []) == null)
+t.check("p colorProp = fallback 0x123456", sheet.colorProp("p", "color", 0x123456, []) == 0x123456)
+
+t.summary()

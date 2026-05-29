@@ -1,0 +1,395 @@
+// css.sz — CSS con lógica (.szs) para serez-ui (v0.6.0)
+//
+// Fiel a Propuesta.md: un CSS, pero con compuertas lógicas. Los selectores
+// pueden llevar una condición que se evalúa contra el estado (reactivo):
+//
+//   :import {
+//       count: count;
+//   }
+//
+//   body (count == 0) { background-color: #0f172a; }
+//   body (count != 0) { background-color: #14532d; }
+//   h1               { color: #ffd166; }
+//   Button           { background-color: #3b82f6; }
+//
+// El parser corre en serez-code puro (como translate.sz para .szx). El renderer
+// llama `sheet.resolveProp(tag, prop, ctx)` cada frame; `ctx` es un array
+// [[nombre, valor]] con el estado actual → condiciones reactivas.
+//
+// NOTAS de implementación (límites de serez-code):
+//  - El .szs se lee de un ARCHIVO (File.read), no de string literal (serez-code
+//    interpola {} dentro de los string literals → usar archivos).
+//  - En módulos importados una función sólo ve a las definidas ANTES → helpers
+//    primero, parseCss al final.
+//  - Para escribir `{` literal en un string se usa "\{".
+//  - El stylesheet se guarda como ARRAYS PLANOS PARALELOS (sin arrays anidados
+//    profundos), porque arrays-de-arrays en cierto nivel se corrompen.
+
+// ── Helpers leaf ───────────────────────────────────────────────────────────────
+
+export fn bool cssIsWs(string c) {
+    return c == " " || c == "\t" || c == "\n" || c == "\r"
+}
+
+export fn bool cssIsNameChar(string c) {
+    return "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-*".includes(c)
+}
+
+export fn int cssHexDigit(string c) {
+    let lower = "0123456789abcdef"
+    let i = 0
+    while (i < 16) {
+        if (lower.charAt(i) == c) { return i; }
+        i = i + 1
+    }
+    let upper = "ABCDEF"
+    i = 0
+    while (i < 6) {
+        if (upper.charAt(i) == c) { return 10 + i; }
+        i = i + 1
+    }
+    return -1
+}
+
+export fn int cssIndexOf(string hay, string needle) {
+    let n = hay.length()
+    let m = needle.length()
+    if (m == 0) { return -1; }
+    let i = 0
+    while (i + m <= n) {
+        if (hay.substring(i, i + m) == needle) { return i; }
+        i = i + 1
+    }
+    return -1
+}
+
+export fn bool cssIsNum(string s) {
+    let t = s.trim()
+    if (t.length() == 0) { return false; }
+    let i = 0
+    if (t.charAt(0) == "-") { i = 1; }
+    if (i >= t.length()) { return false; }
+    while (i < t.length()) {
+        if (!"0123456789".includes(t.charAt(i))) { return false; }
+        i = i + 1
+    }
+    return true
+}
+
+export fn int cssToNum(string s) {
+    return parseInt(s.trim())
+}
+
+export fn string cssStripQuotes(string s) {
+    let t = s.trim()
+    if (t.length() >= 2) {
+        let a = t.charAt(0)
+        let b = t.charAt(t.length() - 1)
+        if ((a == "'" && b == "'") || (a == "\"" && b == "\"")) {
+            return t.substring(1, t.length() - 1)
+        }
+    }
+    return t
+}
+
+// Busca un nombre en ctx = [[nombre, valor], ...]  (array de pares, nivel 2).
+export fn any cssLookup(any ctx, string name) {
+    if (ctx == null) { return null; }
+    let i = 0
+    while (i < ctx.length()) {
+        let pair = ctx[i]
+        if (pair[0] == name) { return pair[1]; }
+        i = i + 1
+    }
+    return null
+}
+
+// Evalúa "var OP literal" contra el ctx. true si pasa (o no aplica).
+export fn bool cssCondEval(string cvar, string op, string valStr, any ctx) {
+    let lv = cssLookup(ctx, cvar)
+    if (lv == null) { return false; }
+
+    let bothNum = (lv is int || lv is decimal) && cssIsNum(valStr)
+    if (bothNum) {
+        let r = cssToNum(valStr)
+        if (op == "==") { return lv == r; }
+        if (op == "!=") { return lv != r; }
+        if (op == "<")  { return lv < r; }
+        if (op == ">")  { return lv > r; }
+        if (op == "<=") { return lv <= r; }
+        if (op == ">=") { return lv >= r; }
+        return false
+    }
+
+    let r = cssStripQuotes(valStr)
+    let l = "" + lv
+    if (op == "==") { return l == r; }
+    if (op == "!=") { return l != r; }
+    return false
+}
+
+// Convierte un color CSS (#rgb, #rrggbb o nombre) a int 0xRRGGBB, o -1 si inválido.
+export fn int cssColor(string raw) {
+    let s = raw.trim()
+    if (s.length() == 0) { return -1; }
+    if (s.charAt(0) == "#") {
+        let hex = s.substring(1, s.length())
+        if (hex.length() == 3) {
+            let r = "" + hex.charAt(0) + hex.charAt(0)
+            let g = "" + hex.charAt(1) + hex.charAt(1)
+            let b = "" + hex.charAt(2) + hex.charAt(2)
+            hex = r + g + b
+        }
+        if (hex.length() != 6) { return -1; }
+        let val = 0
+        let i = 0
+        while (i < 6) {
+            let d = cssHexDigit(hex.charAt(i))
+            if (d < 0) { return -1; }
+            val = val * 16 + d
+            i = i + 1
+        }
+        return val
+    }
+    if (s == "white")            { return 0xffffff; }
+    if (s == "black")            { return 0x000000; }
+    if (s == "red")              { return 0xff0000; }
+    if (s == "green")            { return 0x008000; }
+    if (s == "blue")             { return 0x0000ff; }
+    if (s == "yellow")           { return 0xffff00; }
+    if (s == "gray" || s == "grey") { return 0x808080; }
+    return -1
+}
+
+// ── Helpers de scanning ───────────────────────────────────────────────────────
+
+export fn any cssReadName(string src, int i) {
+    let n = src.length()
+    let name = ""
+    while (i < n && cssIsNameChar(src.charAt(i))) { name = name + src.charAt(i); i = i + 1; }
+    return [name, i]
+}
+
+// Salta espacios en blanco y comentarios (/* */ y //).
+export fn int cssSkip(string src, int i) {
+    let n = src.length()
+    let go = true
+    while (go) {
+        go = false
+        while (i < n && cssIsWs(src.charAt(i))) { i = i + 1; go = true; }
+        if (i + 1 < n && src.charAt(i) == "/" && src.charAt(i + 1) == "*") {
+            i = i + 2
+            while (i + 1 < n && !(src.charAt(i) == "*" && src.charAt(i + 1) == "/")) { i = i + 1; }
+            i = i + 2
+            go = true
+        }
+        if (i + 1 < n && src.charAt(i) == "/" && src.charAt(i + 1) == "/") {
+            i = i + 2
+            while (i < n && src.charAt(i) != "\n") { i = i + 1; }
+            go = true
+        }
+    }
+    return i
+}
+
+// Lee declaraciones `prop: valor;` hasta '}'. i apunta tras '{'.
+// Retorna [props, vals, nuevo_i] con dos arrays PLANOS paralelos de strings.
+export fn any cssReadDecls(string src, int i) {
+    let n = src.length()
+    let props = []
+    let vals  = []
+    while (i < n && src.charAt(i) != "}") {
+        i = cssSkip(src, i)
+        if (i >= n || src.charAt(i) == "}") { break; }
+
+        let prop = ""
+        while (i < n && src.charAt(i) != ":" && src.charAt(i) != "}" && src.charAt(i) != ";") {
+            prop = prop + src.charAt(i)
+            i = i + 1
+        }
+        if (i < n && src.charAt(i) == ":") {
+            i = i + 1
+            let val = ""
+            while (i < n && src.charAt(i) != ";" && src.charAt(i) != "}") {
+                val = val + src.charAt(i)
+                i = i + 1
+            }
+            if (i < n && src.charAt(i) == ";") { i = i + 1; }
+            let pn = prop.trim()
+            if (pn.length() > 0) { props.push(pn); vals.push(val.trim()); }
+        } else {
+            if (i < n && src.charAt(i) == ";") { i = i + 1; } else { break; }
+        }
+    }
+    if (i < n && src.charAt(i) == "}") { i = i + 1; }
+    return [props, vals, i]
+}
+
+// Parsea "var OP literal" → [var, op, literal]
+export fn any cssParseCond(string s) {
+    let ops2 = ["==", "!=", "<=", ">="]
+    let k = 0
+    while (k < ops2.length()) {
+        let idx = cssIndexOf(s, ops2[k])
+        if (idx >= 0) {
+            let left  = s.substring(0, idx).trim()
+            let right = s.substring(idx + 2, s.length()).trim()
+            return [left, ops2[k], right]
+        }
+        k = k + 1
+    }
+    let ops1 = ["<", ">"]
+    k = 0
+    while (k < ops1.length()) {
+        let idx = cssIndexOf(s, ops1[k])
+        if (idx >= 0) {
+            let left  = s.substring(0, idx).trim()
+            let right = s.substring(idx + 1, s.length()).trim()
+            return [left, ops1[k], right]
+        }
+        k = k + 1
+    }
+    return [s.trim(), "", ""]
+}
+
+// ── Stylesheet (arrays planos paralelos) ───────────────────────────────────────
+
+export public class Stylesheet {
+    // Reglas (paralelas por índice ri):
+    //   selectors[ri], hasConds[ri], condVars[ri], condOps[ri], condVals[ri]
+    // Declaraciones (paralelas por índice di), enlazadas a su regla:
+    //   declRuleIdx[di], declProps[di], declVals[di]
+    public Stylesheet(any selectors, any hasConds, any condVars, any condOps, any condVals, any declRuleIdx, any declProps, any declVals) {
+        this.selectors   = selectors
+        this.hasConds    = hasConds
+        this.condVars    = condVars
+        this.condOps     = condOps
+        this.condVals    = condVals
+        this.declRuleIdx = declRuleIdx
+        this.declProps   = declProps
+        this.declVals    = declVals
+    }
+
+    // Valor (string) de una prop para un tag dado el ctx, o null. Última gana.
+    public any resolveProp(string tag, string prop, any ctx) {
+        let found = null
+        let ri = 0
+        while (ri < this.selectors.length()) {
+            let sel = this.selectors[ri]
+            if (sel == tag || sel == "*") {
+                let pass = true
+                if (this.hasConds[ri]) {
+                    pass = cssCondEval(this.condVars[ri], this.condOps[ri], this.condVals[ri], ctx)
+                }
+                if (pass) {
+                    let di = 0
+                    while (di < this.declRuleIdx.length()) {
+                        if (this.declRuleIdx[di] == ri && this.declProps[di] == prop) {
+                            found = this.declVals[di]
+                        }
+                        di = di + 1
+                    }
+                }
+            }
+            ri = ri + 1
+        }
+        return found
+    }
+
+    // Conveniencia: color (int 0xRRGGBB) de una prop, o `fallback`.
+    public int colorProp(string tag, string prop, int fallback, any ctx) {
+        let v = this.resolveProp(tag, prop, ctx)
+        if (v == null) { return fallback; }
+        let c = cssColor(v)
+        if (c < 0) { return fallback; }
+        return c
+    }
+}
+
+// ── Parser (al final: usa todos los helpers de arriba) ─────────────────────────
+
+export fn any parseCss(string src) {
+    let n = src.length()
+    let i = 0
+
+    let selectors   = []
+    let hasConds    = []
+    let condVars    = []
+    let condOps     = []
+    let condVals    = []
+    let declRuleIdx = []
+    let declProps   = []
+    let declVals    = []
+
+    while (i < n) {
+        i = cssSkip(src, i)
+        if (i >= n) { break; }
+        let c = src.charAt(i)
+
+        // Bloque :import { ... } — se parsea para saltarlo (los valores los da el ctx)
+        if (c == ":") {
+            let kw = cssReadName(src, i + 1)
+            if (kw[0] == "import") {
+                i = parseInt(kw[1])
+                i = cssSkip(src, i)
+                if (i < n && src.charAt(i) == "\{") {
+                    let res = cssReadDecls(src, i + 1)
+                    i = parseInt(res[2])
+                }
+                continue
+            }
+            i = i + 1
+            continue
+        }
+
+        // Selector
+        let selRes   = cssReadName(src, i)
+        let selector = selRes[0]
+        i = parseInt(selRes[1])
+        if (selector.length() == 0) { i = i + 1; continue; }
+
+        i = cssSkip(src, i)
+
+        // Condición opcional: (var OP literal)
+        let hasCond = false
+        let cvar = ""
+        let cop  = ""
+        let cval = ""
+        if (i < n && src.charAt(i) == "(") {
+            i = i + 1
+            let condStr = ""
+            while (i < n && src.charAt(i) != ")") { condStr = condStr + src.charAt(i); i = i + 1; }
+            if (i < n) { i = i + 1; }
+            let parsed = cssParseCond(condStr)
+            cvar = parsed[0]; cop = parsed[1]; cval = parsed[2]
+            hasCond = true
+        }
+
+        i = cssSkip(src, i)
+
+        // Registrar la regla (arrays planos paralelos)
+        let ruleIndex = selectors.length()
+        selectors.push(selector)
+        hasConds.push(hasCond)
+        condVars.push(cvar)
+        condOps.push(cop)
+        condVals.push(cval)
+
+        // Declaraciones → arrays planos globales enlazados por ruleIndex
+        if (i < n && src.charAt(i) == "\{") {
+            let res   = cssReadDecls(src, i + 1)
+            let props = res[0]
+            let vals  = res[1]
+            i = parseInt(res[2])
+            let k = 0
+            while (k < props.length()) {
+                declProps.push(props[k])
+                declVals.push(vals[k])
+                declRuleIdx.push(ruleIndex)
+                k = k + 1
+            }
+        }
+    }
+
+    return new Stylesheet(selectors, hasConds, condVars, condOps, condVals, declRuleIdx, declProps, declVals)
+}

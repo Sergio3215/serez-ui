@@ -1,0 +1,14 @@
+/* counter.szs — CSS con lógica para counter_css.szx (serez-ui v0.6.0) */
+
+:import {
+    count: count;
+}
+
+/* Fondo reactivo: cambia segun el estado */
+body (count == 0) { background-color: #0f172a; }
+body (count != 0) { background-color: #14532d; }
+
+h1 { color: #ffd166; }
+h2 { color: #60a5fa; }
+
+Button { background-color: #2563eb; color: #ffffff; }

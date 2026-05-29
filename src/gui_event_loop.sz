@@ -26,10 +26,12 @@ export public class GuiEventLoop {
         this.height   = 440
         this.title    = "serez-ui"
         this.focus    = 0
+        this.sheet    = null
     }
 
     public void setSize(int w, int h) { this.width = w; this.height = h; }
     public void setTitle(string t)    { this.title = t; }
+    public void setStylesheet(any sheet) { this.sheet = sheet; }
 
     public void start() {
         Gui.open(this.title, this.width, this.height)
@@ -45,10 +47,11 @@ export public class GuiEventLoop {
             this.app.update()
             let tree = this.app.getVDom()
 
-            // 3. Dibujo
+            // 3. Dibujo (estilos reactivos: ctx = estado actual del componente)
             let m = Gui.mouse()
             this.renderer.setMouse(m[0], m[1], Gui.mouseDown())
             this.renderer.setFocus(this.focus)
+            this.renderer.setStyles(this.sheet, this.app.styleVars())
             this.renderer.render(tree, this.width)
             Gui.present()
         }

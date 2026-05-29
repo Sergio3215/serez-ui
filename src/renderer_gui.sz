@@ -23,6 +23,8 @@ export public class GuiRenderer {
         this.mouseY     = -1
         this.mouseHeld  = false
         this.focus      = 0
+        this.sheet      = null   // Stylesheet (.szs) opcional
+        this.ctx        = []     // contexto de estado [[nombre, valor]] para condiciones
 
         // Tema (oscuro)
         this.colBg     = 0x0f172a
@@ -44,6 +46,18 @@ export public class GuiRenderer {
 
     public void setFocus(int idx) { this.focus = idx }
 
+    // Asigna la hoja de estilos (.szs) y el contexto de estado para condiciones.
+    public void setStyles(any sheet, any ctx) {
+        this.sheet = sheet
+        this.ctx   = ctx
+    }
+
+    // Color de una prop CSS para un tag, o el fallback si no hay hoja/regla.
+    public int colorFor(string tag, string prop, int fallback) {
+        if (this.sheet == null) { return fallback; }
+        return this.sheet.colorProp(tag, prop, fallback, this.ctx)
+    }
+
     public any getRegions() { return this.regions }
 
     // Render completo: limpia y redibuja desde la raíz
@@ -52,7 +66,7 @@ export public class GuiRenderer {
         this.cy         = this.pad
         this.regions    = []
         this.inputCount = 0
-        Gui.clear(this.colBg)
+        Gui.clear(this.colorFor("body", "background-color", this.colBg))
         this.renderNode(vdom)
     }
 
@@ -70,19 +84,19 @@ export public class GuiRenderer {
         let children = node.getChildren()
 
         if (tag == "h1") {
-            Gui.drawText(this.pad, this.cy, this.collectText(node), 3, this.colText)
+            Gui.drawText(this.pad, this.cy, this.collectText(node), 3, this.colorFor("h1", "color", this.colText))
             this.cy = this.cy + 36
 
         } else if (tag == "h2") {
-            Gui.drawText(this.pad, this.cy, this.collectText(node), 2, this.colText)
+            Gui.drawText(this.pad, this.cy, this.collectText(node), 2, this.colorFor("h2", "color", this.colText))
             this.cy = this.cy + 26
 
         } else if (tag == "p" || tag == "span" || tag == "h3" || tag == "li") {
-            Gui.drawText(this.pad, this.cy, this.collectText(node), 2, this.colMuted)
+            Gui.drawText(this.pad, this.cy, this.collectText(node), 2, this.colorFor(tag, "color", this.colMuted))
             this.cy = this.cy + 24
 
         } else if (tag == "hr") {
-            Gui.drawLine(this.pad, this.cy, this.w - this.pad, this.cy, this.colBorder)
+            Gui.drawLine(this.pad, this.cy, this.w - this.pad, this.cy, this.colorFor("hr", "color", this.colBorder))
             this.cy = this.cy + 14
 
         } else if (tag == "Button") {
@@ -111,7 +125,7 @@ export public class GuiRenderer {
         let disabled = node.getProp("disabled") == true
 
         let hover = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
-        let color = this.colBtn
+        let color = this.colorFor("Button", "background-color", this.colBtn)
         if (disabled) {
             color = this.colBorder
         } else if (hover && this.mouseHeld) {
@@ -121,7 +135,7 @@ export public class GuiRenderer {
         }
 
         Gui.fillRect(bx, by, bw, bh, color)
-        Gui.drawText(bx + 14, by + 12, label, 2, this.colText)
+        Gui.drawText(bx + 14, by + 12, label, 2, this.colorFor("Button", "color", this.colText))
 
         this.regions.push(["Button", bx, by, bw, bh, node])
         this.cy = this.cy + bh + 10
@@ -140,7 +154,7 @@ export public class GuiRenderer {
         let focused = this.inputCount == this.focus
 
         // Caja + borde (resaltado si tiene foco)
-        Gui.fillRect(bx, by, bw, bh, this.colInput)
+        Gui.fillRect(bx, by, bw, bh, this.colorFor("Input", "background-color", this.colInput))
         let bcol = this.colBorder
         if (focused) { bcol = this.colFocus }
         Gui.fillRect(bx, by, bw, 2, bcol)
@@ -162,7 +176,7 @@ export public class GuiRenderer {
             muted   = true
         }
 
-        let tcol = this.colText
+        let tcol = this.colorFor("Input", "color", this.colText)
         if (muted) { tcol = this.colMuted }
         Gui.drawText(bx + 10, by + 9, display, 2, tcol)
 

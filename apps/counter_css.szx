@@ -1,0 +1,45 @@
+// counter_css.szx — Demo v0.6.0: CSS con lógica (.szs) aplicado a una GUI real.
+//
+// El fondo de la ventana cambia segun el estado (count == 0 vs != 0) mediante
+// una condicion en counter.szs. Los colores de h1/h2/Button tambien vienen del
+// .szs. Reactivo: cada clic re-evalua las condiciones.
+//
+// Controles: clic en Incrementar / Reset; Esc o cerrar para salir.
+//
+// Ejecutar (desde E:\01 Proyectos\Propio\):
+//   & "serez-ui\tools\szx.ps1" serez-ui\apps\counter_css.szx
+
+import "serez-ui"
+
+class Counter:Window {
+    public Counter() {
+        super()
+        this.count = 0
+    }
+
+    // Variables de estado expuestas al CSS (.szs) para las condiciones
+    public any styleVars() {
+        return [["count", this.count]]
+    }
+
+    public render() {
+        return (
+            <div>
+                <h1>Contador GUI</h1>
+                <hr />
+                <p>Valor actual</p>
+                <h2>{this.count}</h2>
+                <Button onClick={() => { this.count = this.count + 1 }}>Incrementar</Button>
+                <Button onClick={() => { this.count = 0 }}>Reset</Button>
+                <p>El fondo cambia cuando count deja de ser 0</p>
+            </div>
+        )
+    }
+}
+
+let app  = new Counter()
+let loop = new GuiEventLoop(app)
+loop.setTitle("serez-ui v0.6 — CSS reactivo")
+loop.setSize(520, 420)
+loop.setStylesheet(parseCss(File.read("serez-ui/apps/counter.szs")))
+loop.start()

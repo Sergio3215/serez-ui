@@ -1,0 +1,6 @@
+/* fixture de prueba para css_test.sz */
+:import { count: count; }
+body (count == 0) { background-color: #0f172a; }
+body (count != 0) { background-color: #14532d; }
+h1 { color: #ffd166; }
+Button { background-color: #3b82f6; color: white; }

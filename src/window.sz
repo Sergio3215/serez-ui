@@ -70,4 +70,8 @@ export public class Window {
 
     // Override en subclases para manejar eventos de mouse
     public void onMouse(any evt) {}
+
+    // Override en subclases: contexto de estado para el CSS reactivo (.szs).
+    // Devuelve [[nombre, valor], ...] con las variables usadas en las condiciones.
+    public any styleVars() { return []; }
 }
