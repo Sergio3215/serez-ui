@@ -94,25 +94,100 @@ export fn any diff(any old_node, any new_node) {
         patches.push(patchUpdateProps(old_node.getProps(), new_node.getProps()))
     }
 
-    // Comparar children por índice
+    // Comparar children: por key si están disponibles, sino por índice
     let old_ch = old_node.getChildren()
     let new_ch = new_node.getChildren()
-    let max_len = old_ch.length()
-    if (new_ch.length() > max_len) { max_len = new_ch.length(); }
 
+    // Detectar si hay keys en ambos arrays
+    let has_keys = true
     let i = 0
-    while (i < max_len) {
-        if (i >= old_ch.length()) {
-            patches.push(patchInsert(i, new_ch[i]))
-        } else if (i >= new_ch.length()) {
-            patches.push(patchRemove(i))
-        } else {
-            let child_patches = diff(old_ch[i], new_ch[i])
-            let j = 0
-            while (j < child_patches.length()) {
-                patches.push(child_patches[j])
-                j = j + 1
+    while (i < old_ch.length()) {
+        if (old_ch[i] != null && old_ch[i].key == null) {
+            has_keys = false
+        }
+        i = i + 1
+    }
+    i = 0
+    while (i < new_ch.length()) {
+        if (new_ch[i] != null && new_ch[i].key == null) {
+            has_keys = false
+        }
+        i = i + 1
+    }
+
+    // Si no hay keys, comparar por índice (comportamiento original)
+    if (!has_keys) {
+        let max_len = old_ch.length()
+        if (new_ch.length() > max_len) { max_len = new_ch.length(); }
+
+        let i = 0
+        while (i < max_len) {
+            if (i >= old_ch.length()) {
+                patches.push(patchInsert(i, new_ch[i]))
+            } else if (i >= new_ch.length()) {
+                patches.push(patchRemove(i))
+            } else {
+                let child_patches = diff(old_ch[i], new_ch[i])
+                let j = 0
+                while (j < child_patches.length()) {
+                    patches.push(child_patches[j])
+                    j = j + 1
+                }
             }
+            i = i + 1
+        }
+        return patches
+    }
+
+    // Si hay keys, construir map y comparar por clave
+    let new_by_key = []
+    i = 0
+    while (i < new_ch.length()) {
+        new_by_key.push(["" + new_ch[i].key, new_ch[i]])
+        i = i + 1
+    }
+
+    // Procesar children antiguos por key
+    i = 0
+    while (i < old_ch.length()) {
+        let old_child = old_ch[i]
+        let found = false
+        let j = 0
+        while (j < new_by_key.length()) {
+            if (new_by_key[j][0] == ("" + old_child.key)) {
+                let new_child = new_by_key[j][1]
+                let child_patches = diff(old_child, new_child)
+                let k = 0
+                while (k < child_patches.length()) {
+                    patches.push(child_patches[k])
+                    k = k + 1
+                }
+                found = true
+                break
+            }
+            j = j + 1
+        }
+        if (!found) {
+            patches.push(patchRemove(i))
+        }
+        i = i + 1
+    }
+
+    // Procesar nuevos children sin match
+    i = 0
+    while (i < new_ch.length()) {
+        let new_child = new_ch[i]
+        let found = false
+        let j = 0
+        while (j < old_ch.length()) {
+            if (old_ch[j].key == new_child.key) {
+                found = true
+                break
+            }
+            j = j + 1
+        }
+        if (!found) {
+            patches.push(patchInsert(i, new_child))
         }
         i = i + 1
     }

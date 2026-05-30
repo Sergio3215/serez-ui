@@ -20,13 +20,14 @@ use permissions { Gui }
 
 export public class GuiEventLoop {
     public GuiEventLoop(any app) {
-        this.app      = app
-        this.renderer = new GuiRenderer()
-        this.width    = 640
-        this.height   = 440
-        this.title    = "serez-ui"
-        this.focus    = 0
-        this.sheet    = null
+        this.app       = app
+        this.renderer  = new GuiRenderer()
+        this.width     = 640
+        this.height    = 440
+        this.title     = "serez-ui"
+        this.focus     = 0
+        this.sheet     = null
+        this.firstFrame = true
     }
 
     public void setSize(int w, int h) { this.width = w; this.height = h; }
@@ -41,25 +42,36 @@ export public class GuiEventLoop {
             if (Gui.keyDown("Esc")) { break; }
 
             // 1. Entrada (usa las regiones del frame anterior para hit-testing)
-            this.handleInput()
+            let inputChanged = this.handleInput()
 
-            // 2. Re-render del VDOM desde el estado actual
-            this.app.update()
+            // 2. Re-render solo si hubo cambios (event-driven)
+            let patches = []
+            if (inputChanged || this.firstFrame) {
+                patches = this.app.update()
+            }
+
             let tree = this.app.getVDom()
 
-            // 3. Dibujo (estilos reactivos: ctx = estado actual del componente)
-            let m = Gui.mouse()
-            this.renderer.setMouse(m[0], m[1], Gui.mouseDown())
-            this.renderer.setFocus(this.focus)
-            this.renderer.setStyles(this.sheet, this.app.styleVars())
-            this.renderer.render(tree, this.width)
-            Gui.present()
+            // 3. Dibujo solo si hay cambios (frame-skip)
+            if (patches.length() > 0 || this.firstFrame) {
+                let m = Gui.mouse()
+                this.renderer.setMouse(m[0], m[1], Gui.mouseDown())
+                this.renderer.setFocus(this.focus)
+                this.renderer.setStyles(this.sheet, this.app.styleVars())
+                this.renderer.render(tree, this.width)
+                Gui.present()
+            }
+
+            if (this.firstFrame) {
+                this.firstFrame = false
+            }
         }
 
         Gui.close()
     }
 
-    public void handleInput() {
+    public bool handleInput() {
+        let changed = false
         let regions = this.renderer.getRegions()
 
         // Lista de nodos Input/Textarea en orden (para dirigir el tecleo al enfocado)
@@ -72,6 +84,7 @@ export public class GuiEventLoop {
 
         // Clic: dispara onClick de botones y mueve el foco a inputs
         if (Gui.mousePressed()) {
+            changed = true
             let m  = Gui.mouse()
             let mx = m[0]
             let my = m[1]
@@ -156,7 +169,9 @@ export public class GuiEventLoop {
             if (newVal != cur) {
                 let oc = node.getProp("onChange")
                 if (oc != null) { oc(newVal); }
+                changed = true
             }
         }
+        return changed
     }
 }
