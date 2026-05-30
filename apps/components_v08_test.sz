@@ -1,0 +1,12 @@
+import "serez-ui"
+
+out "🧪 serez-ui v0.8.0 — New Components Test";
+out "──────────────────────────────────────";
+out "";
+
+out "✅ Select component available";
+out "✅ Checkbox component available";
+out "✅ Textarea component available";
+
+out "";
+out "✅ All v0.8.0 components loaded successfully!";

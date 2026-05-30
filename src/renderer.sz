@@ -124,6 +124,53 @@ export public class Renderer {
             }
             this.row = this.row + 1
 
+        } else if (tag == "Select") {
+            let value    = node.getProp("value")
+            let disabled = node.getProp("disabled") == true
+
+            Terminal.setCursor(this.row, 0)
+            if (disabled) {
+                out "{·" + value + "·}"
+            } else {
+                out "{ " + value + " ▶ }"
+            }
+            this.row = this.row + 1
+
+        } else if (tag == "Checkbox") {
+            let checked = node.getProp("checked") == true
+            let label   = node.getProp("label")
+            if (label == null) { label = this.collectText(node); }
+            let disabled = node.getProp("disabled") == true
+
+            Terminal.setCursor(this.row, 0)
+            if (disabled) {
+                out "[·] " + label
+            } else if (checked) {
+                out "[x] " + label
+            } else {
+                out "[ ] " + label
+            }
+            this.row = this.row + 1
+
+        } else if (tag == "Textarea") {
+            let val = node.getProp("value")
+            let disabled = node.getProp("disabled") == true
+
+            if (val == null) { val = ""; }
+
+            let lines = val.split("\n")
+            let i = 0
+            while (i < lines.length()) {
+                Terminal.setCursor(this.row, 0)
+                if (disabled) {
+                    out "  " + lines[i]
+                } else {
+                    out "> " + lines[i]
+                }
+                this.row = this.row + 1
+                i = i + 1
+            }
+
         } else if (tag == "li") {
             Terminal.setCursor(this.row, 2)
             out "• " + this.collectText(node)

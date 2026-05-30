@@ -62,11 +62,11 @@ export public class GuiEventLoop {
     public void handleInput() {
         let regions = this.renderer.getRegions()
 
-        // Lista de nodos Input en orden (para dirigir el tecleo al enfocado)
+        // Lista de nodos Input/Textarea en orden (para dirigir el tecleo al enfocado)
         let inputNodes = []
         let i = 0
         while (i < regions.length()) {
-            if (regions[i][0] == "Input") { inputNodes.push(regions[i][5]); }
+            if (regions[i][0] == "Input" || regions[i][0] == "Textarea") { inputNodes.push(regions[i][5]); }
             i = i + 1
         }
 
@@ -84,6 +84,36 @@ export public class GuiEventLoop {
                 if (r[0] == "Input") {
                     if (inside) { this.focus = inputOrder; }
                     inputOrder = inputOrder + 1
+                }
+
+                if (r[0] == "Textarea") {
+                    if (inside) { this.focus = inputOrder; }
+                    inputOrder = inputOrder + 1
+                }
+
+                if (r[0] == "Select" && inside) {
+                    let node = r[5]
+                    if (node.getProp("disabled") != true) {
+                        let opts = node.getProp("options")
+                        let cur  = node.getProp("value")
+                        let idx  = 0
+                        let k = 0
+                        while (k < opts.length()) {
+                            if (opts[k] == cur) { idx = k; }
+                            k = k + 1
+                        }
+                        let next = opts[(idx + 1) % opts.length()]
+                        let oc = node.getProp("onChange")
+                        if (oc != null) { oc(next); }
+                    }
+                }
+
+                if (r[0] == "Checkbox" && inside) {
+                    let node = r[5]
+                    if (node.getProp("disabled") != true) {
+                        let oc = node.getProp("onChange")
+                        if (oc != null) { oc(node.getProp("checked") != true); }
+                    }
                 }
 
                 if (r[0] == "Button" && inside) {
@@ -114,6 +144,11 @@ export public class GuiEventLoop {
             while (k < keys.length()) {
                 if (keys[k] == "Backspace" && newVal.length() > 0) {
                     newVal = newVal.substring(0, newVal.length() - 1)
+                } else if (keys[k] == "Enter") {
+                    let tag = node.getTag()
+                    if (tag == "Textarea") {
+                        newVal = newVal + "\n"
+                    }
                 }
                 k = k + 1
             }
