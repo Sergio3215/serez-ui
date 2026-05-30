@@ -1,0 +1,182 @@
+// todo_app.szx — TODO application demo
+// Demonstrates:
+//   - Window + State management
+//   - Multiple built-in components (Input, Button, Textarea)
+//   - Event handlers (onClick, onChange)
+//   - List rendering with index-based iteration
+//   - Computed properties (filter, count)
+//   - Rendering in GUI (native pixel window)
+//
+// Run: & szx.ps1 serez-ui\apps\todo_app.szx
+//      then interact with the window
+
+import "serez-ui"
+
+class TodoApp:Window {
+    public TodoApp() {
+        super()
+        this.items = []
+        this.newTitle = ""
+        this.newDesc = ""
+        this.filter = "all"   // "all", "done", "active"
+    }
+
+    public render() {
+        // Compute filtered list
+        // item structure: [["id",n], ["title",str], ["desc",str], ["done",bool]]
+        // Index: item[3][1] = done status
+        let filtered = []
+        let i = 0
+        while (i < this.items.length()) {
+            let item = this.items[i]
+            let isDone = item[3][1] == true
+            let show = false
+            if (this.filter == "all") { show = true; }
+            else if (this.filter == "done" && isDone) { show = true; }
+            else if (this.filter == "active" && !isDone) { show = true; }
+
+            if (show) { filtered.push(item); }
+            i = i + 1
+        }
+
+        // Count stats
+        let totalCount = this.items.length()
+        let doneCount = 0
+        let j = 0
+        while (j < this.items.length()) {
+            if (this.items[j][3][1] == true) { doneCount = doneCount + 1; }
+            j = j + 1
+        }
+
+        return (
+            <div>
+                <h1>📋 TODO App</h1>
+                <hr />
+
+                <p>New Task</p>
+                <Input
+                    value={this.newTitle}
+                    placeholder="Task title..."
+                    onChange={(v) => { this.newTitle = v }}
+                />
+
+                <Textarea
+                    value={this.newDesc}
+                    placeholder="Description (optional)..."
+                    onChange={(v) => { this.newDesc = v }}
+                />
+
+                <Button
+                    onClick={() => {
+                        if (this.newTitle.length() > 0) {
+                            // item structure: [["id",n], ["title",str], ["desc",str], ["done",bool]]
+                            let item = [
+                                ["id", this.items.length()],
+                                ["title", this.newTitle],
+                                ["desc", this.newDesc],
+                                ["done", false]
+                            ]
+
+                            this.items.push(item)
+                            this.newTitle = ""
+                            this.newDesc = ""
+                        }
+                    }}
+                    disabled={this.newTitle.length() == 0}
+                >
+                    + Add Task
+                </Button>
+
+                <hr />
+
+                <p>Filters: </p>
+                <Button
+                    onClick={() => { this.filter = "all" }}
+                    disabled={this.filter == "all"}
+                >
+                    All ({totalCount})
+                </Button>
+                <Button
+                    onClick={() => { this.filter = "active" }}
+                    disabled={this.filter == "active"}
+                >
+                    Active ({totalCount - doneCount})
+                </Button>
+                <Button
+                    onClick={() => { this.filter = "done" }}
+                    disabled={this.filter == "done"}
+                >
+                    Done ({doneCount})
+                </Button>
+
+                <hr />
+
+                <p>Tasks ({filtered.length()})</p>
+                {this.renderItems(filtered)}
+
+            </div>
+        )
+    }
+
+    public any renderItems(any items) {
+        let elements = []
+        let i = 0
+        while (i < items.length()) {
+            let item = items[i]
+            // item = [["id",n], ["title",str], ["desc",str], ["done",bool]]
+            let itemId = item[0][1]
+            let itemTitle = item[1][1]
+            let itemDesc = item[2][1]
+            let itemDone = item[3][1] == true
+
+            let displayStr = (itemDone ? "✅ " : "⭕ ") + itemTitle
+            elements.push(
+                <div>
+                    <p>{displayStr}</p>
+                    <Button
+                        onClick={() => {
+                            let k = 0
+                            while (k < this.items.length()) {
+                                if (this.items[k][0][1] == itemId) {
+                                    this.items[k][3][1] = !itemDone
+                                    break
+                                }
+                                k = k + 1
+                            }
+                        }}
+                    >
+                        {itemDone ? "✗ Undo" : "✓ Done"}
+                    </Button>
+                    <Button
+                        onClick={() => {
+                            let k = 0
+                            while (k < this.items.length()) {
+                                if (this.items[k][0][1] == itemId) {
+                                    this.items.removeAt(k)
+                                    break
+                                }
+                                k = k + 1
+                            }
+                        }}
+                    >
+                        🗑 Delete
+                    </Button>
+                </div>
+            )
+
+            i = i + 1
+        }
+
+        if (elements.length() == 0) {
+            elements.push(<p>No tasks</p>)
+        }
+
+        return <div>{elements}</div>
+    }
+}
+
+let app = new TodoApp()
+let loop = new GuiEventLoop(app)
+loop.setTitle("📋 serez-ui TODO App — v1.0.0 Demo")
+loop.setSize(700, 600)
+loop.start()
