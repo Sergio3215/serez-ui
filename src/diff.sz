@@ -98,25 +98,40 @@ export fn any diff(any old_node, any new_node) {
     let old_ch = old_node.getChildren()
     let new_ch = new_node.getChildren()
 
-    // Detectar si hay keys en ambos arrays
-    let has_keys = true
+    // Detectar si ambos arrays tienen keys en TODOS sus nodos
+    // Solo VNode objects con .key != null califican; strings/primitivos no pueden usar keys
+    let can_use_keys = true
     let i = 0
     while (i < old_ch.length()) {
-        if (old_ch[i] != null && old_ch[i].key == null) {
-            has_keys = false
+        let ch = old_ch[i]
+        // Si es primitivo o null, no puede tener key
+        let is_prim = ch == null || ch is string || ch is int || ch is decimal || ch is bool
+        if (is_prim) {
+            can_use_keys = false
+        } else {
+            // Es VNode; verificar si tiene key
+            if (ch.key == null) {
+                can_use_keys = false
+            }
         }
         i = i + 1
     }
     i = 0
-    while (i < new_ch.length()) {
-        if (new_ch[i] != null && new_ch[i].key == null) {
-            has_keys = false
+    while (i < new_ch.length() && can_use_keys) {
+        let ch = new_ch[i]
+        let is_prim = ch == null || ch is string || ch is int || ch is decimal || ch is bool
+        if (is_prim) {
+            can_use_keys = false
+        } else {
+            if (ch.key == null) {
+                can_use_keys = false
+            }
         }
         i = i + 1
     }
 
     // Si no hay keys, comparar por índice (comportamiento original)
-    if (!has_keys) {
+    if (!can_use_keys) {
         let max_len = old_ch.length()
         if (new_ch.length() > max_len) { max_len = new_ch.length(); }
 
@@ -139,7 +154,7 @@ export fn any diff(any old_node, any new_node) {
         return patches
     }
 
-    // Si hay keys, construir map y comparar por clave
+    // Si hay keys en ambos, construir map y comparar por clave
     let new_by_key = []
     i = 0
     while (i < new_ch.length()) {
