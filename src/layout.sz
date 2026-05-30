@@ -1,0 +1,275 @@
+export class LayoutNode {
+    x = 0;
+    y = 0;
+    w = 0;
+    h = 0;
+    tag = "";
+    children = [];
+}
+
+fn textWidth(text) {
+    return text.length() * 8;
+}
+
+fn getLayoutStyle(tag, stylesheet, ctx) {
+    if (!stylesheet) {
+        return {
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "flex-start",
+            alignItems: "stretch",
+            gap: 0,
+            padding: 0,
+            width: "auto",
+            height: "auto",
+            flex: 0
+        };
+    }
+
+    let style = {
+        display: stylesheet.resolveProp(tag, "display", ctx) || "flex",
+        flexDirection: stylesheet.resolveProp(tag, "flex-direction", ctx) || "column",
+        justifyContent: stylesheet.resolveProp(tag, "justify-content", ctx) || "flex-start",
+        alignItems: stylesheet.resolveProp(tag, "align-items", ctx) || "stretch",
+        gap: 0,
+        padding: 0,
+        width: "auto",
+        height: "auto",
+        flex: 0
+    };
+
+    let gap = stylesheet.resolveProp(tag, "gap", ctx);
+    if (gap) {
+        style["gap"] = Int.parse(gap);
+    }
+
+    let padding = stylesheet.resolveProp(tag, "padding", ctx);
+    if (padding) {
+        style["padding"] = Int.parse(padding);
+    }
+
+    let width = stylesheet.resolveProp(tag, "width", ctx);
+    if (width) {
+        style["width"] = width;
+    }
+
+    let height = stylesheet.resolveProp(tag, "height", ctx);
+    if (height) {
+        style["height"] = height;
+    }
+
+    let flex = stylesheet.resolveProp(tag, "flex", ctx);
+    if (flex) {
+        style["flex"] = Int.parse(flex);
+    }
+
+    return style;
+}
+
+fn parseSize(sizeStr, containerSize) {
+    if (!sizeStr || sizeStr == "auto") {
+        return -1;
+    }
+    if (sizeStr.endsWith("%")) {
+        let pct = Int.parse(sizeStr.substring(0, sizeStr.length() - 1));
+        return (containerSize * pct) / 100;
+    }
+    return Int.parse(sizeStr);
+}
+
+fn measureNode(vnode, stylesheet, ctx, containerW, containerH) {
+    let node = new LayoutNode();
+    node.tag = vnode.type || "div";
+
+    if (vnode.type == "__text__") {
+        node.w = textWidth(vnode.content);
+        node.h = 8;
+        return node;
+    }
+
+    let style = getLayoutStyle(node.tag, stylesheet, ctx);
+    let padding = style["padding"];
+
+    if (node.tag == "h1") {
+        let text = "";
+        if (vnode.children && vnode.children.length() > 0) {
+            if (vnode.children[0].type == "__text__") {
+                text = vnode.children[0].content;
+            }
+        }
+        node.w = textWidth(text);
+        node.h = 24;
+        return node;
+    }
+
+    if (node.tag == "h2" || node.tag == "h3") {
+        let text = "";
+        if (vnode.children && vnode.children.length() > 0) {
+            if (vnode.children[0].type == "__text__") {
+                text = vnode.children[0].content;
+            }
+        }
+        node.w = textWidth(text);
+        node.h = 16;
+        return node;
+    }
+
+    if (node.tag == "p" || node.tag == "span" || node.tag == "li") {
+        let text = "";
+        if (vnode.children && vnode.children.length() > 0) {
+            if (vnode.children[0].type == "__text__") {
+                text = vnode.children[0].content;
+            }
+        }
+        node.w = textWidth(text);
+        node.h = 8;
+        return node;
+    }
+
+    if (node.tag == "hr") {
+        node.w = containerW;
+        node.h = 1;
+        return node;
+    }
+
+    if (node.tag == "Button") {
+        let text = "";
+        if (vnode.children && vnode.children.length() > 0) {
+            for (let i = 0; i < vnode.children.length(); i = i + 1) {
+                if (vnode.children[i].type == "__text__") {
+                    text = text + vnode.children[i].content;
+                }
+            }
+        }
+        node.w = textWidth(text) + padding * 2;
+        node.h = 8 + padding * 2;
+        return node;
+    }
+
+    if (node.tag == "Input") {
+        node.w = 200;
+        node.h = 8 + padding * 2;
+        if (vnode.props && vnode.props["width"]) {
+            node.w = Int.parse(vnode.props["width"]);
+        }
+        return node;
+    }
+
+    let childNodes = [];
+    if (vnode.children) {
+        for (let i = 0; i < vnode.children.length(); i = i + 1) {
+            let child = vnode.children[i];
+            if (child.type != "__text__") {
+                let childNode = measureNode(child, stylesheet, ctx, containerW, containerH);
+                childNodes.push(childNode);
+            } else if (child.content && child.content != "") {
+                let textNode = new LayoutNode();
+                textNode.tag = "__text__";
+                textNode.w = textWidth(child.content);
+                textNode.h = 8;
+                childNodes.push(textNode);
+            }
+        }
+    }
+
+    node.children = childNodes;
+
+    let isRow = style["flexDirection"] == "row";
+    let gap = style["gap"];
+
+    if (isRow) {
+        node.w = 0;
+        node.h = 0;
+        for (let i = 0; i < childNodes.length(); i = i + 1) {
+            node.w = node.w + childNodes[i].w;
+            if (childNodes[i].h > node.h) {
+                node.h = childNodes[i].h;
+            }
+        }
+        if (childNodes.length() > 1) {
+            node.w = node.w + gap * (childNodes.length() - 1);
+        }
+    } else {
+        node.w = 0;
+        node.h = 0;
+        for (let i = 0; i < childNodes.length(); i = i + 1) {
+            node.h = node.h + childNodes[i].h;
+            if (childNodes[i].w > node.w) {
+                node.w = childNodes[i].w;
+            }
+        }
+        if (childNodes.length() > 1) {
+            node.h = node.h + gap * (childNodes.length() - 1);
+        }
+    }
+
+    let widthProp = parseSize(style["width"], containerW);
+    if (widthProp >= 0) {
+        node.w = widthProp;
+    }
+
+    return node;
+}
+
+fn positionNode(node, stylesheet, ctx, x, y, containerW, containerH) {
+    node.x = x;
+    node.y = y;
+
+    let style = getLayoutStyle(node.tag, stylesheet, ctx);
+    let isRow = style["flexDirection"] == "row";
+    let gap = style["gap"];
+    let padding = style["padding"];
+    let justify = style["justifyContent"];
+
+    if (node.children.length() == 0) {
+        return;
+    }
+
+    let totalChildSize = 0;
+    for (let i = 0; i < node.children.length(); i = i + 1) {
+        if (isRow) {
+            totalChildSize = totalChildSize + node.children[i].w;
+        } else {
+            totalChildSize = totalChildSize + node.children[i].h;
+        }
+    }
+
+    if (node.children.length() > 1) {
+        totalChildSize = totalChildSize + gap * (node.children.length() - 1);
+    }
+
+    let offset = 0;
+    if (justify == "center") {
+        if (isRow) {
+            offset = (containerW - totalChildSize) / 2;
+        } else {
+            offset = (containerH - totalChildSize) / 2;
+        }
+    } else if (justify == "flex-end") {
+        if (isRow) {
+            offset = containerW - totalChildSize;
+        } else {
+            offset = containerH - totalChildSize;
+        }
+    }
+
+    offset = offset + padding;
+
+    let cursor = offset;
+    for (let i = 0; i < node.children.length(); i = i + 1) {
+        let child = node.children[i];
+        if (isRow) {
+            positionNode(child, stylesheet, ctx, x + cursor, y + padding, child.w, node.h - padding * 2);
+            cursor = cursor + child.w + gap;
+        } else {
+            positionNode(child, stylesheet, ctx, x + padding, y + cursor, containerW - padding * 2, child.h);
+            cursor = cursor + child.h + gap;
+        }
+    }
+}
+
+export fn computeLayout(vdom, stylesheet, ctx, containerW, containerH) {
+    let root = measureNode(vdom, stylesheet, ctx, containerW, containerH);
+    positionNode(root, stylesheet, ctx, 0, 0, containerW, containerH);
+    return root;
+}

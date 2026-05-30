@@ -1,4 +1,4 @@
-// serez-ui v0.6 — UI library for Serez-Code (TUI + GUI)
+// serez-ui v0.7 — UI library for Serez-Code (TUI + GUI + Flexbox Layout)
 //
 // Modelo React/JSX: componentes que extienden Window, hooks (useState/useEffect),
 // Virtual DOM transparente. Los .szx (JSX) se traducen a .sz con tools/translate.sz.
@@ -57,6 +57,9 @@ import "src/components"
 
 // CSS con lógica (.szs) (v0.6)
 import "src/css"
+
+// Layout engine — flexbox (v0.7)
+import "src/layout"
 
 // GUI renderer + event loop (píxeles, vía el namespace Gui del core)
 import "src/renderer_gui"
