@@ -7,12 +7,43 @@
 // children puede contener:
 //   - strings (texto plano)
 //   - VNode (elementos anidados)
-//   - cualquier valor (expresiones {expr})
+//   - arrays de lo anterior (resultado de .map() o de fragments) → se APLANAN
+//   - null → se descarta
+//
+// El aplanado permite escribir listas con .map() de forma natural:
+//   <ul>{items.map(fn(x){ return <li>{x}</li> })}</ul>
+// El .map() produce UN child que es un array; flattenChildren lo expande en línea.
+// Renderer, diff y collectText asumen children planos, así que aplanar aquí
+// (en el punto de construcción del VNode) los cubre a todos.
 
 import "vnode"
 
+// Aplana arrays anidados y descarta null. Recursivo: un fragment dentro de un
+// map produce anidación de más de un nivel.
+export fn any flattenChildren(any children) {
+    let flat = []
+    let i = 0
+    while (i < children.length()) {
+        let child = children[i]
+        if (child != null) {
+            if (type_of(child) == "array") {
+                let inner = flattenChildren(child)
+                let j = 0
+                while (j < inner.length()) {
+                    flat.push(inner[j])
+                    j = j + 1
+                }
+            } else {
+                flat.push(child)
+            }
+        }
+        i = i + 1
+    }
+    return flat
+}
+
 export fn any h(string tag, any props, any children) {
-    return new VNode(tag, props, children)
+    return new VNode(tag, props, flattenChildren(children))
 }
 
 // hText — crea un nodo de solo texto (shorthand)
@@ -22,5 +53,5 @@ export fn any hText(string text) {
 
 // hFrag — agrupa hijos sin un elemento raíz (equivalente a Fragment)
 export fn any hFrag(any children) {
-    return new VNode("__fragment__", [], children)
+    return new VNode("__fragment__", [], flattenChildren(children))
 }

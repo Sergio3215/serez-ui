@@ -55,6 +55,9 @@ import "src/event_loop"
 // Built-in components (v0.5)
 import "src/components"
 
+// Componentes reutilizables (Window vs Component) + helpers de runtime
+import "src/component"
+
 // CSS con lógica (.szs) (v0.6)
 import "src/css"
 

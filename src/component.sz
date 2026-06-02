@@ -1,0 +1,60 @@
+// component.sz — Componentes reutilizables de serez-ui (estilo React)
+//
+// Un Component recibe `props` (datos que le pasa quien lo usa) y `children`
+// (el contenido entre sus tags). Extiende Window, así que hereda render/mount/
+// update/diff y el manejo de efectos.
+//
+//   class TaskRow:Component {
+//       public TaskRow() { super() }
+//       render() {
+//           return (
+//               <li>{this.props.name}</li>   // el translator reescribe .props.name → ["name"]
+//           )
+//       }
+//   }
+//
+//   // uso:  <TaskRow name="buy milk" />
+//
+// props y children NO se reciben en el constructor: el framework los inyecta
+// con _init() justo después de `new` (lo hace __renderComponent, que es lo que
+// emite el translator). Esto deja el constructor del usuario limpio, al estilo
+// React donde props "aparecen" disponibles.
+
+import "window"
+
+export public class Component:Window {
+    public Component() {
+        super()
+        this.props    = __makeProps([])   // dict vacío hasta que el framework inyecte
+        this.children = []
+    }
+
+    // Llamado por el framework (vía __renderComponent) tras instanciar.
+    public void _init(any props, any children) {
+        this.props    = props
+        this.children = children
+    }
+}
+
+// ── Helpers que emite el translator ───────────────────────────────────────────
+
+// __makeProps([["k", v], ...]) → dict <string, any>
+// Construye el dict de props desde pares. Evita escribir dict-literals en el
+// código generado (su sintaxis es quisquillosa). Usa for (no while) por el
+// gotcha de asignación a dict dentro de while.
+export fn any __makeProps(any pairs) {
+    let d <string, any> = ()
+    for (let i = 0; i < pairs.length(); i = i + 1) {
+        let pair = pairs[i]
+        d[pair[0]] = pair[1]
+    }
+    return d
+}
+
+// __renderComponent(new MiComp(), props, children) → VNode
+// Inyecta props/children en la instancia y devuelve su árbol renderizado.
+// El resultado se inserta como un child más; h() lo aplana si hace falta.
+export fn any __renderComponent(any comp, any props, any children) {
+    comp._init(props, children)
+    return comp.render()
+}

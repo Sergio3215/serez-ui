@@ -29,6 +29,78 @@ fn int skip_ws(string src, int i) {
     return i
 }
 
+// ── Clasificación de tags ───────────────────────────────────────────────────--
+// Tag con Mayúscula inicial = componente. Los built-in (Button, Input...) los
+// dibuja el Renderer directamente; los demás con Mayúscula son componentes de
+// usuario que se instancian y renderizan.
+
+fn bool is_upper_first(string tag) {
+    if (tag.length() == 0) { return false; }
+    return "ABCDEFGHIJKLMNOPQRSTUVWXYZ".includes(tag.charAt(0))
+}
+
+fn bool is_builtin_tag(string tag) {
+    return tag == "Button" || tag == "Input" || tag == "Select"
+        || tag == "Checkbox" || tag == "Textarea"
+}
+
+fn bool is_user_component(string tag) {
+    return is_upper_first(tag) && !is_builtin_tag(tag)
+}
+
+// ── Reescritura de props: this.props.x → this.props["x"] ──────────────────────
+// El desarrollador escribe acceso por punto; serez-code solo soporta dot-access
+// sobre instancias, no sobre dicts. props es un dict, así que reescribimos
+// `.props.<ident>` a `.props["<ident>"]`. Se respeta el ident-seguido-de-'(' por
+// si fuera un método (no se reescribe). Strings se saltan.
+fn string rewrite_props(string code) {
+    let result = ""
+    let i = 0
+    let n = code.length()
+    let in_str = false
+    let str_char = ""
+    let dq = "\""
+    let marker = ".props."
+    let mlen = marker.length()
+
+    while (i < n) {
+        let c = code.charAt(i)
+
+        if (in_str) {
+            if (c == str_char) { in_str = false; }
+            result = result + c
+            i = i + 1
+            continue
+        }
+        if (c == dq || c == "'") {
+            in_str = true
+            str_char = c
+            result = result + c
+            i = i + 1
+            continue
+        }
+
+        if (c == "." && i + mlen <= n && code.substring(i, i + mlen) == marker) {
+            let j = i + mlen
+            let ident = ""
+            while (j < n && is_alnum(code.charAt(j))) {
+                ident = ident + code.charAt(j)
+                j = j + 1
+            }
+            if (ident.length() > 0 && (j >= n || code.charAt(j) != "(")) {
+                result = result + ".props[" + dq + ident + dq + "]"
+                i = j
+                continue
+            }
+        }
+
+        result = result + c
+        i = i + 1
+    }
+
+    return result
+}
+
 // ── Parsers ───────────────────────────────────────────────────────────────────
 
 // Lee una expresión entre llaves {expr}, rastreando profundidad.
@@ -120,9 +192,9 @@ fn any read_props(string src, int i) {
         if (i >= n) { break; }
 
         if (src.charAt(i) == "\{") {
-            // Valor como expresión: onClick={() => ...}
+            // Valor como expresión: onClick={() => ...} — puede contener JSX anidado.
             let expr_res = read_brace_expr(src, i)
-            let val = expr_res[0].trim()
+            let val = transform(expr_res[0].trim())
             i = parseInt(expr_res[1])
             props.push("[" + dq + prop_name + dq + ", " + val + "]")
         } else if (src.charAt(i) == dq) {
@@ -153,16 +225,29 @@ fn any parse_element(string src, int i) {
     let tag = name_res[0]
     i = parseInt(name_res[1])
 
-    // Leer props
-    let props_res = read_props(src, i)
-    let props_str = props_res[0]
-    i = parseInt(props_res[1])
+    // Fragment <>...</> — tag vacío
+    let is_frag = false
+    if (tag.length() == 0) {
+        is_frag = true
+        tag = "__fragment__"
+    }
+
+    // Leer props (los fragments no llevan props)
+    let props_str = "[]"
+    if (!is_frag) {
+        let props_res = read_props(src, i)
+        props_str = props_res[0]
+        i = parseInt(props_res[1])
+    }
 
     i = skip_ws(src, i)
 
     // Auto-cierre: />
     if (i + 1 < n && src.charAt(i) == "/" && src.charAt(i + 1) == ">") {
         i = i + 2
+        if (is_user_component(tag)) {
+            return ["__renderComponent(new " + tag + "(), __makeProps(" + props_str + "), [])", i]
+        }
         return ["h(" + dq + tag + dq + ", " + props_str + ", [])", i]
     }
 
@@ -186,21 +271,22 @@ fn any parse_element(string src, int i) {
             break
         }
 
-        // Elemento anidado
-        if (c == "<" && i + 1 < n && is_alpha(src.charAt(i + 1))) {
+        // Elemento o fragment anidado
+        if (c == "<" && i + 1 < n && (is_alpha(src.charAt(i + 1)) || src.charAt(i + 1) == ">")) {
             let child_res = parse_element(src, i)
             children.push(child_res[0])
             i = parseInt(child_res[1])
             continue
         }
 
-        // Expresión {expr}
+        // Expresión {expr} — puede contener JSX anidado (p.ej. .map(fn(){ return <li/> })),
+        // así que se re-traduce con transform().
         if (c == "\{") {
             let expr_res = read_brace_expr(src, i)
             let expr = expr_res[0].trim()
             i = parseInt(expr_res[1])
             if (expr.length() > 0) {
-                children.push(expr)
+                children.push(transform(expr))
             }
             continue
         }
@@ -217,7 +303,14 @@ fn any parse_element(string src, int i) {
         }
     }
 
-    return ["h(" + dq + tag + dq + ", " + props_str + ", [" + children.join(", ") + "])", i]
+    let kids = "[" + children.join(", ") + "]"
+    if (is_frag) {
+        return ["hFrag(" + kids + ")", i]
+    }
+    if (is_user_component(tag)) {
+        return ["__renderComponent(new " + tag + "(), __makeProps(" + props_str + "), " + kids + ")", i]
+    }
+    return ["h(" + dq + tag + dq + ", " + props_str + ", " + kids + ")", i]
 }
 
 // ── Transformador principal ───────────────────────────────────────────────────
@@ -253,8 +346,8 @@ fn string transform(string src) {
             continue
         }
 
-        // Detectar JSX: '<' seguido de letra, con char previo no alfanumérico
-        if (c == "<" && i + 1 < n && is_alpha(src.charAt(i + 1))) {
+        // Detectar JSX: '<' seguido de letra o '>' (fragment), char previo no alfanumérico
+        if (c == "<" && i + 1 < n && (is_alpha(src.charAt(i + 1)) || src.charAt(i + 1) == ">")) {
             let prev = " "
             if (i > 0) { prev = src.charAt(i - 1); }
             if (!is_alnum(prev)) {
@@ -287,7 +380,7 @@ if (args.length() < 4) {
         out "❌ Archivo no encontrado: {input_path}"
     } else {
         let source     = File.read(input_path)
-        let translated = transform(source)
+        let translated = rewrite_props(transform(source))
         File.write(output_path, translated)
         out "✅ Traducido: {input_path} → {output_path}"
     }
