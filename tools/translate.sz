@@ -101,6 +101,66 @@ fn string rewrite_props(string code) {
     return result
 }
 
+// ── Visibilidad implícita: inyectar `public` a métodos sin modificador ─────────
+// Propuesta.md: render() es público implícito. El parser del core exige
+// public/private, así que el translator lo agrega cuando falta — sin obligar al
+// desarrollador a recordarlo. Si ya escribió public/private, se respeta (implícito
+// y explícito conviven).
+
+fn bool is_decl_keyword(string w) {
+    return w == "if" || w == "while" || w == "for" || w == "switch" || w == "else"
+        || w == "do" || w == "return" || w == "catch" || w == "try" || w == "match"
+        || w == "let" || w == "const" || w == "import" || w == "export" || w == "class"
+        || w == "interface" || w == "use" || w == "out" || w == "throw" || w == "fn"
+        || w == "new" || w == "break" || w == "continue" || w == "finally" || w == "case"
+        || w == "default" || w == "in" || w == "is" || w == "yield" || w == "unsafe"
+        || w == "sizeof" || w == "native" || w == "get" || w == "set" || w == "enum"
+        || w == "static" || w == "abstract" || w == "sealed"
+}
+
+fn string leading_ws(string line) {
+    let ws = ""
+    let i = 0
+    while (i < line.length() && (line.charAt(i) == " " || line.charAt(i) == "\t")) {
+        ws = ws + line.charAt(i)
+        i = i + 1
+    }
+    return ws
+}
+
+// ¿La línea (trimmed) es una declaración de método de clase sin visibilidad?
+// Patrón: [tipo ]ident(...) {  — sin '.', '=', ',' ni '<' en la cabecera (eso
+// descarta llamadas, lambdas, asignaciones y JSX). El primer token no es keyword.
+fn bool is_method_decl(string t) {
+    if (t.length() == 0) { return false; }
+    if (t.startsWith("//")) { return false; }
+    if (t.startsWith("public ") || t.startsWith("private ")) { return false; }
+    let p = t.indexOf("(")
+    if (p < 0) { return false; }
+    if (!t.includes("\{")) { return false; }
+    let head = t.substring(0, p).trim()
+    if (head.length() == 0) { return false; }
+    if (head.includes(".") || head.includes("=") || head.includes(",") || head.includes("<")) { return false; }
+    let parts = head.split(" ")
+    if (is_decl_keyword(parts[0])) { return false; }
+    return true
+}
+
+fn string inject_public(string code) {
+    let lines = code.split("\n")
+    let result = []
+    for (let i = 0; i < lines.length(); i = i + 1) {
+        let line = lines[i]
+        let t = line.trim()
+        if (is_method_decl(t)) {
+            result.push(leading_ws(line) + "public " + t)
+        } else {
+            result.push(line)
+        }
+    }
+    return result.join("\n")
+}
+
 // ── Parsers ───────────────────────────────────────────────────────────────────
 
 // Lee una expresión entre llaves {expr}, rastreando profundidad.
@@ -380,7 +440,7 @@ if (args.length() < 4) {
         out "❌ Archivo no encontrado: {input_path}"
     } else {
         let source     = File.read(input_path)
-        let translated = rewrite_props(transform(source))
+        let translated = rewrite_props(transform(inject_public(source)))
         File.write(output_path, translated)
         out "✅ Traducido: {input_path} → {output_path}"
     }
