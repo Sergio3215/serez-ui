@@ -207,29 +207,46 @@ export public class Window {
         Gui.open(title, width, height)
         let r = new GuiRenderer()
         this.mount()
-        let first = true
+
+        // NOTA: el render va INLINE (no en un método aparte) porque pasar `r` a otro
+        // método lo copiaría (semántica de valor) y sus regiones — que handleGuiInput
+        // necesita para el hit-testing — no volverían a este `r`.
+
+        // Primer dibujo del buffer.
+        let m0 = Gui.mouse()
+        r.setMouse(m0[0], m0[1], Gui.mouseDown())
+        r.setFocus(this.__focus)
+        r.setStyles(this.__sheet, this.styleVars())
+        r.render(this.getVDom(), width)
+
+        // El flanco del click lo calculamos NOSOTROS (prevDown), NO con Gui.mousePressed().
+        // Motivo: Gui.present() sondea los eventos de la ventana y, en el core, actualiza
+        // su propio prev_mouse_down en ese MISMO poll — consumiendo el flanco antes de que
+        // el loop lo vea, así que Gui.mousePressed() siempre da false. Leyendo Gui.mouseDown()
+        // tras present() y comparándolo con nuestro prevDown sí detectamos el down inicial.
+        let prevDown = false
 
         while (Gui.isOpen()) {
+            // Presentar: muestra el último buffer y sondea los eventos (mouse/teclado).
+            Gui.present()
             if (Gui.keyDown("Esc")) { break; }
 
-            // 1. Entrada con las regiones del frame anterior (los handlers mutan `this`).
-            let m       = Gui.mouse()
-            let changed = this.handleGuiInput(r, m[0], m[1], Gui.mousePressed(), Gui.charsTyped(), Gui.keysPressed())
+            let down    = Gui.mouseDown()
+            let pressed = down && !prevDown
+            prevDown    = down
 
-            // 2. Re-render solo si hubo cambios (event-driven). Redibuja el buffer local r.
-            if (changed || first) {
+            let m       = Gui.mouse()
+            let changed = this.handleGuiInput(r, m[0], m[1], pressed, Gui.charsTyped(), Gui.keysPressed())
+
+            // Re-render solo si hubo cambios; el nuevo buffer se muestra en el próximo present().
+            if (changed) {
                 this.update()
                 let m2 = Gui.mouse()
-                r.setMouse(m2[0], m2[1], Gui.mouseDown())
+                r.setMouse(m2[0], m2[1], down)
                 r.setFocus(this.__focus)
                 r.setStyles(this.__sheet, this.styleVars())
                 r.render(this.getVDom(), width)
             }
-
-            // 3. Presentar SIEMPRE: muestra el buffer y sondea los eventos de la ventana
-            //    + actualiza el flanco de Gui.mousePressed(). Saltearlo congela la entrada.
-            Gui.present()
-            first = false
         }
 
         Gui.close()
