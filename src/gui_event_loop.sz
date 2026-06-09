@@ -52,15 +52,18 @@ export public class GuiEventLoop {
 
             let tree = this.app.getVDom()
 
-            // 3. Dibujo solo si hay cambios (frame-skip)
+            // 3. Re-dibujar el buffer solo si hubo cambios (frame-skip del render)
             if (patches.length() > 0 || this.firstFrame) {
                 let m = Gui.mouse()
                 this.renderer.setMouse(m[0], m[1], Gui.mouseDown())
                 this.renderer.setFocus(this.focus)
                 this.renderer.setStyles(this.sheet, this.app.styleVars())
                 this.renderer.render(tree, this.width)
-                Gui.present()
             }
+            // 4. Presentar SIEMPRE (cada frame): Gui.present() sondea los eventos de la
+            //    ventana (mouse/teclado) y actualiza prev_mouse_down (el flanco de
+            //    Gui.mousePressed). Saltearlo congela la entrada y los clicks no llegan.
+            Gui.present()
 
             if (this.firstFrame) {
                 this.firstFrame = false
