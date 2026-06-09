@@ -44,9 +44,8 @@ out "✅ Window subclass instantiates"
 let renderer = new GuiRenderer()
 out "✅ GuiRenderer instantiates"
 
-// Test 5: GuiEventLoop instantiates
-let loop = new GuiEventLoop(app)
-out "✅ GuiEventLoop instantiates"
+// Test 5: el loop GUI vive en el componente (app.runGui / app.runTui)
+out "✅ run methods on Window — app.runGui(title, w, h) / app.runTui()"
 
 out ""
 out "✅ All E2E smoke tests PASSED"

@@ -23,11 +23,8 @@ class Counter:Window {
     }
 }
 
-let app  = new Counter()
-let loop = new GuiEventLoop(app)   // or: new EventLoop(app) for the terminal
-loop.setTitle("Counter")
-loop.setSize(520, 420)
-loop.start()
+let app = new Counter()
+app.runGui("Counter", 520, 420)   // or: app.runTui() for the terminal
 ```
 
 ## Install
@@ -44,18 +41,16 @@ A component is a class that **extends `Window`** and returns JSX from `render()`
 - `render()` — override; returns the VNode tree (JSX).
 - `styleVars()` — override; returns `[[name, value], …]` exposed to the reactive CSS (`.szs`).
 - `onKey(evt)` / `onMouse(evt)` — optional overrides for raw input.
-- Lifecycle (handled by the loops): `mount()`, `update()`, `unmount()`.
+- Run it: `app.runGui(title, w, h)` (native window) or `app.runTui()` (terminal). The event loop
+  is a method of your component — it must run with `this` = your top-level app (see note below).
+- Lifecycle (handled by the run methods): `mount()`, `update()`, `unmount()`.
 
 ## `.szx` → `.sz` (the JSX translator)
 
-JSX lives in `.szx` files and is translated to plain `.sz` before running. The wrapper does both:
+JSX lives in `.szx` files and is translated to plain `.sz` before running. `sz` does both in one step:
 
 ```powershell
-# Windows
-& "tools\szx.ps1" apps\counter.szx
-
-# Linux / macOS
-./tools/szx.sh apps/counter.szx
+sz apps/counter.szx
 ```
 
 Under the hood: `translate.sz` turns `<tag …>` into `h("tag", props, children)`. The web syntax
@@ -83,20 +78,21 @@ hr, ul, li, section, form`. For interaction there are five form components:
 
 ## TUI and GUI
 
-The same component runs in two renderers — pick the event loop:
+The same component runs in two renderers — the event loop is a **method of your component**
+(`app` is your top-level variable):
 
 ```sz
 // Terminal (TUI) — Unicode drawing, keyboard + mouse
-let loop = new EventLoop(app)
-loop.setQuitKey("q")   // default: q (Esc also quits)
-loop.start()
+app.runTui()                     // quit with q
 
 // Native window (GUI) — pixels via the core Gui backend
-let loop = new GuiEventLoop(app)
-loop.setTitle("My App")
-loop.setSize(560, 460)
-loop.start()           // quit with Esc or the close button
+app.runGui("My App", 560, 460)   // quit with Esc or the close button
 ```
+
+> **Why a method and not `new GuiEventLoop(app)`?** serez-code copies objects by value, so an
+> external loop holding the app in a field would mutate a throwaway copy (empty window / no
+> reaction). Running the loop as a method keeps `this` = your live top-level component.
+> `GuiEventLoop` / `EventLoop` still exist as deprecated shims that point you here.
 
 ## CSS with logic (`.szs`)
 
@@ -117,7 +113,7 @@ Button { background-color: #2563eb; color: #ffffff; }
 ```
 
 ```sz
-loop.setStylesheet(parseCss(File.read("apps/counter.szs")))
+app.useStylesheet(parseCss(File.read("apps/counter.szs")))   // before app.runGui(...)
 ```
 
 The component exposes its state to the sheet via `styleVars()`:
@@ -134,8 +130,9 @@ public any styleVars() { return [["count", this.count]] }
 | `h` / `VNode` | Hyperscript + Virtual DOM node |
 | `diff` / `Patch` | Virtual DOM diffing |
 | `useState` / `useEffect` / `memo` | Hooks |
-| `Renderer` / `EventLoop` | TUI rendering + event loop |
-| `GuiRenderer` / `GuiEventLoop` | GUI rendering + event loop |
+| `app.runTui()` / `app.runGui(title, w, h)` | Window methods — run the app in the terminal / a native window |
+| `app.useStylesheet(sheet)` | Window method — attach a `.szs` stylesheet (before `runGui`) |
+| `Renderer` / `GuiRenderer` | TUI / GUI renderers (used internally by the run methods) |
 | `parseCss` | `.szs` stylesheet parser |
 
 ## Permissions
@@ -162,15 +159,15 @@ serez-ui/
     vnode.sz h.sz      Virtual DOM node + hyperscript
     diff.sz patch.sz   diffing + patching
     state.sz effect.sz memo.sz   hooks
-    window.sz          Window base class
+    window.sz          Window base class + the GUI/TUI event loops (runGui/runTui)
     components.sz      Button, Input, Select, Checkbox, Textarea
-    renderer.sz events.sz event_loop.sz   TUI renderer + loop
-    renderer_gui.sz gui_event_loop.sz     GUI renderer + loop
+    renderer.sz events.sz   TUI renderer + event helpers
+    renderer_gui.sz    GUI renderer (pixels via the core Gui backend)
+    event_loop.sz gui_event_loop.sz   deprecated loop shims → app.runTui/runGui
     css.sz             .szs parser (CSS with logic)
     layout.sz          flexbox layout engine
   tools/
-    translate.sz       .szx → .sz translator
-    szx.ps1 / szx.sh   translate + run wrapper
+    translate.sz       .szx → .sz translator (run a .szx directly with `sz file.szx`)
   apps/                demos (counter, form, todo, gui_form, …)
   Propuesta.md         design contract
 ```

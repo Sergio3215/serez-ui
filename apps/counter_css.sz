@@ -29,9 +29,6 @@ class Counter:Window {
     }
 }
 
-let app  = new Counter()
-let loop = new GuiEventLoop(app)
-loop.setTitle("serez-ui v0.6 — CSS reactivo")
-loop.setSize(520, 420)
-loop.setStylesheet(parseCss(File.read("serez-ui/apps/counter.szs")))
-loop.start()
+let app = new Counter()
+app.useStylesheet(parseCss(File.read("serez-ui/apps/counter.szs")))
+app.runGui("serez-ui v0.6 — CSS reactivo", 520, 420)

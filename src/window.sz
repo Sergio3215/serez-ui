@@ -1,7 +1,27 @@
 // window.sz — Clase base raíz para componentes serez-ui
+//
+// Window es la raíz de un componente y TAMBIÉN su propio event loop. ¿Por qué el
+// loop vive aquí y no en una clase aparte? Porque serez-code tiene semántica de
+// VALOR: un objeto leído desde un campo o pasado a otro método es una COPIA, y los
+// handlers que crea render() (`() => { this.x = ... }`) capturan `this` por
+// referencia al objeto que los creó. Si un loop externo guardara la app en un campo
+// y la manejara, mutaría copias descartables (pantalla vacía / sin reacción). En
+// cambio, cuando el loop es un método del PROPIO componente, `this` es el componente
+// top-level del usuario durante todo el ciclo, así que mount/update/handlers operan
+// siempre sobre el mismo objeto vivo.
+//
+//   let app = new MiApp()
+//   app.runGui("Título", 640, 480)   // ventana nativa
+//   app.runTui()                     // terminal (salir con q)
 
 import "h"
 import "diff"
+import "renderer"
+import "renderer_gui"
+import "events"
+
+use permissions { Gui }
+use permissions { Terminal }
 
 export public class Window {
     public Window() {
@@ -9,6 +29,8 @@ export public class Window {
         this.vdom     = null
         this.mounted  = false
         this.effects  = []
+        this.__focus  = 0      // índice del input enfocado (loops GUI)
+        this.__sheet  = null   // Stylesheet (.szs) opcional
     }
 
     // Override en subclases — produce el árbol VNode
@@ -74,4 +96,196 @@ export public class Window {
     // Override en subclases: contexto de estado para el CSS reactivo (.szs).
     // Devuelve [[nombre, valor], ...] con las variables usadas en las condiciones.
     public any styleVars() { return []; }
+
+    // Hoja de estilos (.szs) para el render GUI. Llamar antes de runGui().
+    public void useStylesheet(any sheet) { this.__sheet = sheet }
+
+    // ── GUI: ventana nativa ─────────────────────────────────────────────────
+
+    // Procesa la entrada del frame contra las regiones del último render. Es PURO:
+    // recibe el estado del mouse/teclado por parámetro (testeable headless) y muta
+    // este componente vía los handlers del vdom (que lo capturan por referencia).
+    // r: el GuiRenderer (con sus regiones). Devuelve true si hubo cambios.
+    public bool handleGuiInput(any r, int mx, int my, bool pressed, string typed, any keys) {
+        let changed = false
+        let regions = r.getRegions()
+
+        // Inputs/Textareas en orden (para dirigir el tecleo al enfocado)
+        let inputNodes = []
+        let i = 0
+        while (i < regions.length()) {
+            if (regions[i][0] == "Input" || regions[i][0] == "Textarea") { inputNodes.push(regions[i][5]); }
+            i = i + 1
+        }
+
+        if (pressed) {
+            changed = true
+            let inputOrder = 0
+            let j = 0
+            while (j < regions.length()) {
+                let rg     = regions[j]
+                let inside = mx >= rg[1] && mx < rg[1] + rg[3] && my >= rg[2] && my < rg[2] + rg[4]
+
+                if (rg[0] == "Input") {
+                    if (inside) { this.__focus = inputOrder; }
+                    inputOrder = inputOrder + 1
+                }
+                if (rg[0] == "Textarea") {
+                    if (inside) { this.__focus = inputOrder; }
+                    inputOrder = inputOrder + 1
+                }
+                if (rg[0] == "Select" && inside) {
+                    let node = rg[5]
+                    if (node.getProp("disabled") != true) {
+                        let opts = node.getProp("options")
+                        let cur  = node.getProp("value")
+                        let idx  = 0
+                        let kk = 0
+                        while (kk < opts.length()) {
+                            if (opts[kk] == cur) { idx = kk; }
+                            kk = kk + 1
+                        }
+                        let next = opts[(idx + 1) % opts.length()]
+                        let oc = node.getProp("onChange")
+                        if (oc != null) { oc(next); }
+                    }
+                }
+                if (rg[0] == "Checkbox" && inside) {
+                    let node = rg[5]
+                    if (node.getProp("disabled") != true) {
+                        let oc = node.getProp("onChange")
+                        if (oc != null) { oc(node.getProp("checked") != true); }
+                    }
+                }
+                if (rg[0] == "Button" && inside) {
+                    let node     = rg[5]
+                    let disabled = node.getProp("disabled") == true
+                    if (!disabled) {
+                        let hb = node.getProp("onClick")
+                        if (hb != null) { hb(); }
+                    }
+                }
+                j = j + 1
+            }
+        }
+
+        // Tecleo → input enfocado (controlado: dispara onChange con el valor nuevo)
+        if (this.__focus < inputNodes.length()) {
+            let node = inputNodes[this.__focus]
+            let val  = node.getProp("value")
+            if (val == null) { val = ""; }
+            let cur    = "" + val
+            let newVal = cur
+
+            if (typed.length() > 0) { newVal = newVal + typed; }
+
+            let kx = 0
+            while (kx < keys.length()) {
+                if (keys[kx] == "Backspace" && newVal.length() > 0) {
+                    newVal = newVal.substring(0, newVal.length() - 1)
+                } else if (keys[kx] == "Enter") {
+                    let tag = node.getTag()
+                    if (tag == "Textarea") { newVal = newVal + "\n" }
+                }
+                kx = kx + 1
+            }
+
+            if (newVal != cur) {
+                let oc = node.getProp("onChange")
+                if (oc != null) { oc(newVal); }
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    // Arranca la app en una ventana nativa. Bloquea hasta cerrar (Esc o la X).
+    // OJO: los parámetros NO pueden llamarse `h` ni `w` — serez-code tiene scoping
+    // dinámico y un local llamado `h` shadowearía la función `h()` (hyperscript) que
+    // usa el render() del componente, rompiéndolo con "Attempt to call a non-function".
+    public void runGui(string title, int width, int height) {
+        Gui.open(title, width, height)
+        let r = new GuiRenderer()
+        this.mount()
+        let first = true
+
+        while (Gui.isOpen()) {
+            if (Gui.keyDown("Esc")) { break; }
+
+            // 1. Entrada con las regiones del frame anterior (los handlers mutan `this`).
+            let m       = Gui.mouse()
+            let changed = this.handleGuiInput(r, m[0], m[1], Gui.mousePressed(), Gui.charsTyped(), Gui.keysPressed())
+
+            // 2. Re-render solo si hubo cambios (event-driven). Redibuja el buffer local r.
+            if (changed || first) {
+                this.update()
+                let m2 = Gui.mouse()
+                r.setMouse(m2[0], m2[1], Gui.mouseDown())
+                r.setFocus(this.__focus)
+                r.setStyles(this.__sheet, this.styleVars())
+                r.render(this.getVDom(), width)
+            }
+
+            // 3. Presentar SIEMPRE: muestra el buffer y sondea los eventos de la ventana
+            //    + actualiza el flanco de Gui.mousePressed(). Saltearlo congela la entrada.
+            Gui.present()
+            first = false
+        }
+
+        Gui.close()
+    }
+
+    // ── TUI: terminal ─────────────────────────────────────────────────────────
+
+    // Despacha un evento de terminal a este componente (onKey/onMouse + handlers del
+    // vdom). Muta `this` por referencia. Testeable headless: pasarle un evento.
+    public void handleTuiEvent(any evt) {
+        if (evt.type == "key") {
+            this.onKey(evt)
+            let eName = keyEventName(evt)
+            fireEvent(this.getVDom(), eName, evt)
+            fireEvent(this.getVDom(), "onPressKey", evt)
+        }
+        if (evt.type == "mouse") {
+            this.onMouse(evt)
+            let eName = mouseEventName(evt)
+            fireEvent(this.getVDom(), eName, evt)
+        }
+    }
+
+    // Arranca la app en la terminal. Bloquea hasta salir (tecla q).
+    public void runTui() {
+        unsafe {
+            Terminal.setRawMode(true)
+            Terminal.enableMouse(true)
+        }
+        Terminal.clear()
+
+        let r = new Renderer()
+        this.mount()
+        r.render(this.getVDom())
+
+        let running = true
+        while (running) {
+            let evt = null
+            unsafe { evt = Terminal.readEvent() }
+            if (evt != null) {
+                if (evt.type == "key" && evt.code == "q") {
+                    running = false
+                } else {
+                    this.handleTuiEvent(evt)
+                    let patches = this.update()
+                    if (patches.length() > 0) { r.render(this.getVDom()) }
+                    if (evt.type == "resize") { r.render(this.getVDom()) }
+                }
+            }
+        }
+
+        unsafe {
+            Terminal.enableMouse(false)
+            Terminal.setRawMode(false)
+        }
+        Terminal.clear()
+        Terminal.setCursor(0, 0)
+    }
 }

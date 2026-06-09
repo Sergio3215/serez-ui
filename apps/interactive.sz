@@ -40,6 +40,5 @@ class InteractiveCounter:Window {
     }
 }
 
-let app  = new InteractiveCounter()
-let loop = new EventLoop(app)
-loop.start()
+let app = new InteractiveCounter()
+app.runTui()                 // salir con q

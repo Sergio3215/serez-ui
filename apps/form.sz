@@ -80,7 +80,5 @@ class LoginForm:Window {
     }
 }
 
-let app  = new LoginForm()
-let loop = new EventLoop(app)
-loop.setQuitKey("Esc")
-loop.start()
+let app = new LoginForm()
+app.runTui()                 // salir con q

@@ -29,8 +29,5 @@ class LoginForm:Window {
     }
 }
 
-let app  = new LoginForm()
-let loop = new GuiEventLoop(app)
-loop.setTitle("serez-ui — GUI form")
-loop.setSize(560, 460)
-loop.start()
+let app = new LoginForm()
+app.runGui("serez-ui — GUI form", 560, 460)

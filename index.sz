@@ -41,16 +41,20 @@ import "src/h"
 import "src/patch"
 import "src/diff"
 
-// Window + State (v0.3)
+// Renderers + eventos — se cargan ANTES de window.sz a propósito: Window.runGui /
+// runTui usan GuiRenderer / Renderer / fireEvent, y la resolución de clases en
+// serez-code es por importador (el primero que importa un archivo registra sus
+// clases globalmente). Si window.sz los importara primero, deduplicaría el import
+// de index y rompería el re-export al script del usuario.
+import "src/renderer"
+import "src/renderer_gui"
+import "src/events"
+
+// Window + State (v0.3) — el loop GUI/TUI vive en Window (ver window.sz)
 import "src/state"
 import "src/effect"
 import "src/memo"
 import "src/window"
-
-// TUI Renderer + Event Loop (v0.4)
-import "src/renderer"
-import "src/events"
-import "src/event_loop"
 
 // Built-in components (v0.5)
 import "src/components"
@@ -64,6 +68,6 @@ import "src/css"
 // Layout engine — flexbox (v0.7)
 import "src/layout"
 
-// GUI renderer + event loop (píxeles, vía el namespace Gui del core)
-import "src/renderer_gui"
+// Loops deprecados — shims que redirigen a app.runGui() / app.runTui()
+import "src/event_loop"
 import "src/gui_event_loop"

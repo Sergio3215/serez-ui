@@ -1,18 +1,16 @@
-// gui_event_loop.sz — Event loop GUI para serez-ui
+// gui_event_loop.sz — DEPRECADO. El loop GUI ahora vive en el propio componente.
 //
-// Conecta el modelo de componentes React/JSX con el backend gráfico `Gui`.
-// Ciclo: leer entrada → despachar eventos → re-render → present.
+// Antes:  let loop = new GuiEventLoop(app); loop.setTitle("X"); loop.setSize(w,h); loop.start()
+// Ahora:  app.runGui("X", w, h)
 //
-//   let app  = new MiComponente()
-//   let loop = new GuiEventLoop(app)
-//   loop.setTitle("Mi App")
-//   loop.start()              // bloquea hasta cerrar la ventana o pulsar Esc
+// ¿Por qué cambió? serez-code tiene semántica de VALOR: una clase loop externa
+// guardaba la app en un campo (una COPIA), así que mount()/los handlers onClick
+// mutaban copias descartables y la ventana quedaba vacía / sin reaccionar. Con el
+// loop como método del componente, `this` es la app top-level del usuario y todo
+// opera sobre el mismo objeto vivo. Ver Window.runGui en window.sz.
 //
-// Eventos despachados (modelo React):
-//   onClick   — al hacer clic dentro de los bounds de un <Button> (no disabled)
-//   onChange  — al teclear/borrar en el <Input> enfocado; recibe el nuevo valor
-//
-// El foco de inputs se mueve haciendo clic sobre ellos.
+// Este shim solo existe para que el código viejo falle con un mensaje claro en vez
+// de un error de parseo.
 
 import "renderer_gui"
 
@@ -20,161 +18,20 @@ use permissions { Gui }
 
 export public class GuiEventLoop {
     public GuiEventLoop(any app) {
-        this.app       = app
-        this.renderer  = new GuiRenderer()
-        this.width     = 640
-        this.height    = 440
-        this.title     = "serez-ui"
-        this.focus     = 0
-        this.sheet     = null
-        this.firstFrame = true
+        this.app    = app
+        this.title  = "serez-ui"
+        this.width  = 640
+        this.height = 440
+        this.sheet  = null
     }
 
-    public void setSize(int w, int h) { this.width = w; this.height = h; }
-    public void setTitle(string t)    { this.title = t; }
-    public void setStylesheet(any sheet) { this.sheet = sheet; }
+    public void setTitle(string t)       { this.title = t }
+    public void setSize(int w, int h)    { this.width = w; this.height = h }
+    public void setStylesheet(any sheet) { this.sheet = sheet }
 
     public void start() {
-        Gui.open(this.title, this.width, this.height)
-        this.app.mount()
-
-        while (Gui.isOpen()) {
-            if (Gui.keyDown("Esc")) { break; }
-
-            // 1. Entrada (usa las regiones del frame anterior para hit-testing)
-            let inputChanged = this.handleInput()
-
-            // 2. Re-render solo si hubo cambios (event-driven)
-            let patches = []
-            if (inputChanged || this.firstFrame) {
-                patches = this.app.update()
-            }
-
-            let tree = this.app.getVDom()
-
-            // 3. Re-dibujar el buffer solo si hubo cambios (frame-skip del render)
-            if (patches.length() > 0 || this.firstFrame) {
-                let m = Gui.mouse()
-                this.renderer.setMouse(m[0], m[1], Gui.mouseDown())
-                this.renderer.setFocus(this.focus)
-                this.renderer.setStyles(this.sheet, this.app.styleVars())
-                this.renderer.render(tree, this.width)
-            }
-            // 4. Presentar SIEMPRE (cada frame): Gui.present() sondea los eventos de la
-            //    ventana (mouse/teclado) y actualiza prev_mouse_down (el flanco de
-            //    Gui.mousePressed). Saltearlo congela la entrada y los clicks no llegan.
-            Gui.present()
-
-            if (this.firstFrame) {
-                this.firstFrame = false
-            }
-        }
-
-        Gui.close()
-    }
-
-    public bool handleInput() {
-        let changed = false
-        let regions = this.renderer.getRegions()
-
-        // Lista de nodos Input/Textarea en orden (para dirigir el tecleo al enfocado)
-        let inputNodes = []
-        let i = 0
-        while (i < regions.length()) {
-            if (regions[i][0] == "Input" || regions[i][0] == "Textarea") { inputNodes.push(regions[i][5]); }
-            i = i + 1
-        }
-
-        // Clic: dispara onClick de botones y mueve el foco a inputs
-        if (Gui.mousePressed()) {
-            changed = true
-            let m  = Gui.mouse()
-            let mx = m[0]
-            let my = m[1]
-            let inputOrder = 0
-            let j = 0
-            while (j < regions.length()) {
-                let r      = regions[j]
-                let inside = mx >= r[1] && mx < r[1] + r[3] && my >= r[2] && my < r[2] + r[4]
-
-                if (r[0] == "Input") {
-                    if (inside) { this.focus = inputOrder; }
-                    inputOrder = inputOrder + 1
-                }
-
-                if (r[0] == "Textarea") {
-                    if (inside) { this.focus = inputOrder; }
-                    inputOrder = inputOrder + 1
-                }
-
-                if (r[0] == "Select" && inside) {
-                    let node = r[5]
-                    if (node.getProp("disabled") != true) {
-                        let opts = node.getProp("options")
-                        let cur  = node.getProp("value")
-                        let idx  = 0
-                        let k = 0
-                        while (k < opts.length()) {
-                            if (opts[k] == cur) { idx = k; }
-                            k = k + 1
-                        }
-                        let next = opts[(idx + 1) % opts.length()]
-                        let oc = node.getProp("onChange")
-                        if (oc != null) { oc(next); }
-                    }
-                }
-
-                if (r[0] == "Checkbox" && inside) {
-                    let node = r[5]
-                    if (node.getProp("disabled") != true) {
-                        let oc = node.getProp("onChange")
-                        if (oc != null) { oc(node.getProp("checked") != true); }
-                    }
-                }
-
-                if (r[0] == "Button" && inside) {
-                    let node     = r[5]
-                    let disabled = node.getProp("disabled") == true
-                    if (!disabled) {
-                        let h = node.getProp("onClick")
-                        if (h != null) { h(); }
-                    }
-                }
-                j = j + 1
-            }
-        }
-
-        // Tecleo → input enfocado (input controlado: dispara onChange con el valor nuevo)
-        if (this.focus < inputNodes.length()) {
-            let node = inputNodes[this.focus]
-            let val  = node.getProp("value")
-            if (val == null) { val = ""; }
-            let cur    = "" + val
-            let newVal = cur
-
-            let typed = Gui.charsTyped()
-            if (typed.length() > 0) { newVal = newVal + typed; }
-
-            let keys = Gui.keysPressed()
-            let k = 0
-            while (k < keys.length()) {
-                if (keys[k] == "Backspace" && newVal.length() > 0) {
-                    newVal = newVal.substring(0, newVal.length() - 1)
-                } else if (keys[k] == "Enter") {
-                    let tag = node.getTag()
-                    if (tag == "Textarea") {
-                        newVal = newVal + "\n"
-                    }
-                }
-                k = k + 1
-            }
-
-            if (newVal != cur) {
-                let oc = node.getProp("onChange")
-                if (oc != null) { oc(newVal); }
-                changed = true
-            }
-        }
-        return changed
+        out "⚠️  serez-ui: GuiEventLoop quedó obsoleto (no reaccionaba por la semántica de valor)."
+        out "    Reemplazalo por:  app.runGui(\"" + this.title + "\", " + this.width + ", " + this.height + ")"
+        out "    Para CSS:         app.useStylesheet(sheet)   // antes de runGui"
     }
 }

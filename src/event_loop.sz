@@ -1,15 +1,16 @@
-// event_loop.sz — Loop de eventos principal para serez-ui
+// event_loop.sz — DEPRECADO. El loop TUI ahora vive en el propio componente.
 //
-// EventLoop conecta el renderer con el sistema de eventos del terminal.
-// Gestiona el ciclo render → esperar evento → despachar → re-render.
+// Antes:  let loop = new EventLoop(app); loop.start()
+// Ahora:  app.runTui()                  // salir con q
 //
-// Uso:
-//   let app  = new MiComponente()
-//   let loop = new EventLoop(app)
-//   loop.start()          // bloquea hasta que el usuario salga
+// ¿Por qué cambió? serez-code tiene semántica de VALOR: una clase loop externa
+// guardaba la app en un campo (una COPIA), así que mount()/onKey mutaban copias
+// descartables y la pantalla quedaba congelada / sin reaccionar. Con el loop como
+// método del componente, `this` es la app top-level del usuario y todo opera sobre
+// el mismo objeto vivo. Ver Window.runTui en window.sz.
 //
-// Para salir del loop: presionar q o Esc (por defecto).
-// El componente puede sobreescribir onEvent(evt) para manejar eventos.
+// Este shim solo existe para que el código viejo falle con un mensaje claro en vez
+// de un error de parseo.
 
 import "renderer"
 import "events"
@@ -18,88 +19,16 @@ use permissions { Terminal }
 
 export public class EventLoop {
     public EventLoop(any app) {
-        this.app      = app
-        this.renderer = new Renderer()
-        this.running  = false
-        this.quitKey  = "q"
-    }
-
-    // Arranca el loop: inicializa terminal, renderiza, espera eventos.
-    // Bloquea hasta que running = false.
-    public void start() {
-        this.running = true
-
-        unsafe {
-            Terminal.setRawMode(true)
-            Terminal.enableMouse(true)
-        }
-
-        // Primer render
-        Terminal.clear()
-        let vdom = this.app.mount()
-        this.renderer.render(vdom)
-
-        // Loop principal
-        while (this.running) {
-            let evt = null
-            unsafe {
-                evt = Terminal.readEvent()
-            }
-            if (evt != null) {
-                this.dispatch(evt)
-            }
-        }
-
-        // Restaurar terminal
-        unsafe {
-            Terminal.enableMouse(false)
-            Terminal.setRawMode(false)
-        }
-        Terminal.clear()
-        Terminal.setCursor(0, 0)
-    }
-
-    // Detiene el loop en el próximo ciclo
-    public void stop() {
+        this.app     = app
         this.running = false
+        this.quitKey = "q"
     }
 
-    // Cambia la tecla de salida (por defecto "q")
-    public void setQuitKey(string key) {
-        this.quitKey = key
-    }
+    public void stop()                 { this.running = false }
+    public void setQuitKey(string key) { this.quitKey = key }
 
-    // Despacha un evento al componente y re-renderiza si hubo cambios
-    public void dispatch(any evt) {
-        // Tecla de salida global
-        if (evt.type == "key" && evt.code == this.quitKey) {
-            this.stop()
-            return
-        }
-
-        // 1. Llamar al método del componente (onKey / onMouse)
-        if (evt.type == "key") {
-            this.app.onKey(evt)
-            let eName = keyEventName(evt)
-            fireEvent(this.app.getVDom(), eName, evt)
-            fireEvent(this.app.getVDom(), "onPressKey", evt)
-        }
-
-        if (evt.type == "mouse") {
-            this.app.onMouse(evt)
-            let eName = mouseEventName(evt)
-            fireEvent(this.app.getVDom(), eName, evt)
-        }
-
-        // Re-render si el componente actualizó su estado
-        let patches = this.app.update()
-        if (patches.length() > 0) {
-            this.renderer.render(this.app.getVDom())
-        }
-
-        // En resize: siempre re-renderiza
-        if (evt.type == "resize") {
-            this.renderer.render(this.app.getVDom())
-        }
+    public void start() {
+        out "⚠️  serez-ui: EventLoop quedó obsoleto (no reaccionaba por la semántica de valor)."
+        out "    Reemplazalo por:  app.runTui()   // salir con q"
     }
 }
