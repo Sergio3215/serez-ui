@@ -160,6 +160,24 @@ The component exposes its state to the sheet via `styleVars()`:
 public any styleVars() { return [["count", this.count]] }
 ```
 
+### Responsive (`.szs` media queries)
+
+The current `width` and `height` (px) are always available as condition variables — no
+`:import` needed — so a stylesheet can adapt the UI to the window size and reflows live on resize:
+
+```css
+body (width < 600)  { background-color: #1e1b4b; }   /* phone-ish */
+body (width >= 600) { background-color: #0f172a; }
+
+Row (width < 600)   { direction: column; }            /* stack the row when narrow */
+
+h1  (width < 600)   { font-scale: 2; }                /* smaller heading on small screens */
+h1  (width >= 960)  { font-scale: 4; }
+```
+
+Beyond colors, the sheet understands `direction: column` (lay a `Row` out vertically) and
+`font-scale: N` (integer text-size multiplier for `h1`/`h2`/`h3`/`p`/`span`/`li`).
+
 ## API surface
 
 | Export | What it is |

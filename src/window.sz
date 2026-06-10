@@ -539,7 +539,8 @@ export public class Window {
         r.setStyles(this.__sheet, this.styleVars())
         r.setWidthBounds(this.__minW, this.__maxW)
         let curW = width
-        r.render(this.getVDom(), curW)
+        let curH = height
+        r.render(this.getVDom(), curW, curH)
 
         // El flanco del click lo calculamos NOSOTROS (prevDown), NO con Gui.mousePressed().
         // Motivo: Gui.present() sondea los eventos de la ventana y, en el core, actualiza
@@ -553,10 +554,10 @@ export public class Window {
             Gui.present()
             if (Gui.keyDown("Esc")) { break; }
 
-            // Autosize: si la ventana cambió de ancho, re-render con el ancho vivo.
+            // Autosize: si la ventana cambió de tamaño, re-render con el tamaño vivo.
             let szv     = Gui.size()
-            let resized = szv[0] != curW
-            if (resized) { curW = szv[0]; }
+            let resized = szv[0] != curW || szv[1] != curH
+            if (resized) { curW = szv[0]; curH = szv[1]; }
 
             let down    = Gui.mouseDown()
             let pressed = down && !prevDown
@@ -577,7 +578,7 @@ export public class Window {
                 r.setDropHi(this.__dropHi)
                 r.setStyles(this.__sheet, this.styleVars())
                 r.setWidthBounds(this.__minW, this.__maxW)
-                r.render(this.getVDom(), curW)
+                r.render(this.getVDom(), curW, curH)
             }
         }
 

@@ -21,6 +21,7 @@ export public class GuiRenderer {
         this.cx         = 20     // x actual del flujo (cambia dentro de Row)
         this.cy         = 0      // y actual del flujo
         this.w          = 640
+        this.h          = 480    // alto vivo de la ventana (para condiciones .szs por height)
         this.colWidth   = 600    // ancho disponible para el nodo actual
         this.lastW      = 0      // ancho que ocupó el último nodo (lo lee Row)
         this.minW       = 0      // min-width del contenido (0 = sin límite)
@@ -34,6 +35,7 @@ export public class GuiRenderer {
         this.mouseHeld  = false
         this.sheet      = null   // Stylesheet (.szs) opcional
         this.ctx        = []     // contexto de estado [[nombre, valor]] para condiciones
+        this.fullCtx    = []     // ctx + width/height inyectados (media queries .szs)
 
         // Dropdown abierto (overlay diferido, dibujado encima al final)
         this.dropOpen     = false
@@ -79,14 +81,37 @@ export public class GuiRenderer {
     // Color de una prop CSS para un tag, o el fallback si no hay hoja/regla.
     public int colorFor(string tag, string prop, int fallback) {
         if (this.sheet == null) { return fallback; }
-        return this.sheet.colorProp(tag, prop, fallback, this.ctx)
+        return this.sheet.colorProp(tag, prop, fallback, this.fullCtx)
+    }
+
+    // Valor numérico de una prop CSS (o fallback). Reactivo por ancho vía fullCtx.
+    public int numProp(string tag, string prop, int fallback) {
+        if (this.sheet == null) { return fallback; }
+        let v = this.sheet.resolveProp(tag, prop, this.fullCtx)
+        if (v == null) { return fallback; }
+        return parseInt(("" + v).trim())
+    }
+
+    // Valor string de una prop CSS (o fallback).
+    public string strProp(string tag, string prop, string fallback) {
+        if (this.sheet == null) { return fallback; }
+        let v = this.sheet.resolveProp(tag, prop, this.fullCtx)
+        if (v == null) { return fallback; }
+        return ("" + v).trim()
     }
 
     public any getRegions() { return this.regions }
 
     // ── Render completo: limpia y redibuja desde la raíz ───────────────────────
-    public void render(any vdom, int width) {
+    public void render(any vdom, int width, int height) {
         this.w           = width
+        this.h           = height
+        // Inyecta width/height en el ctx → "media queries" .szs: body (width < 600) { … }
+        this.fullCtx = []
+        let ci = 0
+        while (ci < this.ctx.length()) { this.fullCtx.push(this.ctx[ci]); ci = ci + 1 }
+        this.fullCtx.push(["width", this.w])
+        this.fullCtx.push(["height", this.h])
         // Ancho de contenido acotado por min/max-width; se centra si max lo limita.
         let avail = width - this.pad * 2
         let eff   = avail
@@ -122,19 +147,25 @@ export public class GuiRenderer {
         let children = node.getChildren()
 
         if (tag == "h1") {
-            Gui.drawText(this.cx, this.cy, this.collectText(node), 3, this.colorFor("h1", "color", this.colText))
-            this.lastW = Gui.measureText(this.collectText(node), 3)[0]
-            this.cy = this.cy + 36
+            let sc1 = this.numProp("h1", "font-scale", 3)
+            let t1  = this.collectText(node)
+            Gui.drawText(this.cx, this.cy, t1, sc1, this.colorFor("h1", "color", this.colText))
+            this.lastW = Gui.measureText(t1, sc1)[0]
+            this.cy = this.cy + 8 * sc1 + 12
 
         } else if (tag == "h2") {
-            Gui.drawText(this.cx, this.cy, this.collectText(node), 2, this.colorFor("h2", "color", this.colText))
-            this.lastW = Gui.measureText(this.collectText(node), 2)[0]
-            this.cy = this.cy + 26
+            let sc2 = this.numProp("h2", "font-scale", 2)
+            let t2  = this.collectText(node)
+            Gui.drawText(this.cx, this.cy, t2, sc2, this.colorFor("h2", "color", this.colText))
+            this.lastW = Gui.measureText(t2, sc2)[0]
+            this.cy = this.cy + 8 * sc2 + 10
 
         } else if (tag == "p" || tag == "span" || tag == "h3" || tag == "li") {
-            Gui.drawText(this.cx, this.cy, this.collectText(node), 2, this.colorFor(tag, "color", this.colMuted))
-            this.lastW = Gui.measureText(this.collectText(node), 2)[0]
-            this.cy = this.cy + 24
+            let scp = this.numProp(tag, "font-scale", 2)
+            let tp  = this.collectText(node)
+            Gui.drawText(this.cx, this.cy, tp, scp, this.colorFor(tag, "color", this.colMuted))
+            this.lastW = Gui.measureText(tp, scp)[0]
+            this.cy = this.cy + 8 * scp + 8
 
         } else if (tag == "hr") {
             Gui.drawLine(this.cx, this.cy, this.cx + this.colWidth, this.cy, this.colorFor("hr", "color", this.colBorder))
@@ -618,6 +649,13 @@ export public class GuiRenderer {
 
     // ── Row (flujo horizontal, ancho de contenido, alineado a la izquierda) ─────
     public void renderRow(any node) {
+        // direction: column (responsive .szs) → apilar en vertical como un contenedor.
+        if (this.strProp("Row", "direction", "row") == "column") {
+            let kids = node.getChildren()
+            let ki = 0
+            while (ki < kids.length()) { this.renderNode(kids[ki]); ki = ki + 1 }
+            return
+        }
         let children = node.getChildren()
         let k = 0
         let i = 0
