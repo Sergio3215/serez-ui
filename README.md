@@ -66,7 +66,8 @@ Under the hood: `translate.sz` turns `<tag …>` into `h("tag", props, children)
 ## Built-in components
 
 Structure uses primitive HTML-like tags the renderer draws directly: `div, h1, h2, h3, p, span,
-hr, ul, li, section, form`. Layout containers `Row` (children side by side, each at its content
+hr, ul, li, section, form`. Block text (`h1`/`h2`/`h3`/`p`/`span`/`li`/`Label`) **word-wraps** to
+the available width and reflows on resize. Layout containers `Row` (children side by side, each at its content
 width, with a gap — and it **stacks them vertically when they no longer fit**, unless you set
 `wrap={false}`) and `Col` (vertical, like `div`) handle horizontal layout. For interaction:
 

@@ -100,6 +100,60 @@ export public class GuiRenderer {
         return ("" + v).trim()
     }
 
+    // Parte `text` en líneas que entran en `this.colWidth` (texto monoespaciado:
+    // 8*scale px/char). Corta por palabras; una palabra más larga que la línea se
+    // parte por la fuerza. Respeta los saltos de línea explícitos (\n).
+    public any wrapText(string text, int scale) {
+        let charW = 8 * scale
+        let maxChars = this.colWidth / charW
+        if (maxChars < 1) { maxChars = 1; }
+        let lines = []
+        let paras = text.split("\n")
+        let pi = 0
+        while (pi < paras.length()) {
+            let words = paras[pi].split(" ")
+            let cur = ""
+            let wi = 0
+            while (wi < words.length()) {
+                let word = words[wi]
+                while (word.length() > maxChars) {        // palabra sola muy larga → cortar
+                    if (cur.length() > 0) { lines.push(cur); cur = ""; }
+                    lines.push(word.substring(0, maxChars))
+                    word = word.substring(maxChars, word.length())
+                }
+                let candidate = word
+                if (cur.length() > 0) { candidate = cur + " " + word; }
+                if (candidate.length() > maxChars) {
+                    lines.push(cur)
+                    cur = word
+                } else {
+                    cur = candidate
+                }
+                wi = wi + 1
+            }
+            lines.push(cur)
+            pi = pi + 1
+        }
+        return lines
+    }
+
+    // Dibuja texto con wrap al ancho disponible y avanza `cy`. `blockGap` es el
+    // espacio tras el bloque (calibrado para que 1 línea = el avance previo).
+    public void drawWrapped(string text, int scale, int color, int blockGap) {
+        let lines = this.wrapText(text, scale)
+        let lh    = 8 * scale + 4
+        let maxW  = 0
+        let li    = 0
+        while (li < lines.length()) {
+            Gui.drawText(this.cx, this.cy + li * lh, lines[li], scale, color)
+            let lw = Gui.measureText(lines[li], scale)[0]
+            if (lw > maxW) { maxW = lw; }
+            li = li + 1
+        }
+        this.lastW = maxW
+        this.cy = this.cy + lines.length() * lh + (blockGap - 4)
+    }
+
     public any getRegions() { return this.regions }
 
     // ── Render completo: limpia y redibuja desde la raíz ───────────────────────
@@ -137,9 +191,7 @@ export public class GuiRenderer {
 
         let isPrim = node is string || node is int || node is decimal || node is bool
         if (isPrim) {
-            Gui.drawText(this.cx, this.cy, "" + node, 2, this.colText)
-            this.lastW = Gui.measureText("" + node, 2)[0]
-            this.cy = this.cy + 22
+            this.drawWrapped("" + node, 2, this.colText, 6)
             return
         }
 
@@ -148,24 +200,15 @@ export public class GuiRenderer {
 
         if (tag == "h1") {
             let sc1 = this.numProp("h1", "font-scale", 3)
-            let t1  = this.collectText(node)
-            Gui.drawText(this.cx, this.cy, t1, sc1, this.colorFor("h1", "color", this.colText))
-            this.lastW = Gui.measureText(t1, sc1)[0]
-            this.cy = this.cy + 8 * sc1 + 12
+            this.drawWrapped(this.collectText(node), sc1, this.colorFor("h1", "color", this.colText), 12)
 
         } else if (tag == "h2") {
             let sc2 = this.numProp("h2", "font-scale", 2)
-            let t2  = this.collectText(node)
-            Gui.drawText(this.cx, this.cy, t2, sc2, this.colorFor("h2", "color", this.colText))
-            this.lastW = Gui.measureText(t2, sc2)[0]
-            this.cy = this.cy + 8 * sc2 + 10
+            this.drawWrapped(this.collectText(node), sc2, this.colorFor("h2", "color", this.colText), 10)
 
         } else if (tag == "p" || tag == "span" || tag == "h3" || tag == "li") {
             let scp = this.numProp(tag, "font-scale", 2)
-            let tp  = this.collectText(node)
-            Gui.drawText(this.cx, this.cy, tp, scp, this.colorFor(tag, "color", this.colMuted))
-            this.lastW = Gui.measureText(tp, scp)[0]
-            this.cy = this.cy + 8 * scp + 8
+            this.drawWrapped(this.collectText(node), scp, this.colorFor(tag, "color", this.colMuted), 8)
 
         } else if (tag == "hr") {
             Gui.drawLine(this.cx, this.cy, this.cx + this.colWidth, this.cy, this.colorFor("hr", "color", this.colBorder))
@@ -618,10 +661,7 @@ export public class GuiRenderer {
 
     // ── Label / Link ───────────────────────────────────────────────────────────
     public void renderLabel(any node) {
-        let txt = this.collectText(node)
-        Gui.drawText(this.cx, this.cy, txt, 2, this.colorFor("Label", "color", this.colText))
-        this.lastW = Gui.measureText(txt, 2)[0]
-        this.cy = this.cy + 24
+        this.drawWrapped(this.collectText(node), 2, this.colorFor("Label", "color", this.colText), 8)
     }
 
     public void renderLink(any node) {
