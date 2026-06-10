@@ -647,6 +647,30 @@ export public class GuiRenderer {
         this.cy = this.cy + 8 * scale + 12
     }
 
+    // Ancho natural (px) de un nodo, para decidir el auto-wrap del Row. Los elásticos
+    // (Input/Select/Textarea/Dropdown/Slider/ProgressBar/RadioGroup) y contenedores son
+    // flexibles → devuelven 0 (no fuerzan el wrap; se encogen para compartir el ancho).
+    public int measureNodeWidth(any node) {
+        if (node == null) { return 0; }
+        let isPrim = node is string || node is int || node is decimal || node is bool
+        if (isPrim) { return Gui.measureText("" + node, 2)[0]; }
+        let tag = node.getTag()
+        if (tag == "Button") { return Gui.measureText(this.collectText(node), 2)[0] + 28; }
+        if (tag == "Link")   { return Gui.measureText(this.collectText(node), 2)[0]; }
+        if (tag == "Label")  { return Gui.measureText(this.collectText(node), 2)[0]; }
+        if (tag == "Checkbox") {
+            let lbl = node.getProp("label")
+            if (lbl == null) { lbl = this.collectText(node); }
+            return 28 + Gui.measureText("" + lbl, 2)[0]
+        }
+        if (tag == "h1") { return Gui.measureText(this.collectText(node), this.numProp("h1", "font-scale", 3))[0]; }
+        if (tag == "h2") { return Gui.measureText(this.collectText(node), this.numProp("h2", "font-scale", 2))[0]; }
+        if (tag == "p" || tag == "span" || tag == "h3" || tag == "li") {
+            return Gui.measureText(this.collectText(node), this.numProp(tag, "font-scale", 2))[0]
+        }
+        return 0
+    }
+
     // ── Row (flujo horizontal, ancho de contenido, alineado a la izquierda) ─────
     public void renderRow(any node) {
         // direction: column (responsive .szs) → apilar en vertical como un contenedor.
@@ -666,6 +690,21 @@ export public class GuiRenderer {
         if (k == 0) { return; }
 
         let gap   = 10
+        // Auto-wrap (Capa 3): si los hijos de ancho fijo no entran lado a lado, apilar en
+        // vertical. `wrap={false}` lo desactiva. (`direction: column` del .szs ya forzó vertical.)
+        if (node.getProp("wrap") != false) {
+            let fixedSum = gap * (k - 1)
+            let wi = 0
+            while (wi < children.length()) {
+                if (children[wi] != null) { fixedSum = fixedSum + this.measureNodeWidth(children[wi]); }
+                wi = wi + 1
+            }
+            if (fixedSum > this.colWidth) {
+                let ci = 0
+                while (ci < children.length()) { this.renderNode(children[ci]); ci = ci + 1 }
+                return
+            }
+        }
         let cellW = (this.colWidth - gap * (k - 1)) / k
         let startX    = this.cx
         let startY    = this.cy
