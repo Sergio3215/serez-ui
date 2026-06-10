@@ -575,6 +575,11 @@ export public class Window {
             let resized = szv[0] != curW || szv[1] != curH
             if (resized) { curW = szv[0]; curH = szv[1]; this.__vw = curW; }
 
+            // Scroll vertical con la rueda del mouse.
+            let scr      = Gui.scroll()
+            let scrolled = scr[1] != 0
+            if (scrolled) { r.scrollBy(scr[1]); }
+
             let down    = Gui.mouseDown()
             let pressed = down && !prevDown
             prevDown    = down
@@ -587,7 +592,7 @@ export public class Window {
             // En resize re-ejecutamos render() (no solo el dibujo) → el componente puede
             // devolver OTRA estructura según viewportWidth()/breakpoint() (responsive Capa 2).
             if (changed || resized) { this.update(); }
-            if (changed || resized) {
+            if (changed || resized || scrolled) {
                 let m2 = Gui.mouse()
                 r.setMouse(m2[0], m2[1], down)
                 r.setFocus(this.__focus)

@@ -36,6 +36,8 @@ export public class GuiRenderer {
         this.sheet      = null   // Stylesheet (.szs) opcional
         this.ctx        = []     // contexto de estado [[nombre, valor]] para condiciones
         this.fullCtx    = []     // ctx + width/height inyectados (media queries .szs)
+        this.scrollY    = 0      // desplazamiento vertical del scroll (px)
+        this.contentH   = 0      // alto total del contenido del último render (px)
 
         // Dropdown abierto (overlay diferido, dibujado encima al final)
         this.dropOpen     = false
@@ -71,6 +73,15 @@ export public class GuiRenderer {
     public void setDropOpen(bool b)    { this.dropOpen = b }
     public void setDropHi(int i)       { this.dropHi = i }
     public void setWidthBounds(int mn, int mx) { this.minW = mn; this.maxW = mx }
+
+    // Ajusta el scroll vertical con la rueda (dy = delta de Gui.scroll()). Acota a [0, max].
+    public void scrollBy(int dy) {
+        this.scrollY = this.scrollY - dy * 40
+        let maxS = this.contentH + this.pad - this.h
+        if (maxS < 0) { maxS = 0; }
+        if (this.scrollY > maxS) { this.scrollY = maxS; }
+        if (this.scrollY < 0) { this.scrollY = 0; }
+    }
 
     // Asigna la hoja de estilos (.szs) y el contexto de estado para condiciones.
     public void setStyles(any sheet, any ctx) {
@@ -178,17 +189,32 @@ export public class GuiRenderer {
         if (eff < this.minW) { eff = this.minW; }
         this.cx          = this.pad
         if (eff < avail) { this.cx = (width - eff) / 2; }   // centrar bajo max-width
-        this.cy          = this.pad
+        this.cy          = this.pad - this.scrollY    // desplazamiento de scroll vertical
         this.colWidth    = eff
         this.regions     = []
         this.focusOrd    = 0
         this.hasOpenDrop = false
         Gui.clear(this.colorFor("body", "background-color", this.colBg))
         this.renderNode(vdom)
+        this.contentH = this.cy + this.scrollY - this.pad   // alto total del contenido
         // El overlay del dropdown abierto se pinta al final, sobre todo lo demás.
         if (this.dropOpen && this.hasOpenDrop) {
             this.drawDropdownOverlay()
         }
+        this.drawScrollbar()
+    }
+
+    // Barra de scroll fina a la derecha cuando el contenido no entra en la ventana.
+    public void drawScrollbar() {
+        if (this.contentH + this.pad <= this.h) { return; }
+        let trackX = this.w - 6
+        Gui.fillRect(trackX, 0, 6, this.h, this.colBorder)
+        let thumbH = (this.h * this.h) / this.contentH
+        if (thumbH < 24) { thumbH = 24; }
+        let maxS = this.contentH + this.pad - this.h
+        if (maxS < 1) { maxS = 1; }
+        let thumbY = (this.scrollY * (this.h - thumbH)) / maxS
+        Gui.fillRect(trackX, thumbY, 6, thumbH, this.colMuted)
     }
 
     public void renderNode(any node) {

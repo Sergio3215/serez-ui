@@ -50,6 +50,8 @@ A component is a class that **extends `Window`** and returns JSX from `render()`
   (`"sm"`/`"md"`/`"lg"`; thresholds via `app.setBreakpoints(smMax, mdMax)`, default `600`/`960`)
   inside `render()` — the GUI re-runs `render()` on resize, so you can return a different tree per
   breakpoint (e.g. a `Row` of links on desktop, a single menu button on phones).
+- Content taller than the window **scrolls vertically** with the mouse wheel (a thin scrollbar
+  appears on the right) — automatic, no config.
 - Lifecycle (handled by the run methods): `mount()`, `update()`, `unmount()`.
 
 ## `.szx` → `.sz` (the JSX translator)
