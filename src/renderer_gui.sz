@@ -1,30 +1,46 @@
 // renderer_gui.sz — Renderer GUI (píxeles) para serez-ui
 //
 // Recorre el árbol VNode y lo dibuja en una ventana real vía el namespace `Gui`
-// del core. Mismo modelo que el renderer TUI, pero en píxeles: layout de flujo
-// vertical simple (un nodo debajo de otro) con un box model básico.
+// del core. Layout de flujo: por defecto vertical (un nodo debajo de otro); el
+// contenedor Row coloca sus hijos lado a lado (celdas de igual ancho).
 //
-// Registra "regiones" interactivas (Button / Input) con sus bounds en píxeles
-// para que el GuiEventLoop haga hit-testing del mouse y enfoque de inputs.
+// FOCO UNIFICADO: cada elemento interactivo (Button/Input/Select/Checkbox/
+// Textarea/RadioGroup/Slider/Dropdown/Link) recibe un índice de foco según su
+// orden de render. `this.focus` marca cuál está enfocado; el renderer le dibuja
+// un anillo. El GuiEventLoop (window.sz) navega con Tab/clic y dirige el teclado
+// al enfocado. ProgressBar/Label no son enfocables.
 //
-// El layout avanzado (flexbox/columnas) llegará con taffy + .szs; el texto
-// vectorial con cosmic-text. Aquí el texto es bitmap 8x8 escalado (Gui.drawText).
+// El texto es bitmap 8x8 escalado (Gui.drawText), monoespaciado: 8*scale px por
+// carácter — eso permite posicionar el cursor y recortar texto largo con exactitud.
 
 use permissions { Gui }
 
 export public class GuiRenderer {
     public GuiRenderer() {
         this.pad        = 20
-        this.cy         = 0
+        this.cx         = 20     // x actual del flujo (cambia dentro de Row)
+        this.cy         = 0      // y actual del flujo
         this.w          = 640
+        this.colWidth   = 600    // ancho disponible para el nodo actual
         this.regions    = []
-        this.inputCount = 0
+        this.focusOrd   = 0      // contador de enfocables durante el render
+        this.focus      = 0      // índice del enfocable activo
+        this.caret      = 0      // posición del cursor en el campo de texto enfocado
         this.mouseX     = -1
         this.mouseY     = -1
         this.mouseHeld  = false
-        this.focus      = 0
         this.sheet      = null   // Stylesheet (.szs) opcional
         this.ctx        = []     // contexto de estado [[nombre, valor]] para condiciones
+
+        // Dropdown abierto (overlay diferido, dibujado encima al final)
+        this.dropOpen     = false
+        this.dropHi       = 0
+        this.hasOpenDrop  = false
+        this.openDropX    = 0
+        this.openDropY    = 0
+        this.openDropW    = 0
+        this.openDropH    = 0
+        this.openDropNode = null
 
         // Tema (oscuro)
         this.colBg     = 0x0f172a
@@ -35,7 +51,8 @@ export public class GuiRenderer {
         this.colBtnDn  = 0x1d4ed8
         this.colInput  = 0x111827
         this.colBorder = 0x334155
-        this.colFocus  = 0x3b82f6
+        this.colFocus  = 0x60a5fa
+        this.colLink   = 0x60a5fa
     }
 
     public void setMouse(int x, int y, bool held) {
@@ -44,7 +61,10 @@ export public class GuiRenderer {
         this.mouseHeld = held
     }
 
-    public void setFocus(int idx) { this.focus = idx }
+    public void setFocus(int idx)      { this.focus = idx }
+    public void setCaret(int c)        { this.caret = c }
+    public void setDropOpen(bool b)    { this.dropOpen = b }
+    public void setDropHi(int i)       { this.dropHi = i }
 
     // Asigna la hoja de estilos (.szs) y el contexto de estado para condiciones.
     public void setStyles(any sheet, any ctx) {
@@ -60,14 +80,21 @@ export public class GuiRenderer {
 
     public any getRegions() { return this.regions }
 
-    // Render completo: limpia y redibuja desde la raíz
+    // ── Render completo: limpia y redibuja desde la raíz ───────────────────────
     public void render(any vdom, int width) {
-        this.w          = width
-        this.cy         = this.pad
-        this.regions    = []
-        this.inputCount = 0
+        this.w           = width
+        this.cx          = this.pad
+        this.cy          = this.pad
+        this.colWidth    = this.w - this.pad * 2
+        this.regions     = []
+        this.focusOrd    = 0
+        this.hasOpenDrop = false
         Gui.clear(this.colorFor("body", "background-color", this.colBg))
         this.renderNode(vdom)
+        // El overlay del dropdown abierto se pinta al final, sobre todo lo demás.
+        if (this.dropOpen && this.hasOpenDrop) {
+            this.drawDropdownOverlay()
+        }
     }
 
     public void renderNode(any node) {
@@ -75,7 +102,7 @@ export public class GuiRenderer {
 
         let isPrim = node is string || node is int || node is decimal || node is bool
         if (isPrim) {
-            Gui.drawText(this.pad, this.cy, "" + node, 2, this.colText)
+            Gui.drawText(this.cx, this.cy, "" + node, 2, this.colText)
             this.cy = this.cy + 22
             return
         }
@@ -84,38 +111,47 @@ export public class GuiRenderer {
         let children = node.getChildren()
 
         if (tag == "h1") {
-            Gui.drawText(this.pad, this.cy, this.collectText(node), 3, this.colorFor("h1", "color", this.colText))
+            Gui.drawText(this.cx, this.cy, this.collectText(node), 3, this.colorFor("h1", "color", this.colText))
             this.cy = this.cy + 36
 
         } else if (tag == "h2") {
-            Gui.drawText(this.pad, this.cy, this.collectText(node), 2, this.colorFor("h2", "color", this.colText))
+            Gui.drawText(this.cx, this.cy, this.collectText(node), 2, this.colorFor("h2", "color", this.colText))
             this.cy = this.cy + 26
 
         } else if (tag == "p" || tag == "span" || tag == "h3" || tag == "li") {
-            Gui.drawText(this.pad, this.cy, this.collectText(node), 2, this.colorFor(tag, "color", this.colMuted))
+            Gui.drawText(this.cx, this.cy, this.collectText(node), 2, this.colorFor(tag, "color", this.colMuted))
             this.cy = this.cy + 24
 
         } else if (tag == "hr") {
-            Gui.drawLine(this.pad, this.cy, this.w - this.pad, this.cy, this.colorFor("hr", "color", this.colBorder))
+            Gui.drawLine(this.cx, this.cy, this.cx + this.colWidth, this.cy, this.colorFor("hr", "color", this.colBorder))
             this.cy = this.cy + 14
 
         } else if (tag == "Button") {
             this.renderButton(node)
-
         } else if (tag == "Input") {
             this.renderInput(node)
-
         } else if (tag == "Select") {
             this.renderSelect(node)
-
         } else if (tag == "Checkbox") {
             this.renderCheckbox(node)
-
         } else if (tag == "Textarea") {
             this.renderTextarea(node)
-
+        } else if (tag == "RadioGroup") {
+            this.renderRadioGroup(node)
+        } else if (tag == "Slider") {
+            this.renderSlider(node)
+        } else if (tag == "ProgressBar") {
+            this.renderProgressBar(node)
+        } else if (tag == "Dropdown") {
+            this.renderDropdown(node)
+        } else if (tag == "Label") {
+            this.renderLabel(node)
+        } else if (tag == "Link") {
+            this.renderLink(node)
+        } else if (tag == "Row") {
+            this.renderRow(node)
         } else {
-            // div, section, form, ul, __fragment__ — contenedores transparentes
+            // div, Col, section, form, ul, __fragment__ — contenedores verticales
             let i = 0
             while (i < children.length()) {
                 this.renderNode(children[i])
@@ -124,14 +160,28 @@ export public class GuiRenderer {
         }
     }
 
+    // ── Anillo de foco (4 barras finas alrededor del rect) ─────────────────────
+    public void drawFocusRing(int bx, int by, int bw, int bh) {
+        let c = this.colFocus
+        Gui.fillRect(bx - 2, by - 2, bw + 4, 2, c)
+        Gui.fillRect(bx - 2, by + bh, bw + 4, 2, c)
+        Gui.fillRect(bx - 2, by - 2, 2, bh + 4, c)
+        Gui.fillRect(bx + bw, by - 2, 2, bh + 4, c)
+    }
+
+    // ── Button ─────────────────────────────────────────────────────────────────
     public void renderButton(any node) {
         let label    = this.collectText(node)
         let m        = Gui.measureText(label, 2)
         let bw       = m[0] + 28
         let bh       = 40
-        let bx       = this.pad
+        let bx       = this.cx
         let by       = this.cy
         let disabled = node.getProp("disabled") == true
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
 
         let hover = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
         let color = this.colorFor("Button", "background-color", this.colBtn)
@@ -145,111 +195,134 @@ export public class GuiRenderer {
 
         Gui.fillRect(bx, by, bw, bh, color)
         Gui.drawText(bx + 14, by + 12, label, 2, this.colorFor("Button", "color", this.colText))
+        if (focused) { this.drawFocusRing(bx, by, bw, bh) }
 
         this.regions.push(["Button", bx, by, bw, bh, node])
         this.cy = this.cy + bh + 10
     }
 
+    // ── Input (una línea, con cursor y recorte horizontal) ─────────────────────
     public void renderInput(any node) {
         let val         = node.getProp("value")
         let placeholder = node.getProp("placeholder")
         let type        = node.getProp("type")
+        let disabled    = node.getProp("disabled") == true
 
-        let bx = this.pad
+        let bx = this.cx
         let by = this.cy
-        let bw = this.w - this.pad * 2
+        let bw = this.colWidth
         let bh = 34
+        let scale = 2
+        let charW = 8 * scale
 
-        let focused = this.inputCount == this.focus
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
 
-        // Caja + borde (resaltado si tiene foco)
         Gui.fillRect(bx, by, bw, bh, this.colorFor("Input", "background-color", this.colInput))
         let bcol = this.colBorder
         if (focused) { bcol = this.colFocus }
         Gui.fillRect(bx, by, bw, 2, bcol)
         Gui.fillRect(bx, by + bh - 2, bw, 2, bcol)
+        Gui.fillRect(bx, by, 2, bh, bcol)
+        Gui.fillRect(bx + bw - 2, by, 2, bh, bcol)
 
-        // Texto: value (enmascarado si password) o placeholder
-        let display = ""
-        let muted   = false
-        if (val != null && ("" + val).length() > 0) {
-            display = "" + val
-            if (type == "password") {
-                let masked = ""
-                let k = 0
-                while (k < display.length()) { masked = masked + "*"; k = k + 1; }
-                display = masked
-            }
-        } else if (placeholder != null) {
-            display = "" + placeholder
-            muted   = true
+        // String visible (enmascarado si password)
+        let raw = ""
+        if (val != null) { raw = "" + val }
+        let display = raw
+        if (type == "password") {
+            let masked = ""
+            let k = 0
+            while (k < raw.length()) { masked = masked + "*"; k = k + 1; }
+            display = masked
         }
 
-        let tcol = this.colorFor("Input", "color", this.colText)
-        if (muted) { tcol = this.colMuted }
-        Gui.drawText(bx + 10, by + 9, display, 2, tcol)
+        let textX = bx + 10
+        // Cuántos caracteres caben (monoespaciado): cuenta sin división dudosa
+        let fit = 0
+        let acc = textX
+        while (acc + charW <= bx + bw - 10) { fit = fit + 1; acc = acc + charW; }
 
-        // Cursor cuando tiene foco
+        let car = this.caret
+        if (car > display.length()) { car = display.length(); }
+        if (car < 0) { car = 0; }
+
+        // Desplazamiento para mantener el cursor a la vista
+        let start = 0
+        if (focused && car > fit) { start = car - fit; }
+
+        let tcol = this.colorFor("Input", "color", this.colText)
+        if (display.length() == 0 && placeholder != null) {
+            Gui.drawText(textX, by + 9, "" + placeholder, scale, this.colMuted)
+        } else {
+            let endIdx = start + fit
+            if (endIdx > display.length()) { endIdx = display.length(); }
+            let shown = display.substring(start, endIdx)
+            Gui.drawText(textX, by + 9, shown, scale, tcol)
+        }
+
         if (focused) {
-            let cx = bx + 10
-            if (!muted) {
-                let mw = Gui.measureText(display, 2)
-                cx = bx + 10 + mw[0]
-            }
-            Gui.drawText(cx, by + 9, "_", 2, this.colText)
+            let cpos = car - start
+            if (cpos < 0) { cpos = 0; }
+            Gui.fillRect(textX + cpos * charW, by + 7, 2, bh - 14, this.colText)
         }
 
         this.regions.push(["Input", bx, by, bw, bh, node])
-        this.inputCount = this.inputCount + 1
         this.cy = this.cy + bh + 12
     }
 
+    // ── Select (clic cicla; ←/→ con foco) ──────────────────────────────────────
     public void renderSelect(any node) {
         let value    = node.getProp("value")
-        let options  = node.getProp("options")
         let disabled = node.getProp("disabled") == true
 
-        let bx = this.pad
+        let bx = this.cx
         let by = this.cy
-        let bw = this.w - this.pad * 2
+        let bw = this.colWidth
         let bh = 34
 
-        let hover = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
 
+        let hover = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
         let color = this.colorFor("Select", "background-color", this.colInput)
         if (!disabled && hover && this.mouseHeld) {
             color = this.colBtnDn
         } else if (!disabled && hover) {
             color = this.colBtnHov
         }
-
         Gui.fillRect(bx, by, bw, bh, color)
 
         let display = "" + value
-        if (disabled) {
-            display = "  " + display + "  "
-        } else {
-            display = "◀ " + display + " ▶"
-        }
-
-        let tcol = this.colorFor("Select", "color", this.colText)
-        Gui.drawText(bx + 10, by + 9, display, 2, tcol)
+        if (disabled) { display = "  " + display + "  "; }
+        else { display = "< " + display + " >"; }
+        Gui.drawText(bx + 10, by + 9, display, 2, this.colorFor("Select", "color", this.colText))
+        if (focused) { this.drawFocusRing(bx, by, bw, bh) }
 
         this.regions.push(["Select", bx, by, bw, bh, node])
         this.cy = this.cy + bh + 12
     }
 
+    // ── Checkbox ────────────────────────────────────────────────────────────────
     public void renderCheckbox(any node) {
         let checked = node.getProp("checked") == true
         let label   = node.getProp("label")
         if (label == null) { label = this.collectText(node); }
         let disabled = node.getProp("disabled") == true
 
-        let bx = this.pad
+        let bx = this.cx
         let by = this.cy
         let boxSize = 20
 
-        let hover = this.mouseX >= bx && this.mouseX < bx + boxSize && this.mouseY >= by && this.mouseY < by + boxSize
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        let lm    = Gui.measureText("" + label, 2)
+        let regW  = boxSize + 8 + lm[0]
+        let hover = this.mouseX >= bx && this.mouseX < bx + regW && this.mouseY >= by && this.mouseY < by + boxSize
 
         let color = this.colorFor("Checkbox", "background-color", this.colInput)
         if (!disabled && hover && this.mouseHeld) {
@@ -257,65 +330,310 @@ export public class GuiRenderer {
         } else if (!disabled && hover) {
             color = this.colBtnHov
         }
-
         Gui.fillRect(bx, by, boxSize, boxSize, color)
-
         if (checked) {
-            let tcol = this.colorFor("Checkbox", "color", this.colText)
-            Gui.drawText(bx + 4, by + 4, "✓", 2, tcol)
+            Gui.drawText(bx + 4, by + 4, "X", 2, this.colorFor("Checkbox", "color", this.colText))
         }
+        Gui.drawText(bx + boxSize + 8, by + 2, "" + label, 2, this.colorFor("Checkbox", "color", this.colText))
+        if (focused) { this.drawFocusRing(bx, by, regW, boxSize); }
 
-        Gui.drawText(bx + boxSize + 8, by + 2, label, 2, this.colorFor("Checkbox", "color", this.colText))
-
-        this.regions.push(["Checkbox", bx, by, boxSize, boxSize, node])
+        this.regions.push(["Checkbox", bx, by, regW, boxSize, node])
         this.cy = this.cy + boxSize + 12
     }
 
+    // ── Textarea (multilínea, cursor sobre el string plano con \n) ─────────────
     public void renderTextarea(any node) {
         let val         = node.getProp("value")
         let placeholder = node.getProp("placeholder")
         let rows        = node.getProp("rows")
         let disabled    = node.getProp("disabled") == true
-
         if (rows == null) { rows = 4; }
+        if (val == null) { val = ""; }
+        val = "" + val
 
-        let bx = this.pad
+        let bx = this.cx
         let by = this.cy
-        let bw = this.w - this.pad * 2
-        let bh = rows * 18 + 12
+        let bw = this.colWidth
+        let lineH = 18
+        let bh = rows * lineH + 12
+        let scale = 1
+        let charW = 8 * scale
 
-        let focused = this.inputCount == this.focus
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
 
         Gui.fillRect(bx, by, bw, bh, this.colorFor("Textarea", "background-color", this.colInput))
         let bcol = this.colBorder
-        if (focused) { bcol = this.colFocus }
+        if (focused) { bcol = this.colFocus; }
         Gui.fillRect(bx, by, bw, 2, bcol)
         Gui.fillRect(bx, by + bh - 2, bw, 2, bcol)
+        Gui.fillRect(bx, by, 2, bh, bcol)
+        Gui.fillRect(bx + bw - 2, by, 2, bh, bcol)
 
-        if (val == null) { val = ""; }
-        if (val == "" && placeholder != null) {
-            Gui.drawText(bx + 6, by + 6, placeholder, 1, this.colMuted)
+        if (val.length() == 0 && placeholder != null) {
+            Gui.drawText(bx + 6, by + 6, "" + placeholder, scale, this.colMuted)
         } else {
             let lines = val.split("\n")
-            let y = by + 6
-            let i = 0
-            while (i < lines.length() && i < rows) {
-                Gui.drawText(bx + 6, y, lines[i], 1, this.colorFor("Textarea", "color", this.colText))
-                y = y + 18
-                i = i + 1
+
+            // Línea y columna del cursor (recorriendo el string hasta el caret)
+            let car = this.caret
+            if (car > val.length()) { car = val.length(); }
+            if (car < 0) { car = 0; }
+            let caretLine = 0
+            let caretCol  = 0
+            let ci = 0
+            while (ci < car) {
+                if (val.charAt(ci) == "\n") { caretLine = caretLine + 1; caretCol = 0; }
+                else { caretCol = caretCol + 1; }
+                ci = ci + 1
+            }
+
+            // Scroll vertical para mantener el cursor visible
+            let startLine = 0
+            if (focused && caretLine >= rows) { startLine = caretLine - rows + 1; }
+
+            let tcol  = this.colorFor("Textarea", "color", this.colText)
+            let li    = startLine
+            let yrow  = by + 6
+            let drawn = 0
+            while (li < lines.length() && drawn < rows) {
+                Gui.drawText(bx + 6, yrow, lines[li], scale, tcol)
+                yrow  = yrow + lineH
+                li    = li + 1
+                drawn = drawn + 1
             }
 
             if (focused) {
-                let lastLine = lines[lines.length() - 1]
-                if (lastLine == null) { lastLine = ""; }
-                let m = Gui.measureText(lastLine, 1)
-                Gui.drawText(bx + 6 + m[0], by + 6 + (lines.length() - 1) * 18, "_", 1, this.colText)
+                let crow = by + 6 + (caretLine - startLine) * lineH
+                Gui.fillRect(bx + 6 + caretCol * charW, crow, 1, lineH - 2, this.colText)
             }
         }
 
         this.regions.push(["Textarea", bx, by, bw, bh, node])
-        this.inputCount = this.inputCount + 1
         this.cy = this.cy + bh + 12
+    }
+
+    // ── RadioGroup (lista de opciones excluyentes) ─────────────────────────────
+    public void renderRadioGroup(any node) {
+        let value    = node.getProp("value")
+        let options  = node.getProp("options")
+        let disabled = node.getProp("disabled") == true
+        if (options == null) { options = []; }
+
+        let bx     = this.cx
+        let startY = this.cy
+        let lineH  = 26
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        let i = 0
+        while (i < options.length()) {
+            let oy  = startY + i * lineH
+            let opt = options[i]
+            let selected = ("" + opt) == ("" + value)
+            Gui.fillRect(bx + 2, oy + 3, 16, 16, this.colBorder)
+            Gui.fillRect(bx + 4, oy + 5, 12, 12, this.colInput)
+            if (selected) { Gui.fillRect(bx + 7, oy + 8, 6, 6, this.colBtn); }
+            Gui.drawText(bx + 26, oy + 4, "" + opt, 2, this.colText)
+            i = i + 1
+        }
+
+        let totalH = options.length() * lineH
+        if (totalH == 0) { totalH = lineH; }
+        if (focused) { this.drawFocusRing(bx, startY, this.colWidth, totalH); }
+
+        this.regions.push(["RadioGroup", bx, startY, this.colWidth, totalH, node])
+        this.cy = startY + totalH + 10
+    }
+
+    // ── Slider (pista + tirador + valor) ───────────────────────────────────────
+    public void renderSlider(any node) {
+        let value    = node.getProp("value")
+        let min      = node.getProp("min")
+        let max      = node.getProp("max")
+        let disabled = node.getProp("disabled") == true
+        if (min == null) { min = 0; }
+        if (max == null) { max = 100; }
+        if (value == null) { value = min; }
+
+        let bx = this.cx
+        let by = this.cy
+        let bh = 30
+        let trackW = this.colWidth - 56
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        let span = max - min
+        if (span <= 0) { span = 1; }
+        let rel = value - min
+        if (rel < 0) { rel = 0; }
+        if (rel > span) { rel = span; }
+        let filled = (rel * trackW) / span
+        let knobX  = bx + filled
+
+        let tyv = by + 13
+        Gui.fillRect(bx, tyv, trackW, 4, this.colBorder)
+        Gui.fillRect(bx, tyv, filled, 4, this.colBtn)
+        Gui.fillRect(knobX - 5, by + 5, 10, 18, this.colBtn)
+        Gui.drawText(bx + trackW + 12, by + 7, "" + value, 2, this.colText)
+        if (focused) { this.drawFocusRing(bx, by, this.colWidth, bh); }
+
+        this.regions.push(["Slider", bx, by, trackW, bh, node])
+        this.cy = this.cy + bh + 12
+    }
+
+    // ── ProgressBar (no interactivo) ───────────────────────────────────────────
+    public void renderProgressBar(any node) {
+        let value = node.getProp("value")
+        let max   = node.getProp("max")
+        let label = node.getProp("label")
+        if (value == null) { value = 0; }
+        if (max == null) { max = 100; }
+
+        let bx = this.cx
+        let by = this.cy
+        let bw = this.colWidth
+        let bh = 22
+
+        let span = max
+        if (span <= 0) { span = 1; }
+        let v = value
+        if (v < 0) { v = 0; }
+        if (v > span) { v = span; }
+
+        Gui.fillRect(bx, by, bw, bh, this.colInput)
+        Gui.fillRect(bx, by, (v * bw) / span, bh, this.colBtn)
+        if (label != null) { Gui.drawText(bx + 8, by + 4, "" + label, 1, this.colText); }
+        this.cy = this.cy + bh + 12
+    }
+
+    // ── Dropdown (caja + overlay diferido) ─────────────────────────────────────
+    public void renderDropdown(any node) {
+        let value    = node.getProp("value")
+        let disabled = node.getProp("disabled") == true
+
+        let bx = this.cx
+        let by = this.cy
+        let bw = this.colWidth
+        let bh = 34
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        Gui.fillRect(bx, by, bw, bh, this.colorFor("Dropdown", "background-color", this.colInput))
+        Gui.drawText(bx + 10, by + 9, "" + value, 2, this.colorFor("Dropdown", "color", this.colText))
+        Gui.drawText(bx + bw - 22, by + 9, "v", 2, this.colMuted)
+        if (focused) { this.drawFocusRing(bx, by, bw, bh); }
+
+        this.regions.push(["Dropdown", bx, by, bw, bh, node])
+
+        if (focused && this.dropOpen) {
+            this.hasOpenDrop  = true
+            this.openDropX    = bx
+            this.openDropY    = by
+            this.openDropW    = bw
+            this.openDropH    = bh
+            this.openDropNode = node
+        }
+        this.cy = this.cy + bh + 12
+    }
+
+    // Overlay de opciones del dropdown abierto (dibujado al final, encima de todo).
+    public void drawDropdownOverlay() {
+        let node = this.openDropNode
+        if (node == null) { return; }
+        let opts = node.getProp("options")
+        if (opts == null) { return; }
+
+        let dx = this.openDropX
+        let dw = this.openDropW
+        let oy0 = this.openDropY + this.openDropH
+        let optH = 30
+
+        let i = 0
+        while (i < opts.length()) {
+            let oy = oy0 + i * optH
+            let bg = this.colInput
+            if (i == this.dropHi) { bg = this.colBtnHov; }
+            Gui.fillRect(dx, oy, dw, optH, bg)
+            Gui.fillRect(dx, oy, dw, 1, this.colBorder)
+            Gui.drawText(dx + 10, oy + 9, "" + opts[i], 2, this.colText)
+            i = i + 1
+        }
+        Gui.fillRect(dx, oy0 + opts.length() * optH, dw, 2, this.colBorder)
+    }
+
+    // ── Label / Link ───────────────────────────────────────────────────────────
+    public void renderLabel(any node) {
+        Gui.drawText(this.cx, this.cy, this.collectText(node), 2, this.colorFor("Label", "color", this.colText))
+        this.cy = this.cy + 24
+    }
+
+    public void renderLink(any node) {
+        let label    = this.collectText(node)
+        let scale    = 2
+        let m        = Gui.measureText(label, scale)
+        let lw       = m[0]
+        let bx       = this.cx
+        let by       = this.cy
+        let disabled = node.getProp("disabled") == true
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        let col = this.colorFor("Link", "color", this.colLink)
+        Gui.drawText(bx, by, label, scale, col)
+        Gui.fillRect(bx, by + 8 * scale + 1, lw, 1, col)
+        if (focused) { this.drawFocusRing(bx, by, lw, 8 * scale + 4); }
+
+        this.regions.push(["Link", bx, by, lw, 8 * scale + 4, node])
+        this.cy = this.cy + 8 * scale + 12
+    }
+
+    // ── Row (flujo horizontal, celdas de igual ancho) ──────────────────────────
+    public void renderRow(any node) {
+        let children = node.getChildren()
+        let k = 0
+        let i = 0
+        while (i < children.length()) {
+            if (children[i] != null) { k = k + 1; }
+            i = i + 1
+        }
+        if (k == 0) { return; }
+
+        let gap   = 10
+        let cellW = (this.colWidth - gap * (k - 1)) / k
+        let startX    = this.cx
+        let startY    = this.cy
+        let savedColW = this.colWidth
+        let maxH = 0
+        let xi   = startX
+
+        i = 0
+        while (i < children.length()) {
+            let child = children[i]
+            if (child != null) {
+                this.cx       = xi
+                this.cy       = startY
+                this.colWidth = cellW
+                this.renderNode(child)
+                let hh = this.cy - startY
+                if (hh > maxH) { maxH = hh; }
+                xi = xi + cellW + gap
+            }
+            i = i + 1
+        }
+
+        this.colWidth = savedColW
+        this.cx       = startX
+        this.cy       = startY + maxH
     }
 
     public string collectText(any node) {

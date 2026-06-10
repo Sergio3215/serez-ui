@@ -10,6 +10,11 @@
 // top-level del usuario durante todo el ciclo, así que mount/update/handlers operan
 // siempre sobre el mismo objeto vivo.
 //
+// IMPORTANTE (semántica de valor): por eso TODA mutación de estado del loop
+// (this.__focus / __caret / __dropOpen / __dropHi) se hace INLINE en handleGuiInput.
+// Los métodos auxiliares son PUROS (calculan y devuelven) o solo disparan handlers
+// del vdom (closures que mutan el top-level). No mutan `this`.
+//
 //   let app = new MiApp()
 //   app.runGui("Título", 640, 480)   // ventana nativa
 //   app.runTui()                     // terminal (salir con q)
@@ -29,8 +34,11 @@ export public class Window {
         this.vdom     = null
         this.mounted  = false
         this.effects  = []
-        this.__focus  = 0      // índice del input enfocado (loops GUI)
-        this.__sheet  = null   // Stylesheet (.szs) opcional
+        this.__focus    = 0      // índice del enfocable activo (loops GUI)
+        this.__caret    = 0      // posición del cursor en el campo de texto enfocado
+        this.__dropOpen = false  // ¿hay un Dropdown desplegado?
+        this.__dropHi   = 0      // opción resaltada del Dropdown abierto
+        this.__sheet    = null   // Stylesheet (.szs) opcional
     }
 
     // Override en subclases — produce el árbol VNode
@@ -100,102 +108,404 @@ export public class Window {
     // Hoja de estilos (.szs) para el render GUI. Llamar antes de runGui().
     public void useStylesheet(any sheet) { this.__sheet = sheet }
 
-    // ── GUI: ventana nativa ─────────────────────────────────────────────────
+    // ── Helpers PUROS del foco/edición (no mutan this) ─────────────────────────
 
-    // Procesa la entrada del frame contra las regiones del último render. Es PURO:
-    // recibe el estado del mouse/teclado por parámetro (testeable headless) y muta
-    // este componente vía los handlers del vdom (que lo capturan por referencia).
-    // r: el GuiRenderer (con sus regiones). Devuelve true si hubo cambios.
-    public bool handleGuiInput(any r, int mx, int my, bool pressed, string typed, any keys) {
-        let changed = false
-        let regions = r.getRegions()
-
-        // Inputs/Textareas en orden (para dirigir el tecleo al enfocado)
-        let inputNodes = []
+    // Índice de `value` dentro de las options del nodo (0 si no está).
+    public int indexOfOption(any node, any value) {
+        let opts = node.getProp("options")
+        if (opts == null) { return 0; }
         let i = 0
-        while (i < regions.length()) {
-            if (regions[i][0] == "Input" || regions[i][0] == "Textarea") { inputNodes.push(regions[i][5]); }
+        while (i < opts.length()) {
+            if (("" + opts[i]) == ("" + value)) { return i; }
             i = i + 1
         }
+        return 0
+    }
 
+    // Posición de cursor a partir de la x del clic en un Input (monoespaciado).
+    public int caretFromClick(any rg, int mx) {
+        let node = rg[5]
+        let val  = node.getProp("value")
+        if (val == null) { val = ""; }
+        val = "" + val
+        let charW = 16            // scale 2 → 8*2
+        let rel = mx - (rg[1] + 10)
+        if (rel < 0) { rel = 0; }
+        let idx = rel / charW
+        if (idx > val.length()) { idx = val.length(); }
+        return idx
+    }
+
+    // Longitud del valor del enfocable actual si es texto, si no 0.
+    public int caretEndOfFocus(any regions) {
+        if (this.__focus < 0 || this.__focus >= regions.length()) { return 0; }
+        let rg = regions[this.__focus]
+        if (rg[0] == "Input" || rg[0] == "Textarea") {
+            let v = rg[5].getProp("value")
+            if (v == null) { return 0; }
+            return ("" + v).length()
+        }
+        return 0
+    }
+
+    // Mueve el cursor a la línea anterior/siguiente (dir -1/+1) en un Textarea,
+    // conservando la columna. Devuelve el nuevo índice de cursor.
+    public int caretLineMove(string val, int caret, int dir) {
+        let lineStart = 0
+        let col = 0
+        let i = 0
+        while (i < caret) {
+            if (val.charAt(i) == "\n") { lineStart = i + 1; col = 0; }
+            else { col = col + 1; }
+            i = i + 1
+        }
+        if (dir < 0) {
+            if (lineStart == 0) { return caret; }
+            let prevEnd   = lineStart - 1
+            let prevStart = 0
+            let j = prevEnd - 1
+            while (j >= 0) {
+                if (val.charAt(j) == "\n") { prevStart = j + 1; j = -1; }
+                else { j = j - 1; }
+            }
+            let prevLen = prevEnd - prevStart
+            let target = col
+            if (target > prevLen) { target = prevLen; }
+            return prevStart + target
+        }
+        let nlPos = -1
+        let p = lineStart
+        while (p < val.length()) {
+            if (val.charAt(p) == "\n") { nlPos = p; p = val.length(); }
+            else { p = p + 1; }
+        }
+        if (nlPos == -1) { return caret; }
+        let nextStart = nlPos + 1
+        let nextEnd = val.length()
+        let q = nextStart
+        while (q < val.length()) {
+            if (val.charAt(q) == "\n") { nextEnd = q; q = val.length(); }
+            else { q = q + 1; }
+        }
+        let nextLen = nextEnd - nextStart
+        let target = col
+        if (target > nextLen) { target = nextLen; }
+        return nextStart + target
+    }
+
+    // Cicla el valor de un Select/Dropdown por `dir` y dispara onChange. No muta this.
+    public void cycleSelect(any node, int dir) {
+        if (node.getProp("disabled") == true) { return; }
+        let opts = node.getProp("options")
+        if (opts == null) { return; }
+        if (opts.length() == 0) { return; }
+        let cur  = this.indexOfOption(node, node.getProp("value"))
+        let nidx = (cur + dir + opts.length()) % opts.length()
+        let oc = node.getProp("onChange")
+        if (oc != null) { oc(opts[nidx]); }
+    }
+
+    // Suma `dir * step` al Slider, lo acota a [min,max] y dispara onChange.
+    public void nudgeSlider(any node, int dir) {
+        if (node.getProp("disabled") == true) { return; }
+        let min   = node.getProp("min")
+        let max   = node.getProp("max")
+        let step  = node.getProp("step")
+        let value = node.getProp("value")
+        if (min == null) { min = 0; }
+        if (max == null) { max = 100; }
+        if (step == null) { step = 1; }
+        if (value == null) { value = min; }
+        let nv = value + dir * step
+        if (nv < min) { nv = min; }
+        if (nv > max) { nv = max; }
+        if (nv != value) {
+            let oc = node.getProp("onChange")
+            if (oc != null) { oc(nv); }
+        }
+    }
+
+    // Fija el Slider según la x del clic en la pista y dispara onChange.
+    public void sliderFromClick(any node, any rg, int mx) {
+        if (node.getProp("disabled") == true) { return; }
+        let min = node.getProp("min")
+        let max = node.getProp("max")
+        if (min == null) { min = 0; }
+        if (max == null) { max = 100; }
+        let bx     = rg[1]
+        let trackW = rg[3]
+        if (trackW <= 0) { return; }
+        let rel = mx - bx
+        if (rel < 0) { rel = 0; }
+        if (rel > trackW) { rel = trackW; }
+        let span = max - min
+        let nv = min + (rel * span) / trackW
+        let oc = node.getProp("onChange")
+        if (oc != null) { oc(nv); }
+    }
+
+    // ── GUI: ventana nativa ─────────────────────────────────────────────────
+
+    // Procesa la entrada del frame contra las regiones del último render. Muta el
+    // estado del loop INLINE (foco/cursor/dropdown). r: el GuiRenderer (con sus
+    // regiones). Devuelve true si hubo cambios (para re-renderizar).
+    //   keys       : Gui.keysPressed()  (sin auto-repeat) → Tab/Enter/Space/flechas de acción
+    //   repeatKeys : Gui.keysRepeated() (con auto-repeat)  → Backspace/Delete/flechas de edición
+    //   typed      : Gui.charsTyped()                      → texto a insertar
+    //   shift      : Gui.keyDown("Shift")                  → Shift+Tab
+    public bool handleGuiInput(any r, int mx, int my, bool pressed, string typed, any keys, any repeatKeys, bool shift) {
+        let regions = r.getRegions()
+        let n = regions.length()
+        let changed = false
+
+        if (this.__focus < 0) { this.__focus = 0; }
+        if (n > 0 && this.__focus >= n) { this.__focus = n - 1; }
+
+        // ── Dropdown abierto: su overlay intercepta el clic antes que nada ─────
+        if (pressed && this.__dropOpen && n > 0 && this.__focus < n) {
+            let fdrop = regions[this.__focus]
+            if (fdrop[0] == "Dropdown") {
+                let dnode = fdrop[5]
+                let dopts = dnode.getProp("options")
+                if (dopts == null) { dopts = []; }
+                let dx = fdrop[1]
+                let dy = fdrop[2]
+                let dw = fdrop[3]
+                let dh = fdrop[4]
+                let optH = 30
+                let oy0 = dy + dh
+                if (mx >= dx && mx < dx + dw && my >= oy0 && my < oy0 + dopts.length() * optH) {
+                    let idx = 0
+                    let yy = oy0
+                    while (yy + optH <= my) { idx = idx + 1; yy = yy + optH; }
+                    if (idx >= dopts.length()) { idx = dopts.length() - 1; }
+                    let oc = dnode.getProp("onChange")
+                    if (oc != null) { oc(dopts[idx]); }
+                    this.__dropOpen = false
+                    return true
+                } else if (mx >= dx && mx < dx + dw && my >= dy && my < dy + dh) {
+                    this.__dropOpen = false   // clic en la propia caja → cerrar
+                    return true
+                } else {
+                    this.__dropOpen = false   // clic fuera → cerrar y seguir
+                }
+            }
+        }
+
+        // ── Clic: enfocar + activar la región pulsada ──────────────────────────
         if (pressed) {
-            changed = true
-            let inputOrder = 0
             let j = 0
-            while (j < regions.length()) {
-                let rg     = regions[j]
+            while (j < n) {
+                let rg = regions[j]
                 let inside = mx >= rg[1] && mx < rg[1] + rg[3] && my >= rg[2] && my < rg[2] + rg[4]
-
-                if (rg[0] == "Input") {
-                    if (inside) { this.__focus = inputOrder; }
-                    inputOrder = inputOrder + 1
-                }
-                if (rg[0] == "Textarea") {
-                    if (inside) { this.__focus = inputOrder; }
-                    inputOrder = inputOrder + 1
-                }
-                if (rg[0] == "Select" && inside) {
+                if (inside) {
+                    this.__focus = j
                     let node = rg[5]
-                    if (node.getProp("disabled") != true) {
-                        let opts = node.getProp("options")
-                        let cur  = node.getProp("value")
-                        let idx  = 0
-                        let kk = 0
-                        while (kk < opts.length()) {
-                            if (opts[kk] == cur) { idx = kk; }
-                            kk = kk + 1
+                    let tag  = rg[0]
+                    if (tag == "Input") {
+                        this.__caret = this.caretFromClick(rg, mx)
+                    } else if (tag == "Textarea") {
+                        let tv = node.getProp("value")
+                        if (tv == null) { tv = ""; }
+                        this.__caret = ("" + tv).length()
+                    } else if (tag == "Button" || tag == "Link") {
+                        if (node.getProp("disabled") != true) {
+                            let hb = node.getProp("onClick")
+                            if (hb != null) { hb(); }
                         }
-                        let next = opts[(idx + 1) % opts.length()]
-                        let oc = node.getProp("onChange")
-                        if (oc != null) { oc(next); }
+                    } else if (tag == "Checkbox") {
+                        if (node.getProp("disabled") != true) {
+                            let oc = node.getProp("onChange")
+                            if (oc != null) { oc(node.getProp("checked") != true); }
+                        }
+                    } else if (tag == "Select") {
+                        this.cycleSelect(node, 1)
+                    } else if (tag == "Dropdown") {
+                        if (node.getProp("disabled") != true) {
+                            this.__dropOpen = !this.__dropOpen
+                            this.__dropHi = this.indexOfOption(node, node.getProp("value"))
+                        }
+                    } else if (tag == "RadioGroup") {
+                        if (node.getProp("disabled") != true) {
+                            let opts = node.getProp("options")
+                            if (opts != null && opts.length() > 0) {
+                                let lineH = 26
+                                let idx = 0
+                                let yy = rg[2]
+                                while (yy + lineH <= my) { idx = idx + 1; yy = yy + lineH; }
+                                if (idx >= opts.length()) { idx = opts.length() - 1; }
+                                let oc = node.getProp("onChange")
+                                if (oc != null) { oc(opts[idx]); }
+                            }
+                        }
+                    } else if (tag == "Slider") {
+                        this.sliderFromClick(node, rg, mx)
                     }
-                }
-                if (rg[0] == "Checkbox" && inside) {
-                    let node = rg[5]
-                    if (node.getProp("disabled") != true) {
-                        let oc = node.getProp("onChange")
-                        if (oc != null) { oc(node.getProp("checked") != true); }
-                    }
-                }
-                if (rg[0] == "Button" && inside) {
-                    let node     = rg[5]
-                    let disabled = node.getProp("disabled") == true
-                    if (!disabled) {
-                        let hb = node.getProp("onClick")
-                        if (hb != null) { hb(); }
-                    }
+                    changed = true
                 }
                 j = j + 1
             }
         }
 
-        // Tecleo → input enfocado (controlado: dispara onChange con el valor nuevo)
-        if (this.__focus < inputNodes.length()) {
-            let node = inputNodes[this.__focus]
-            let val  = node.getProp("value")
-            if (val == null) { val = ""; }
-            let cur    = "" + val
-            let newVal = cur
+        // ── Tab / Shift+Tab: navegar el foco ───────────────────────────────────
+        let kt = 0
+        while (kt < keys.length()) {
+            if (keys[kt] == "Tab" && n > 0) {
+                if (shift) { this.__focus = (this.__focus - 1 + n) % n; }
+                else       { this.__focus = (this.__focus + 1) % n; }
+                this.__caret = this.caretEndOfFocus(regions)
+                this.__dropOpen = false
+                changed = true
+            }
+            kt = kt + 1
+        }
 
-            if (typed.length() > 0) { newVal = newVal + typed; }
+        if (n == 0) { return changed; }
+        let fr    = regions[this.__focus]
+        let ftag  = fr[0]
+        let fnode = fr[5]
+        let fdis  = fnode.getProp("disabled") == true
 
-            let kx = 0
-            while (kx < keys.length()) {
-                if (keys[kx] == "Backspace" && newVal.length() > 0) {
-                    newVal = newVal.substring(0, newVal.length() - 1)
-                } else if (keys[kx] == "Enter") {
-                    let tag = node.getTag()
-                    if (tag == "Textarea") { newVal = newVal + "\n" }
+        // ── Activación por teclado del enfocado (Enter/Space + flechas de acción) ─
+        let ka = 0
+        while (ka < keys.length()) {
+            let key = keys[ka]
+            if (ftag == "Button" || ftag == "Link") {
+                if ((key == "Enter" || key == "Space") && !fdis) {
+                    let hb = fnode.getProp("onClick")
+                    if (hb != null) { hb(); changed = true; }
                 }
-                kx = kx + 1
+            } else if (ftag == "Checkbox") {
+                if ((key == "Space" || key == "Enter") && !fdis) {
+                    let oc = fnode.getProp("onChange")
+                    if (oc != null) { oc(fnode.getProp("checked") != true); changed = true; }
+                }
+            } else if (ftag == "Select") {
+                if (key == "Left")  { this.cycleSelect(fnode, -1); changed = true; }
+                if (key == "Right" || key == "Space" || key == "Enter") { this.cycleSelect(fnode, 1); changed = true; }
+            } else if (ftag == "Dropdown") {
+                if ((key == "Enter" || key == "Space") && !fdis) {
+                    if (this.__dropOpen) {
+                        let opts = fnode.getProp("options")
+                        if (opts != null && this.__dropHi >= 0 && this.__dropHi < opts.length()) {
+                            let oc = fnode.getProp("onChange")
+                            if (oc != null) { oc(opts[this.__dropHi]); }
+                        }
+                        this.__dropOpen = false
+                    } else {
+                        this.__dropOpen = true
+                        this.__dropHi = this.indexOfOption(fnode, fnode.getProp("value"))
+                    }
+                    changed = true
+                }
+            }
+            ka = ka + 1
+        }
+
+        // ── Teclas con repetición según el enfocado (no-texto) ─────────────────
+        let kr = 0
+        while (kr < repeatKeys.length()) {
+            let key = repeatKeys[kr]
+            if (ftag == "Slider") {
+                if (key == "Left")  { this.nudgeSlider(fnode, -1); changed = true; }
+                if (key == "Right") { this.nudgeSlider(fnode, 1); changed = true; }
+            } else if (ftag == "Dropdown" && this.__dropOpen) {
+                let opts = fnode.getProp("options")
+                let cnt = 0
+                if (opts != null) { cnt = opts.length(); }
+                if (key == "Down" && cnt > 0) { this.__dropHi = (this.__dropHi + 1) % cnt; changed = true; }
+                if (key == "Up" && cnt > 0)   { this.__dropHi = (this.__dropHi - 1 + cnt) % cnt; changed = true; }
+            } else if (ftag == "RadioGroup" && !fdis) {
+                let opts = fnode.getProp("options")
+                if (opts != null && opts.length() > 0) {
+                    let cur = this.indexOfOption(fnode, fnode.getProp("value"))
+                    let nidx = cur
+                    if (key == "Down" || key == "Right") { nidx = (cur + 1) % opts.length(); }
+                    if (key == "Up" || key == "Left")    { nidx = (cur - 1 + opts.length()) % opts.length(); }
+                    if (nidx != cur) {
+                        let oc = fnode.getProp("onChange")
+                        if (oc != null) { oc(opts[nidx]); changed = true; }
+                    }
+                }
+            }
+            kr = kr + 1
+        }
+
+        // ── Edición de texto del Input/Textarea enfocado ───────────────────────
+        if ((ftag == "Input" || ftag == "Textarea") && !fdis) {
+            let val = fnode.getProp("value")
+            if (val == null) { val = ""; }
+            val = "" + val
+            let car = this.__caret
+            if (car > val.length()) { car = val.length(); }
+            if (car < 0) { car = 0; }
+            let newVal = val
+            let newCar = car
+            let textChanged = false
+
+            // Borrado y navegación (con auto-repeat)
+            let ri = 0
+            while (ri < repeatKeys.length()) {
+                let key = repeatKeys[ri]
+                if (key == "Backspace") {
+                    if (newCar > 0) {
+                        newVal = newVal.substring(0, newCar - 1) + newVal.substring(newCar, newVal.length())
+                        newCar = newCar - 1
+                        textChanged = true
+                    }
+                } else if (key == "Delete") {
+                    if (newCar < newVal.length()) {
+                        newVal = newVal.substring(0, newCar) + newVal.substring(newCar + 1, newVal.length())
+                        textChanged = true
+                    }
+                } else if (key == "Left") {
+                    if (newCar > 0) { newCar = newCar - 1; }
+                } else if (key == "Right") {
+                    if (newCar < newVal.length()) { newCar = newCar + 1; }
+                } else if (key == "Home") {
+                    newCar = 0
+                } else if (key == "End") {
+                    newCar = newVal.length()
+                } else if (key == "Up" && ftag == "Textarea") {
+                    newCar = this.caretLineMove(newVal, newCar, -1)
+                } else if (key == "Down" && ftag == "Textarea") {
+                    newCar = this.caretLineMove(newVal, newCar, 1)
+                }
+                ri = ri + 1
             }
 
-            if (newVal != cur) {
-                let oc = node.getProp("onChange")
+            // Texto escrito
+            if (typed.length() > 0) {
+                newVal = newVal.substring(0, newCar) + typed + newVal.substring(newCar, newVal.length())
+                newCar = newCar + typed.length()
+                textChanged = true
+            }
+
+            // Enter: salto de línea (Textarea) u onSubmit (Input)
+            let ke = 0
+            while (ke < keys.length()) {
+                if (keys[ke] == "Enter") {
+                    if (ftag == "Textarea") {
+                        newVal = newVal.substring(0, newCar) + "\n" + newVal.substring(newCar, newVal.length())
+                        newCar = newCar + 1
+                        textChanged = true
+                    } else {
+                        let os = fnode.getProp("onSubmit")
+                        if (os != null) { os(val); changed = true; }
+                    }
+                }
+                ke = ke + 1
+            }
+
+            if (newCar != car) { this.__caret = newCar; changed = true; }
+            if (textChanged) {
+                this.__caret = newCar
+                let oc = fnode.getProp("onChange")
                 if (oc != null) { oc(newVal); }
                 changed = true
             }
         }
+
         return changed
     }
 
@@ -216,6 +526,9 @@ export public class Window {
         let m0 = Gui.mouse()
         r.setMouse(m0[0], m0[1], Gui.mouseDown())
         r.setFocus(this.__focus)
+        r.setCaret(this.__caret)
+        r.setDropOpen(this.__dropOpen)
+        r.setDropHi(this.__dropHi)
         r.setStyles(this.__sheet, this.styleVars())
         r.render(this.getVDom(), width)
 
@@ -236,7 +549,8 @@ export public class Window {
             prevDown    = down
 
             let m       = Gui.mouse()
-            let changed = this.handleGuiInput(r, m[0], m[1], pressed, Gui.charsTyped(), Gui.keysPressed())
+            let shift   = Gui.keyDown("Shift")
+            let changed = this.handleGuiInput(r, m[0], m[1], pressed, Gui.charsTyped(), Gui.keysPressed(), Gui.keysRepeated(), shift)
 
             // Re-render solo si hubo cambios; el nuevo buffer se muestra en el próximo present().
             if (changed) {
@@ -244,6 +558,9 @@ export public class Window {
                 let m2 = Gui.mouse()
                 r.setMouse(m2[0], m2[1], down)
                 r.setFocus(this.__focus)
+                r.setCaret(this.__caret)
+                r.setDropOpen(this.__dropOpen)
+                r.setDropHi(this.__dropHi)
                 r.setStyles(this.__sheet, this.styleVars())
                 r.render(this.getVDom(), width)
             }

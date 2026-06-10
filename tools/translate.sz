@@ -41,7 +41,9 @@ fn bool is_upper_first(string tag) {
 
 fn bool is_builtin_tag(string tag) {
     return tag == "Button" || tag == "Input" || tag == "Select"
-        || tag == "Checkbox" || tag == "Textarea"
+        || tag == "Checkbox" || tag == "Textarea" || tag == "RadioGroup"
+        || tag == "Slider" || tag == "ProgressBar" || tag == "Dropdown"
+        || tag == "Label" || tag == "Link" || tag == "Row" || tag == "Col"
 }
 
 fn bool is_user_component(string tag) {

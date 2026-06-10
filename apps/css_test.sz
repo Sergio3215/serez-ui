@@ -18,7 +18,7 @@ let t = new Checker()
 
 // El .szs se lee de un archivo (no string literal) para evitar la
 // interpolación {} de serez-code. Esta es la vía real de uso.
-let src   = File.read("serez-ui/apps/_styles_test.szs")
+let src   = File.read("apps/_styles_test.szs")
 let sheet = parseCss(src)
 
 out "=== Color parsing ==="

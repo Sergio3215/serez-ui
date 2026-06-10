@@ -87,9 +87,108 @@ export fn any Textarea(any props, any children) {
     return new VNode("Textarea", props, children)
 }
 
+// ── RadioGroup ────────────────────────────────────────────────────────────────
+// Grupo de opciones excluyentes (solo una activa). Foco único; las flechas mueven
+// la selección y el clic en una opción la elige.
+//
+// Props:
+//   value    : string       — opción seleccionada (debe estar en options)
+//   options  : array string — lista de opciones
+//   onChange : fn(val)      — handler al cambiar
+//   disabled : bool         — si true, atenuado y sin interacción
+//
+//   <RadioGroup value={size} options={["S", "M", "L"]} onChange={setSize} />
+export fn any RadioGroup(any props, any children) {
+    return new VNode("RadioGroup", props, children)
+}
+
+// ── Slider ──────────────────────────────────────────────────────────────────--
+// Control deslizante numérico. Clic en la pista fija el valor; flechas ←/→ lo
+// mueven por `step`.
+//
+// Props:
+//   value    : int      — valor actual
+//   min      : int      — mínimo (default 0)
+//   max      : int      — máximo (default 100)
+//   step     : int      — incremento de las flechas (default 1)
+//   onChange : fn(int)  — handler al cambiar
+//   disabled : bool     — si true, atenuado y sin interacción
+//
+//   <Slider value={vol} min={0} max={100} step={5} onChange={setVol} />
+export fn any Slider(any props, any children) {
+    return new VNode("Slider", props, children)
+}
+
+// ── ProgressBar ───────────────────────────────────────────────────────────────
+// Barra de progreso NO interactiva (no entra en el orden de foco).
+//
+// Props:
+//   value : int    — progreso actual
+//   max   : int    — total (default 100)
+//   label : string — texto opcional sobre la barra
+//
+//   <ProgressBar value={done} max={total} label="Cargando..." />
+export fn any ProgressBar(any props, any children) {
+    return new VNode("ProgressBar", props, children)
+}
+
+// ── Dropdown ──────────────────────────────────────────────────────────────────
+// Selector desplegable real: clic abre la lista de opciones; clic/Enter elige;
+// ↑/↓ navegan. A diferencia de Select (que solo cicla), aquí se ven las opciones.
+//
+// Props:
+//   value    : string       — opción seleccionada
+//   options  : array string — lista de opciones
+//   onChange : fn(val)      — handler al elegir
+//   disabled : bool         — si true, atenuado y sin interacción
+//
+//   <Dropdown value={lang} options={["es", "en", "fr"]} onChange={setLang} />
+export fn any Dropdown(any props, any children) {
+    return new VNode("Dropdown", props, children)
+}
+
+// ── Label ─────────────────────────────────────────────────────────────────────
+// Texto de etiqueta para formularios. No interactivo. El texto son sus children.
+//
+//   <Label>Nombre</Label>
+export fn any Label(any props, any children) {
+    return new VNode("Label", props, children)
+}
+
+// ── Link ──────────────────────────────────────────────────────────────────────
+// Enlace activable (subrayado, color de acento). Enter/clic dispara onClick.
+//
+// Props:
+//   href     : string  — destino (informativo; el handler decide qué hacer)
+//   onClick  : fn()    — handler de activación
+//   disabled : bool
+//
+//   <Link href="https://serez" onClick={open}>Abrir</Link>
+export fn any Link(any props, any children) {
+    return new VNode("Link", props, children)
+}
+
+// ── Row / Col ───────────────────────────────────────────────────────────────--
+// Contenedores de layout. Row coloca sus hijos lado a lado (flujo horizontal,
+// celdas de igual ancho); Col los apila en vertical (igual que un div). Resuelven
+// que el render por defecto solo apila en vertical.
+//
+//   <Row><Button>Sí</Button><Button>No</Button></Row>
+export fn any Row(any props, any children) {
+    return new VNode("Row", props, children)
+}
+
+export fn any Col(any props, any children) {
+    return new VNode("Col", props, children)
+}
+
 // ── Registro de built-ins ───────────────────────────────────────────────────--
 // Permite al runtime saber qué tags son componentes built-in de la librería
-// (en contraposición a los tags HTML primitivos).
+// (en contraposición a los tags HTML primitivos). Mantener en sync con
+// tools/translate.sz::is_builtin_tag.
 export fn bool isBuiltinComponent(string tag) {
-    return tag == "Button" || tag == "Input" || tag == "Select" || tag == "Checkbox" || tag == "Textarea"
+    return tag == "Button" || tag == "Input" || tag == "Select"
+        || tag == "Checkbox" || tag == "Textarea" || tag == "RadioGroup"
+        || tag == "Slider" || tag == "ProgressBar" || tag == "Dropdown"
+        || tag == "Label" || tag == "Link" || tag == "Row" || tag == "Col"
 }

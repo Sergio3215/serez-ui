@@ -1,6 +1,6 @@
 # serez-ui
 
-**v1.0.0** · React-style UI library for [Serez-Code](../Serez-code). Components, a transparent
+**v1.3.0** · React-style UI library for [Serez-Code](../Serez-code). Components, a transparent
 Virtual DOM, and hooks — the **same component** runs in the terminal (TUI) or in a real native
 window (GUI). Written in pure `.sz`; the JSX layer (`.szx`) compiles away entirely (no web runtime).
 
@@ -59,22 +59,57 @@ Under the hood: `translate.sz` turns `<tag …>` into `h("tag", props, children)
 ## Built-in components
 
 Structure uses primitive HTML-like tags the renderer draws directly: `div, h1, h2, h3, p, span,
-hr, ul, li, section, form`. For interaction there are five form components:
+hr, ul, li, section, form`. Layout containers `Row` (children side by side, equal-width cells) and
+`Col` (vertical, like `div`) handle horizontal layout. For interaction:
 
-| Component  | Props | Notes |
-|------------|-------|-------|
-| `Button`   | `onClick`, `disabled` | Text is the children |
-| `Input`    | `value`, `placeholder`, `type`, `onChange`, `disabled` | `type="password"` masks |
-| `Select`   | `value`, `options`, `onChange`, `disabled` | Click cycles options |
-| `Checkbox` | `checked`, `label`, `onChange`, `disabled` | Click toggles |
-| `Textarea` | `value`, `placeholder`, `rows`, `onChange`, `disabled` | Multi-line |
+| Component     | Props | Notes |
+|---------------|-------|-------|
+| `Button`      | `onClick`, `disabled` | Text is the children · Enter/Space activates when focused |
+| `Input`       | `value`, `placeholder`, `type`, `onChange`, `onSubmit`, `disabled` | One line · positionable caret, `type="password"` masks, Enter → `onSubmit` |
+| `Textarea`    | `value`, `placeholder`, `rows`, `onChange`, `disabled` | Multi-line · caret + vertical scroll, Enter inserts a newline |
+| `Select`      | `value`, `options`, `onChange`, `disabled` | Click / ←→ cycles options |
+| `Dropdown`    | `value`, `options`, `onChange`, `disabled` | Real drop list · click or Enter opens, ↑↓ navigate, Enter picks |
+| `Checkbox`    | `checked`, `label`, `onChange`, `disabled` | Click or Space toggles |
+| `RadioGroup`  | `value`, `options`, `onChange`, `disabled` | One choice · click an option or ↑↓ to move |
+| `Slider`      | `value`, `min`, `max`, `step`, `onChange`, `disabled` | Click the track or ←→ to change |
+| `ProgressBar` | `value`, `max`, `label` | Non-interactive (skipped by focus) |
+| `Label`       | — | Caption text (children); non-interactive |
+| `Link`        | `href`, `onClick`, `disabled` | Underlined accent · click or Enter activates |
 
 ```sz
 <Input value={this.name} placeholder="your name" onChange={(v) => { this.name = v }} />
+<Textarea value={this.bio} rows={4} onChange={(v) => { this.bio = v }} />
 <Select value={this.mode} options={["fast", "normal", "slow"]} onChange={(v) => { this.mode = v }} />
+<Dropdown value={this.lang} options={["es", "en", "fr"]} onChange={(v) => { this.lang = v }} />
 <Checkbox checked={this.agreed} label="I agree" onChange={(b) => { this.agreed = b }} />
-<Button onClick={save} disabled={!this.canSave}>Save</Button>
+<RadioGroup value={this.size} options={["S", "M", "L"]} onChange={(v) => { this.size = v }} />
+<Slider value={this.vol} min={0} max={100} step={5} onChange={(v) => { this.vol = v }} />
+<ProgressBar value={this.vol} max={100} label="level" />
+<Row>
+    <Button onClick={save} disabled={!this.canSave}>Save</Button>
+    <Button onClick={clear}>Clear</Button>
+</Row>
 ```
+
+## Focus & keyboard (GUI)
+
+Every interactive component is **focusable** and gets a focus index in render order. The focused
+element shows a ring (text fields highlight their border and draw the caret).
+
+| Key | Action |
+|-----|--------|
+| `Tab` / `Shift+Tab` | Move focus to the next / previous component |
+| click | Focus that component (and, in a text field, place the caret under the cursor) |
+| `←` `→` `Home` `End` | Move the caret (text fields) · change value (Select / Slider) |
+| `Backspace` / `Delete` | Delete before / at the caret (auto-repeat when held) |
+| `Enter` / `Space` | Activate the focused Button / Link / Checkbox / Dropdown |
+| `Enter` | Newline in a Textarea · `onSubmit` in an Input |
+| `↑` `↓` | Navigate options in an open Dropdown / a RadioGroup |
+| `Esc` | Close the window |
+
+> Text rendering uses the core's 8×8 bitmap font (ASCII + Latin-1, so `ñ á é í ó ú ¿ ¡ ü` render).
+> Typing accented characters from the keyboard is still limited by the minifb backend (no dead-key
+> composition yet); set such values programmatically or via `onChange`.
 
 ## TUI and GUI
 
@@ -160,7 +195,8 @@ serez-ui/
     diff.sz patch.sz   diffing + patching
     state.sz effect.sz memo.sz   hooks
     window.sz          Window base class + the GUI/TUI event loops (runGui/runTui)
-    components.sz      Button, Input, Select, Checkbox, Textarea
+    components.sz      Button, Input, Textarea, Select, Dropdown, Checkbox,
+                       RadioGroup, Slider, ProgressBar, Label, Link, Row, Col
     renderer.sz events.sz   TUI renderer + event helpers
     renderer_gui.sz    GUI renderer (pixels via the core Gui backend)
     event_loop.sz gui_event_loop.sz   deprecated loop shims → app.runTui/runGui

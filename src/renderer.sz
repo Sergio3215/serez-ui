@@ -171,6 +171,67 @@ export public class Renderer {
                 i = i + 1
             }
 
+        } else if (tag == "RadioGroup") {
+            let value   = node.getProp("value")
+            let options = node.getProp("options")
+            if (options == null) { options = []; }
+            let i = 0
+            while (i < options.length()) {
+                Terminal.setCursor(this.row, 0)
+                if (("" + options[i]) == ("" + value)) { out "(o) " + options[i]; }
+                else { out "( ) " + options[i]; }
+                this.row = this.row + 1
+                i = i + 1
+            }
+
+        } else if (tag == "Slider") {
+            let value = node.getProp("value")
+            let min   = node.getProp("min")
+            let max   = node.getProp("max")
+            if (min == null) { min = 0; }
+            if (max == null) { max = 100; }
+            Terminal.setCursor(this.row, 0)
+            out "[-] " + value + " [+]  (" + min + ".." + max + ")"
+            this.row = this.row + 1
+
+        } else if (tag == "ProgressBar") {
+            let value = node.getProp("value")
+            let max   = node.getProp("max")
+            let label = node.getProp("label")
+            if (value == null) { value = 0; }
+            if (max == null) { max = 100; }
+            let span = max
+            if (span <= 0) { span = 1; }
+            let filled = (value * 20) / span
+            if (filled < 0) { filled = 0; }
+            if (filled > 20) { filled = 20; }
+            let bar = ""
+            let b = 0
+            while (b < 20) {
+                if (b < filled) { bar = bar + "#"; } else { bar = bar + "-"; }
+                b = b + 1
+            }
+            Terminal.setCursor(this.row, 0)
+            if (label != null) { out "" + label + " [" + bar + "] " + value + "/" + max; }
+            else { out "[" + bar + "] " + value + "/" + max; }
+            this.row = this.row + 1
+
+        } else if (tag == "Dropdown") {
+            let value = node.getProp("value")
+            Terminal.setCursor(this.row, 0)
+            out "{ " + value + " v }"
+            this.row = this.row + 1
+
+        } else if (tag == "Label") {
+            Terminal.setCursor(this.row, 0)
+            out this.collectText(node)
+            this.row = this.row + 1
+
+        } else if (tag == "Link") {
+            Terminal.setCursor(this.row, 0)
+            out "<" + this.collectText(node) + ">"
+            this.row = this.row + 1
+
         } else if (tag == "li") {
             Terminal.setCursor(this.row, 2)
             out "• " + this.collectText(node)

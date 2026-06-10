@@ -1,3 +1,6 @@
 /apps/
 apps/
 publish.ps1
+*.szx
+*.ps1
+*.sh
