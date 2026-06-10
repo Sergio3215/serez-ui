@@ -181,8 +181,9 @@ h1  (width < 600)   { font-scale: 2; }                /* smaller heading on smal
 h1  (width >= 960)  { font-scale: 4; }
 ```
 
-Beyond colors, the sheet understands `direction: column` (lay a `Row` out vertically) and
-`font-scale: N` (integer text-size multiplier for `h1`/`h2`/`h3`/`p`/`span`/`li`).
+Beyond colors, the sheet understands `direction: column` (lay a `Row` out vertically),
+`font-scale: N` (integer text-size multiplier for `h1`/`h2`/`h3`/`p`/`span`/`li`) and
+`white-space: nowrap` (keep a tag's text on one line — it may clip — instead of word-wrapping).
 
 ## API surface
 

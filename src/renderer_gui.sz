@@ -139,8 +139,13 @@ export public class GuiRenderer {
 
     // Dibuja texto con wrap al ancho disponible y avanza `cy`. `blockGap` es el
     // espacio tras el bloque (calibrado para que 1 línea = el avance previo).
-    public void drawWrapped(string text, int scale, int color, int blockGap) {
-        let lines = this.wrapText(text, scale)
+    public void drawWrapped(string tag, string text, int scale, int color, int blockGap) {
+        let lines = []
+        if (tag != "" && this.strProp(tag, "white-space", "normal") == "nowrap") {
+            lines = [text]                          // opt-out: una sola línea (puede recortarse)
+        } else {
+            lines = this.wrapText(text, scale)
+        }
         let lh    = 8 * scale + 4
         let maxW  = 0
         let li    = 0
@@ -191,7 +196,7 @@ export public class GuiRenderer {
 
         let isPrim = node is string || node is int || node is decimal || node is bool
         if (isPrim) {
-            this.drawWrapped("" + node, 2, this.colText, 6)
+            this.drawWrapped("", "" + node, 2, this.colText, 6)
             return
         }
 
@@ -200,15 +205,15 @@ export public class GuiRenderer {
 
         if (tag == "h1") {
             let sc1 = this.numProp("h1", "font-scale", 3)
-            this.drawWrapped(this.collectText(node), sc1, this.colorFor("h1", "color", this.colText), 12)
+            this.drawWrapped("h1", this.collectText(node), sc1, this.colorFor("h1", "color", this.colText), 12)
 
         } else if (tag == "h2") {
             let sc2 = this.numProp("h2", "font-scale", 2)
-            this.drawWrapped(this.collectText(node), sc2, this.colorFor("h2", "color", this.colText), 10)
+            this.drawWrapped("h2", this.collectText(node), sc2, this.colorFor("h2", "color", this.colText), 10)
 
         } else if (tag == "p" || tag == "span" || tag == "h3" || tag == "li") {
             let scp = this.numProp(tag, "font-scale", 2)
-            this.drawWrapped(this.collectText(node), scp, this.colorFor(tag, "color", this.colMuted), 8)
+            this.drawWrapped(tag, this.collectText(node), scp, this.colorFor(tag, "color", this.colMuted), 8)
 
         } else if (tag == "hr") {
             Gui.drawLine(this.cx, this.cy, this.cx + this.colWidth, this.cy, this.colorFor("hr", "color", this.colBorder))
@@ -661,7 +666,7 @@ export public class GuiRenderer {
 
     // ── Label / Link ───────────────────────────────────────────────────────────
     public void renderLabel(any node) {
-        this.drawWrapped(this.collectText(node), 2, this.colorFor("Label", "color", this.colText), 8)
+        this.drawWrapped("Label", this.collectText(node), 2, this.colorFor("Label", "color", this.colText), 8)
     }
 
     public void renderLink(any node) {
