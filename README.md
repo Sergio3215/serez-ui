@@ -107,9 +107,9 @@ element shows a ring (text fields highlight their border and draw the caret).
 | `↑` `↓` | Navigate options in an open Dropdown / a RadioGroup |
 | `Esc` | Close the window |
 
-> Text rendering uses the core's 8×8 bitmap font (ASCII + Latin-1, so `ñ á é í ó ú ¿ ¡ ü` render).
-> Typing accented characters from the keyboard is still limited by the minifb backend (no dead-key
-> composition yet); set such values programmatically or via `onChange`.
+> Text is drawn with real glyphs on a monospace grid (the core rasterizes a font, so `ñ á é í ó ú
+> ¿ ¡` and Unicode like `→` render). Typing goes through your **OS keyboard layout and IME**, so
+> accented characters can be typed straight into `Input` / `Textarea` — no programmatic workaround.
 
 ## TUI and GUI
 
