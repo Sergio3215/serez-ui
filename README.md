@@ -183,9 +183,19 @@ h1  (width < 600)   { font-scale: 2; }                /* smaller heading on smal
 h1  (width >= 960)  { font-scale: 4; }
 ```
 
-Beyond colors, the sheet understands `direction: column` (lay a `Row` out vertically),
-`font-scale: N` (integer text-size multiplier for `h1`/`h2`/`h3`/`p`/`span`/`li`) and
-`white-space: nowrap` (keep a tag's text on one line — it may clip — instead of word-wrapping).
+Properties the renderer reads today (the parser accepts any `property: value`; unknown ones are
+ignored):
+
+| Property | Applies to | Values |
+|----------|-----------|--------|
+| `background-color` | body, Button, Input, Select, Checkbox, Dropdown, Textarea | hex / name |
+| `color` | text tags + controls | hex / name |
+| `direction` | `Row` | `column` (stack vertically) |
+| `font-scale` | h1/h2/h3/p/span/li | integer (text-size multiplier) |
+| `white-space` | h1/h2/h3/p/span/li | `nowrap` (one line, may clip) |
+
+Any of these can carry a condition — `Button (width < 600) { font-scale: 1; }` — re-checked each
+frame against `styleVars()` plus the built-in `width`/`height`.
 
 ## API surface
 
