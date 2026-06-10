@@ -46,6 +46,10 @@ A component is a class that **extends `Window`** and returns JSX from `render()`
 - The GUI **reflows on resize** (autosize): full-width controls stretch/shrink to the window. Cap
   the content with `app.setMaxWidth(px)` / `app.setMinWidth(px)` (`0` = no limit); the content is
   centered when `max-width` is narrower than the window. Call before `runGui`.
+- For **structure** that changes with size, read `app.viewportWidth()` / `app.breakpoint()`
+  (`"sm"`/`"md"`/`"lg"`; thresholds via `app.setBreakpoints(smMax, mdMax)`, default `600`/`960`)
+  inside `render()` — the GUI re-runs `render()` on resize, so you can return a different tree per
+  breakpoint (e.g. a `Row` of links on desktop, a single menu button on phones).
 - Lifecycle (handled by the run methods): `mount()`, `update()`, `unmount()`.
 
 ## `.szx` → `.sz` (the JSX translator)
@@ -189,6 +193,8 @@ Beyond colors, the sheet understands `direction: column` (lay a `Row` out vertic
 | `app.runTui()` / `app.runGui(title, w, h)` | Window methods — run the app in the terminal / a native window |
 | `app.useStylesheet(sheet)` | Window method — attach a `.szs` stylesheet (before `runGui`) |
 | `app.setMaxWidth(px)` / `app.setMinWidth(px)` | Window methods — clamp the GUI content width (`0` = no limit; centers under max-width) |
+| `app.viewportWidth()` / `app.breakpoint()` | Window methods — live viewport width (px) / current breakpoint (`sm`/`md`/`lg`) for a responsive `render()` |
+| `app.setBreakpoints(smMax, mdMax)` | Window method — set the `sm`\|`md` and `md`\|`lg` width thresholds (default `600` / `960`) |
 | `Renderer` / `GuiRenderer` | TUI / GUI renderers (used internally by the run methods) |
 | `parseCss` | `.szs` stylesheet parser |
 

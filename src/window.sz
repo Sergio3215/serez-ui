@@ -41,6 +41,9 @@ export public class Window {
         this.__sheet    = null   // Stylesheet (.szs) opcional
         this.__minW     = 0      // min-width del contenido GUI (0 = sin límite)
         this.__maxW     = 0      // max-width del contenido GUI (0 = sin límite)
+        this.__vw       = 0      // ancho de viewport vivo (px) — viewportWidth()/breakpoint()
+        this.__bpSm     = 600    // umbral sm|md
+        this.__bpMd     = 960    // umbral md|lg
     }
 
     // Override en subclases — produce el árbol VNode
@@ -114,6 +117,18 @@ export public class Window {
     // centra cuando el max-width es menor que la ventana. Llamar antes de runGui().
     public void setMaxWidth(int px) { this.__maxW = px }
     public void setMinWidth(int px) { this.__minW = px }
+
+    // Layout responsive en código (Capa 2): ancho de viewport vivo (px) y breakpoint actual.
+    // En GUI se actualizan en cada frame de runGui (incl. resize) ANTES de render(), así que
+    // render() puede devolver otra estructura según el tamaño. Leer dentro de render().
+    public int viewportWidth() { return this.__vw }
+    public string breakpoint() {
+        if (this.__vw < this.__bpSm) { return "sm"; }
+        if (this.__vw < this.__bpMd) { return "md"; }
+        return "lg"
+    }
+    // Umbrales: sm = ancho < smMax ; md = < mdMax ; lg = resto. Por defecto 600/960.
+    public void setBreakpoints(int smMax, int mdMax) { this.__bpSm = smMax; this.__bpMd = mdMax }
 
     // ── Helpers PUROS del foco/edición (no mutan this) ─────────────────────────
 
@@ -523,6 +538,7 @@ export public class Window {
     public void runGui(string title, int width, int height) {
         Gui.open(title, width, height)
         let r = new GuiRenderer()
+        this.__vw = width        // render() ya ve el ancho inicial (viewportWidth/breakpoint)
         this.mount()
 
         // NOTA: el render va INLINE (no en un método aparte) porque pasar `r` a otro
@@ -557,7 +573,7 @@ export public class Window {
             // Autosize: si la ventana cambió de tamaño, re-render con el tamaño vivo.
             let szv     = Gui.size()
             let resized = szv[0] != curW || szv[1] != curH
-            if (resized) { curW = szv[0]; curH = szv[1]; }
+            if (resized) { curW = szv[0]; curH = szv[1]; this.__vw = curW; }
 
             let down    = Gui.mouseDown()
             let pressed = down && !prevDown
@@ -568,7 +584,9 @@ export public class Window {
             let changed = this.handleGuiInput(r, m[0], m[1], pressed, Gui.charsTyped(), Gui.keysPressed(), Gui.keysRepeated(), shift)
 
             // Re-render si hubo cambios de estado o si la ventana se redimensionó.
-            if (changed) { this.update(); }
+            // En resize re-ejecutamos render() (no solo el dibujo) → el componente puede
+            // devolver OTRA estructura según viewportWidth()/breakpoint() (responsive Capa 2).
+            if (changed || resized) { this.update(); }
             if (changed || resized) {
                 let m2 = Gui.mouse()
                 r.setMouse(m2[0], m2[1], down)
