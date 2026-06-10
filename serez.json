@@ -1,7 +1,7 @@
 {
   "name": "serez-ui",
-  "version": "1.3.0",
-  "description": "UI library for Serez-Code — Virtual DOM (optimized with event-driven render + frame-skip), JSX translator, Window/State/Effects, TUI + GUI renderers, unified focus + keyboard nav, built-in components (Button, Input, Textarea, Select, Dropdown, Checkbox, RadioGroup, Slider, ProgressBar, Label, Link, Row/Col), CSS con lógica (.szs), flexbox layout engine",
+  "version": "1.5.0",
+  "description": "UI library for Serez-Code — Virtual DOM (event-driven render + frame-skip), JSX translator, Window/State/Effects, TUI + GUI renderers, unified focus + keyboard nav, 13 built-in components (Button, Input, Textarea, Select, Dropdown, Checkbox, RadioGroup, Slider, ProgressBar, Label, Link, Row/Col), responsive layout (autosize + min/max-width, .szs media queries, breakpoint() in render, Row auto-wrap), word-wrap + mouse-wheel scroll, CSS con lógica (.szs)",
   "main": "index.sz",
   "author": "Sergio3215",
   "dependencies": {},

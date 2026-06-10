@@ -1,6 +1,6 @@
 # serez-ui
 
-**v1.3.0** · React-style UI library for [Serez-Code](../Serez-code). Components, a transparent
+**v1.5.0** · React-style UI library for [Serez-Code](../Serez-code). Components, a transparent
 Virtual DOM, and hooks — the **same component** runs in the terminal (TUI) or in a real native
 window (GUI). Written in pure `.sz`; the JSX layer (`.szx`) compiles away entirely (no web runtime).
 
