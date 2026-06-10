@@ -170,7 +170,7 @@ export fn any Link(any props, any children) {
 
 // ── Row / Col ───────────────────────────────────────────────────────────────--
 // Contenedores de layout. Row coloca sus hijos lado a lado (flujo horizontal,
-// celdas de igual ancho); Col los apila en vertical (igual que un div). Resuelven
+// cada uno a su ancho de contenido); Col los apila en vertical (igual que un div). Resuelven
 // que el render por defecto solo apila en vertical.
 //
 //   <Row><Button>Sí</Button><Button>No</Button></Row>

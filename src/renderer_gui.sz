@@ -2,7 +2,7 @@
 //
 // Recorre el árbol VNode y lo dibuja en una ventana real vía el namespace `Gui`
 // del core. Layout de flujo: por defecto vertical (un nodo debajo de otro); el
-// contenedor Row coloca sus hijos lado a lado (celdas de igual ancho).
+// contenedor Row coloca sus hijos lado a lado, cada uno a su ancho de contenido.
 //
 // FOCO UNIFICADO: cada elemento interactivo (Button/Input/Select/Checkbox/
 // Textarea/RadioGroup/Slider/Dropdown/Link) recibe un índice de foco según su
@@ -22,6 +22,7 @@ export public class GuiRenderer {
         this.cy         = 0      // y actual del flujo
         this.w          = 640
         this.colWidth   = 600    // ancho disponible para el nodo actual
+        this.lastW      = 0      // ancho que ocupó el último nodo (lo lee Row)
         this.regions    = []
         this.focusOrd   = 0      // contador de enfocables durante el render
         this.focus      = 0      // índice del enfocable activo
@@ -103,6 +104,7 @@ export public class GuiRenderer {
         let isPrim = node is string || node is int || node is decimal || node is bool
         if (isPrim) {
             Gui.drawText(this.cx, this.cy, "" + node, 2, this.colText)
+            this.lastW = Gui.measureText("" + node, 2)[0]
             this.cy = this.cy + 22
             return
         }
@@ -112,14 +114,17 @@ export public class GuiRenderer {
 
         if (tag == "h1") {
             Gui.drawText(this.cx, this.cy, this.collectText(node), 3, this.colorFor("h1", "color", this.colText))
+            this.lastW = Gui.measureText(this.collectText(node), 3)[0]
             this.cy = this.cy + 36
 
         } else if (tag == "h2") {
             Gui.drawText(this.cx, this.cy, this.collectText(node), 2, this.colorFor("h2", "color", this.colText))
+            this.lastW = Gui.measureText(this.collectText(node), 2)[0]
             this.cy = this.cy + 26
 
         } else if (tag == "p" || tag == "span" || tag == "h3" || tag == "li") {
             Gui.drawText(this.cx, this.cy, this.collectText(node), 2, this.colorFor(tag, "color", this.colMuted))
+            this.lastW = Gui.measureText(this.collectText(node), 2)[0]
             this.cy = this.cy + 24
 
         } else if (tag == "hr") {
@@ -198,6 +203,7 @@ export public class GuiRenderer {
         if (focused) { this.drawFocusRing(bx, by, bw, bh) }
 
         this.regions.push(["Button", bx, by, bw, bh, node])
+        this.lastW = bw
         this.cy = this.cy + bh + 10
     }
 
@@ -338,6 +344,7 @@ export public class GuiRenderer {
         if (focused) { this.drawFocusRing(bx, by, regW, boxSize); }
 
         this.regions.push(["Checkbox", bx, by, regW, boxSize, node])
+        this.lastW = regW
         this.cy = this.cy + boxSize + 12
     }
 
@@ -571,7 +578,9 @@ export public class GuiRenderer {
 
     // ── Label / Link ───────────────────────────────────────────────────────────
     public void renderLabel(any node) {
-        Gui.drawText(this.cx, this.cy, this.collectText(node), 2, this.colorFor("Label", "color", this.colText))
+        let txt = this.collectText(node)
+        Gui.drawText(this.cx, this.cy, txt, 2, this.colorFor("Label", "color", this.colText))
+        this.lastW = Gui.measureText(txt, 2)[0]
         this.cy = this.cy + 24
     }
 
@@ -594,10 +603,11 @@ export public class GuiRenderer {
         if (focused) { this.drawFocusRing(bx, by, lw, 8 * scale + 4); }
 
         this.regions.push(["Link", bx, by, lw, 8 * scale + 4, node])
+        this.lastW = lw
         this.cy = this.cy + 8 * scale + 12
     }
 
-    // ── Row (flujo horizontal, celdas de igual ancho) ──────────────────────────
+    // ── Row (flujo horizontal, ancho de contenido, alineado a la izquierda) ─────
     public void renderRow(any node) {
         let children = node.getChildren()
         let k = 0
@@ -623,10 +633,11 @@ export public class GuiRenderer {
                 this.cx       = xi
                 this.cy       = startY
                 this.colWidth = cellW
+                this.lastW    = cellW    // default; los de ancho natural (Button, Checkbox…) lo achican
                 this.renderNode(child)
                 let hh = this.cy - startY
                 if (hh > maxH) { maxH = hh; }
-                xi = xi + cellW + gap
+                xi = xi + this.lastW + gap
             }
             i = i + 1
         }
