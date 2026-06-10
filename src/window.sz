@@ -39,6 +39,8 @@ export public class Window {
         this.__dropOpen = false  // ¿hay un Dropdown desplegado?
         this.__dropHi   = 0      // opción resaltada del Dropdown abierto
         this.__sheet    = null   // Stylesheet (.szs) opcional
+        this.__minW     = 0      // min-width del contenido GUI (0 = sin límite)
+        this.__maxW     = 0      // max-width del contenido GUI (0 = sin límite)
     }
 
     // Override en subclases — produce el árbol VNode
@@ -107,6 +109,11 @@ export public class Window {
 
     // Hoja de estilos (.szs) para el render GUI. Llamar antes de runGui().
     public void useStylesheet(any sheet) { this.__sheet = sheet }
+
+    // Acota el ancho del contenido GUI (px). 0 = sin límite. El contenido se
+    // centra cuando el max-width es menor que la ventana. Llamar antes de runGui().
+    public void setMaxWidth(int px) { this.__maxW = px }
+    public void setMinWidth(int px) { this.__minW = px }
 
     // ── Helpers PUROS del foco/edición (no mutan this) ─────────────────────────
 
@@ -530,7 +537,9 @@ export public class Window {
         r.setDropOpen(this.__dropOpen)
         r.setDropHi(this.__dropHi)
         r.setStyles(this.__sheet, this.styleVars())
-        r.render(this.getVDom(), width)
+        r.setWidthBounds(this.__minW, this.__maxW)
+        let curW = width
+        r.render(this.getVDom(), curW)
 
         // El flanco del click lo calculamos NOSOTROS (prevDown), NO con Gui.mousePressed().
         // Motivo: Gui.present() sondea los eventos de la ventana y, en el core, actualiza
@@ -544,6 +553,11 @@ export public class Window {
             Gui.present()
             if (Gui.keyDown("Esc")) { break; }
 
+            // Autosize: si la ventana cambió de ancho, re-render con el ancho vivo.
+            let szv     = Gui.size()
+            let resized = szv[0] != curW
+            if (resized) { curW = szv[0]; }
+
             let down    = Gui.mouseDown()
             let pressed = down && !prevDown
             prevDown    = down
@@ -552,9 +566,9 @@ export public class Window {
             let shift   = Gui.keyDown("Shift")
             let changed = this.handleGuiInput(r, m[0], m[1], pressed, Gui.charsTyped(), Gui.keysPressed(), Gui.keysRepeated(), shift)
 
-            // Re-render solo si hubo cambios; el nuevo buffer se muestra en el próximo present().
-            if (changed) {
-                this.update()
+            // Re-render si hubo cambios de estado o si la ventana se redimensionó.
+            if (changed) { this.update(); }
+            if (changed || resized) {
                 let m2 = Gui.mouse()
                 r.setMouse(m2[0], m2[1], down)
                 r.setFocus(this.__focus)
@@ -562,7 +576,8 @@ export public class Window {
                 r.setDropOpen(this.__dropOpen)
                 r.setDropHi(this.__dropHi)
                 r.setStyles(this.__sheet, this.styleVars())
-                r.render(this.getVDom(), width)
+                r.setWidthBounds(this.__minW, this.__maxW)
+                r.render(this.getVDom(), curW)
             }
         }
 

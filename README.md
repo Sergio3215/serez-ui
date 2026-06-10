@@ -43,6 +43,9 @@ A component is a class that **extends `Window`** and returns JSX from `render()`
 - `onKey(evt)` / `onMouse(evt)` — optional overrides for raw input.
 - Run it: `app.runGui(title, w, h)` (native window) or `app.runTui()` (terminal). The event loop
   is a method of your component — it must run with `this` = your top-level app (see note below).
+- The GUI **reflows on resize** (autosize): full-width controls stretch/shrink to the window. Cap
+  the content with `app.setMaxWidth(px)` / `app.setMinWidth(px)` (`0` = no limit); the content is
+  centered when `max-width` is narrower than the window. Call before `runGui`.
 - Lifecycle (handled by the run methods): `mount()`, `update()`, `unmount()`.
 
 ## `.szx` → `.sz` (the JSX translator)
@@ -167,6 +170,7 @@ public any styleVars() { return [["count", this.count]] }
 | `useState` / `useEffect` / `memo` | Hooks |
 | `app.runTui()` / `app.runGui(title, w, h)` | Window methods — run the app in the terminal / a native window |
 | `app.useStylesheet(sheet)` | Window method — attach a `.szs` stylesheet (before `runGui`) |
+| `app.setMaxWidth(px)` / `app.setMinWidth(px)` | Window methods — clamp the GUI content width (`0` = no limit; centers under max-width) |
 | `Renderer` / `GuiRenderer` | TUI / GUI renderers (used internally by the run methods) |
 | `parseCss` | `.szs` stylesheet parser |
 

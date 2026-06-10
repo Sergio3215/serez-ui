@@ -23,6 +23,8 @@ export public class GuiRenderer {
         this.w          = 640
         this.colWidth   = 600    // ancho disponible para el nodo actual
         this.lastW      = 0      // ancho que ocupó el último nodo (lo lee Row)
+        this.minW       = 0      // min-width del contenido (0 = sin límite)
+        this.maxW       = 0      // max-width del contenido (0 = sin límite)
         this.regions    = []
         this.focusOrd   = 0      // contador de enfocables durante el render
         this.focus      = 0      // índice del enfocable activo
@@ -66,6 +68,7 @@ export public class GuiRenderer {
     public void setCaret(int c)        { this.caret = c }
     public void setDropOpen(bool b)    { this.dropOpen = b }
     public void setDropHi(int i)       { this.dropHi = i }
+    public void setWidthBounds(int mn, int mx) { this.minW = mn; this.maxW = mx }
 
     // Asigna la hoja de estilos (.szs) y el contexto de estado para condiciones.
     public void setStyles(any sheet, any ctx) {
@@ -84,9 +87,15 @@ export public class GuiRenderer {
     // ── Render completo: limpia y redibuja desde la raíz ───────────────────────
     public void render(any vdom, int width) {
         this.w           = width
+        // Ancho de contenido acotado por min/max-width; se centra si max lo limita.
+        let avail = width - this.pad * 2
+        let eff   = avail
+        if (this.maxW > 0 && eff > this.maxW) { eff = this.maxW; }
+        if (eff < this.minW) { eff = this.minW; }
         this.cx          = this.pad
+        if (eff < avail) { this.cx = (width - eff) / 2; }   // centrar bajo max-width
         this.cy          = this.pad
-        this.colWidth    = this.w - this.pad * 2
+        this.colWidth    = eff
         this.regions     = []
         this.focusOrd    = 0
         this.hasOpenDrop = false
