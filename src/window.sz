@@ -563,7 +563,8 @@ export public class Window {
         // su propio prev_mouse_down en ese MISMO poll — consumiendo el flanco antes de que
         // el loop lo vea, así que Gui.mousePressed() siempre da false. Leyendo Gui.mouseDown()
         // tras present() y comparándolo con nuestro prevDown sí detectamos el down inicial.
-        let prevDown = false
+        let prevDown  = false
+        let prevBlink = 0     // última fase del blink (0=visible, 1=oculto) — para forzar redraw
 
         while (Gui.isOpen()) {
             // Presentar: muestra el último buffer y sondea los eventos (mouse/teclado).
@@ -588,11 +589,16 @@ export public class Window {
             let shift   = Gui.keyDown("Shift")
             let changed = this.handleGuiInput(r, m[0], m[1], pressed, Gui.charsTyped(), Gui.keysPressed(), Gui.keysRepeated(), shift)
 
+            // Blink del caret: redibuja cuando cambia la fase (visible↔oculto) sin cambio de estado.
+            let blinkPhase = Gui.time() % 1000 / 700    // 0 = visible, 1 = oculto
+            let blinking   = blinkPhase != prevBlink && this.__focus >= 0
+            prevBlink = blinkPhase
+
             // Re-render si hubo cambios de estado o si la ventana se redimensionó.
             // En resize re-ejecutamos render() (no solo el dibujo) → el componente puede
             // devolver OTRA estructura según viewportWidth()/breakpoint() (responsive Capa 2).
             if (changed || resized) { this.update(); }
-            if (changed || resized || scrolled) {
+            if (changed || resized || scrolled || blinking) {
                 let m2 = Gui.mouse()
                 r.setMouse(m2[0], m2[1], down)
                 r.setFocus(this.__focus)

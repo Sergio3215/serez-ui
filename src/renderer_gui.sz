@@ -471,10 +471,7 @@ export public class GuiRenderer {
             Gui.fillRoundRect(bx + 2, by + 2, bw - 4, bh - 4, ir2, ibg)
         } else {
             Gui.fillRect(bx, by, bw, bh, ibg)
-            Gui.fillRect(bx, by, bw, 2, bcol)
-            Gui.fillRect(bx, by + bh - 2, bw, 2, bcol)
-            Gui.fillRect(bx, by, 2, bh, bcol)
-            Gui.fillRect(bx + bw - 2, by, 2, bh, bcol)
+            Gui.drawRect(bx, by, bw, bh, bcol)
         }
 
         // String visible (enmascarado si password)
@@ -515,7 +512,12 @@ export public class GuiRenderer {
         if (focused) {
             let cpos = car - start
             if (cpos < 0) { cpos = 0; }
-            Gui.fillRect(textX + cpos * charW, by + 7, 2, bh - 14, this.colText)
+            let caretX = textX + cpos * charW
+            // blink: visible 500ms, oculto 500ms
+            if (Gui.time() % 1000 < 700) {
+                Gui.fillRect(caretX, by + 7, 2, bh - 14, this.colText)
+            }
+            Gui.setImePosition(caretX, by + 7)
         }
 
         this.regions.push(["Input", bx, by, bw, bh, node])
@@ -629,10 +631,7 @@ export public class GuiRenderer {
             Gui.fillRoundRect(bx + 2, by + 2, bw - 4, bh - 4, tr2, tbg)
         } else {
             Gui.fillRect(bx, by, bw, bh, tbg)
-            Gui.fillRect(bx, by, bw, 2, bcol)
-            Gui.fillRect(bx, by + bh - 2, bw, 2, bcol)
-            Gui.fillRect(bx, by, 2, bh, bcol)
-            Gui.fillRect(bx + bw - 2, by, 2, bh, bcol)
+            Gui.drawRect(bx, by, bw, bh, bcol)
         }
 
         if (val.length() == 0 && placeholder != null) {
@@ -670,7 +669,11 @@ export public class GuiRenderer {
 
             if (focused) {
                 let crow = by + 6 + (caretLine - startLine) * lineH
-                Gui.fillRect(bx + 6 + caretCol * charW, crow, 1, lineH - 2, this.colText)
+                let caretPx = bx + 6 + caretCol * charW
+                if (Gui.time() % 1000 < 700) {
+                    Gui.fillRect(caretPx, crow, 1, lineH - 2, this.colText)
+                }
+                Gui.setImePosition(caretPx, crow)
             }
         }
 
@@ -699,9 +702,9 @@ export public class GuiRenderer {
             let oy  = startY + i * lineH
             let opt = options[i]
             let selected = ("" + opt) == ("" + value)
-            Gui.fillRect(bx + 2, oy + 3, 16, 16, this.colBorder)
-            Gui.fillRect(bx + 4, oy + 5, 12, 12, this.colInput)
-            if (selected) { Gui.fillRect(bx + 7, oy + 8, 6, 6, this.colBtn); }
+            Gui.fillCircle(bx + 10, oy + 11, 9, this.colBorder)    // contorno (radio 9)
+            Gui.fillCircle(bx + 10, oy + 11, 7, this.colInput)     // interior (radio 7)
+            if (selected) { Gui.fillCircle(bx + 10, oy + 11, 4, this.colBtn); }   // punto
             Gui.drawText(bx + 26, oy + 4, "" + opt, 2, this.colText)
             i = i + 1
         }
