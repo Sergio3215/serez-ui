@@ -259,7 +259,7 @@ export public class Stylesheet {
     //   selectors[ri], hasConds[ri], condVars[ri], condOps[ri], condVals[ri]
     // Declaraciones (paralelas por índice di), enlazadas a su regla:
     //   declRuleIdx[di], declProps[di], declVals[di]
-    public Stylesheet(any selectors, any hasConds, any condVars, any condOps, any condVals, any declRuleIdx, any declProps, any declVals) {
+    public Stylesheet(any selectors, any hasConds, any condVars, any condOps, any condVals, any declRuleIdx, any declProps, any declVals, any fontAliases, any fontPaths) {
         this.selectors   = selectors
         this.hasConds    = hasConds
         this.condVars    = condVars
@@ -268,7 +268,15 @@ export public class Stylesheet {
         this.declRuleIdx = declRuleIdx
         this.declProps   = declProps
         this.declVals    = declVals
+        // Fuentes declaradas en bloques `:font { alias: ruta.ttf; }` (paralelos).
+        this.fontAliases = fontAliases
+        this.fontPaths   = fontPaths
     }
+
+    // Fuentes declaradas con :font — el renderer las carga perezosamente.
+    public int fontCount()        { return this.fontAliases.length() }
+    public string fontAlias(int i) { return this.fontAliases[i] }
+    public string fontPath(int i)  { return this.fontPaths[i] }
 
     // Valor (string) de una prop para un tag dado el ctx, o null. Última gana.
     public any resolveProp(string tag, string prop, any ctx) {
@@ -320,20 +328,34 @@ export fn any parseCss(string src) {
     let declRuleIdx = []
     let declProps   = []
     let declVals    = []
+    let fontAliases = []
+    let fontPaths   = []
 
     while (i < n) {
         i = cssSkip(src, i)
         if (i >= n) { break; }
         let c = src.charAt(i)
 
-        // Bloque :import { ... } — se parsea para saltarlo (los valores los da el ctx)
+        // Bloques :import { ... } (se salta; los valores los da el ctx) y
+        // :font { alias: ruta.ttf; } (declara fuentes que el renderer carga).
         if (c == ":") {
             let kw = cssReadName(src, i + 1)
-            if (kw[0] == "import") {
+            if (kw[0] == "import" || kw[0] == "font") {
+                let isFont = kw[0] == "font"
                 i = parseInt(kw[1])
                 i = cssSkip(src, i)
                 if (i < n && src.charAt(i) == "\{") {
                     let res = cssReadDecls(src, i + 1)
+                    if (isFont) {
+                        let fprops = res[0]
+                        let fvals  = res[1]
+                        let fk = 0
+                        while (fk < fprops.length()) {
+                            fontAliases.push(fprops[fk])
+                            fontPaths.push(cssStripQuotes(fvals[fk]))
+                            fk = fk + 1
+                        }
+                    }
                     i = parseInt(res[2])
                 }
                 continue
@@ -391,5 +413,5 @@ export fn any parseCss(string src) {
         }
     }
 
-    return new Stylesheet(selectors, hasConds, condVars, condOps, condVals, declRuleIdx, declProps, declVals)
+    return new Stylesheet(selectors, hasConds, condVars, condOps, condVals, declRuleIdx, declProps, declVals, fontAliases, fontPaths)
 }

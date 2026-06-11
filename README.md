@@ -198,8 +198,25 @@ ignored):
 | `margin-bottom` | any tag | integer px (extra space below) |
 | `gap` | `Row` | integer px (space between children) |
 | `display` | any tag | `none` (hide the element) |
+| `font-family` | text tags + controls (set it on `body` for the whole app) | family name or `:font` alias |
+| `border-radius` | Button, Input, Textarea, Select, Dropdown, ProgressBar | integer px (rounded corners) |
 
 Sizes are plain integers (pixels) — no `px` unit.
+
+### Fonts (`:font` + `font-family`)
+
+Declare font files in a `:font` block (loaded lazily by the renderer) and pick families per tag —
+system-installed fonts work by name without any block. Custom families render **proportionally**
+(real glyph advances); `Input`/`Textarea` text stays monospace so the caret math holds.
+
+```css
+:font {
+    Titular: fonts/Georgia.ttf;        /* alias: path to a .ttf/.otf (e.g. a Google Font) */
+}
+
+body { font-family: "Segoe UI"; }      /* default for the whole app (system font) */
+h1   { font-family: "Titular"; }       /* the :font alias */
+```
 
 Any of these can carry a condition — `Button (width < 600) { font-scale: 1; }` — re-checked each
 frame against `styleVars()` plus the built-in `width`/`height`.

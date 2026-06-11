@@ -38,6 +38,9 @@ export public class GuiRenderer {
         this.fullCtx    = []     // ctx + width/height inyectados (media queries .szs)
         this.scrollY    = 0      // desplazamiento vertical del scroll (px)
         this.contentH   = 0      // alto total del contenido del último render (px)
+        this.fontsReady     = false  // ¿ya se cargaron las fuentes :font de la hoja?
+        this.fontAliasNames = []     // alias declarados en :font
+        this.fontRealNames  = []     // nombre real de familia que devolvió Gui.loadFont
 
         // Dropdown abierto (overlay diferido, dibujado encima al final)
         this.dropOpen     = false
@@ -111,6 +114,68 @@ export public class GuiRenderer {
         return ("" + v).trim()
     }
 
+    // ── Fuentes (.szs: bloques :font + prop font-family) ───────────────────────
+
+    // Carga las fuentes declaradas en :font { alias: ruta.ttf; } — una sola vez.
+    public void ensureFonts() {
+        if (this.fontsReady) { return; }
+        this.fontsReady = true
+        if (this.sheet == null) { return; }
+        let i = 0
+        while (i < this.sheet.fontCount()) {
+            let alias = this.sheet.fontAlias(i)
+            let real  = Gui.loadFont(this.sheet.fontPath(i))
+            this.fontAliasNames.push(alias)
+            this.fontRealNames.push(real)
+            i = i + 1
+        }
+    }
+
+    // Familia efectiva para un tag: su font-family, o la de body como default.
+    // Resuelve alias de :font al nombre real. "" = fuente default (rejilla mono).
+    public string famFor(string tag) {
+        let f = this.strProp(tag, "font-family", "")
+        if (f == "" && tag != "body") { f = this.strProp("body", "font-family", ""); }
+        if (f == "") { return ""; }
+        // Quita comillas opcionales: font-family: "Segoe UI"
+        if (f.length() >= 2) {
+            let a = f.charAt(0)
+            let b = f.charAt(f.length() - 1)
+            if ((a == "\"" && b == "\"") || (a == "'" && b == "'")) {
+                f = f.substring(1, f.length() - 1)
+            }
+        }
+        let i = 0
+        while (i < this.fontAliasNames.length()) {
+            if (this.fontAliasNames[i] == f) { return this.fontRealNames[i]; }
+            i = i + 1
+        }
+        return f
+    }
+
+    // Activa la familia del tag. true si quedó una familia custom activa
+    // (el caller debe resetear con Gui.setFont("") al terminar).
+    public bool setFam(string tag) {
+        let f = this.famFor(tag)
+        if (f == "") { return false; }
+        return Gui.setFont(f)
+    }
+
+    // Ancho de un texto con la fuente del tag (mide y restaura la default).
+    public int measureFor(string tag, string text, int scale) {
+        let active = this.setFam(tag)
+        let w = Gui.measureText(text, scale)[0]
+        if (active) { Gui.setFont(""); }
+        return w
+    }
+
+    // Fondo de un control honrando border-radius del .szs.
+    public void fillBox(string tag, int bx, int by, int bw, int bh, int color) {
+        let rad = this.numProp(tag, "border-radius", 0)
+        if (rad > 0) { Gui.fillRoundRect(bx, by, bw, bh, rad, color) }
+        else { Gui.fillRect(bx, by, bw, bh, color) }
+    }
+
     // Parte `text` en líneas que entran en `this.colWidth` (texto monoespaciado:
     // 8*scale px/char). Corta por palabras; una palabra más larga que la línea se
     // parte por la fuerza. Respeta los saltos de línea explícitos (\n).
@@ -148,12 +213,48 @@ export public class GuiRenderer {
         return lines
     }
 
+    // Como wrapText pero midiendo con la fuente ACTIVA (proporcional): corta por
+    // palabras cuando la línea candidata supera el ancho disponible en px.
+    public any wrapTextMeasured(string text, int scale) {
+        let maxW  = this.colWidth
+        let lines = []
+        let paras = text.split("\n")
+        let pi = 0
+        while (pi < paras.length()) {
+            let words = paras[pi].split(" ")
+            let cur = ""
+            let wi = 0
+            while (wi < words.length()) {
+                let word = words[wi]
+                let candidate = word
+                if (cur.length() > 0) { candidate = cur + " " + word; }
+                if (Gui.measureText(candidate, scale)[0] > maxW && cur.length() > 0) {
+                    lines.push(cur)
+                    cur = word
+                } else {
+                    cur = candidate
+                }
+                wi = wi + 1
+            }
+            lines.push(cur)
+            pi = pi + 1
+        }
+        return lines
+    }
+
     // Dibuja texto con wrap al ancho disponible y avanza `cy`. `blockGap` es el
     // espacio tras el bloque (calibrado para que 1 línea = el avance previo).
     public void drawWrapped(string tag, string text, int scale, int color, int blockGap) {
+        // Fuente del tag (texto suelto hereda la de body).
+        let ftag = tag
+        if (ftag == "") { ftag = "body"; }
+        let custom = this.setFam(ftag)
+
         let lines = []
         if (tag != "" && this.strProp(tag, "white-space", "normal") == "nowrap") {
             lines = [text]                          // opt-out: una sola línea (puede recortarse)
+        } else if (custom) {
+            lines = this.wrapTextMeasured(text, scale)
         } else {
             lines = this.wrapText(text, scale)
         }
@@ -173,6 +274,7 @@ export public class GuiRenderer {
         }
         this.lastW = maxW
         this.cy = this.cy + lines.length() * lh + (blockGap - 4)
+        if (custom) { Gui.setFont(""); }
     }
 
     public any getRegions() { return this.regions }
@@ -181,6 +283,7 @@ export public class GuiRenderer {
     public void render(any vdom, int width, int height) {
         this.w           = width
         this.h           = height
+        this.ensureFonts()   // carga las :font de la hoja (una vez)
         // Inyecta width/height en el ctx → "media queries" .szs: body (width < 600) { … }
         this.fullCtx = []
         let ci = 0
@@ -307,6 +410,7 @@ export public class GuiRenderer {
     // ── Button ─────────────────────────────────────────────────────────────────
     public void renderButton(any node) {
         let label    = this.collectText(node)
+        let fam      = this.setFam("Button")
         let m        = Gui.measureText(label, 2)
         let bw       = m[0] + 28
         let bh       = 40
@@ -328,8 +432,9 @@ export public class GuiRenderer {
             color = this.colBtnHov
         }
 
-        Gui.fillRect(bx, by, bw, bh, color)
+        this.fillBox("Button", bx, by, bw, bh, color)
         Gui.drawText(bx + 14, by + 12, label, 2, this.colorFor("Button", "color", this.colText))
+        if (fam) { Gui.setFont(""); }
         if (focused) { this.drawFocusRing(bx, by, bw, bh) }
 
         this.regions.push(["Button", bx, by, bw, bh, node])
@@ -355,13 +460,22 @@ export public class GuiRenderer {
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
 
-        Gui.fillRect(bx, by, bw, bh, this.colorFor("Input", "background-color", this.colInput))
+        let ibg  = this.colorFor("Input", "background-color", this.colInput)
         let bcol = this.colBorder
         if (focused) { bcol = this.colFocus }
-        Gui.fillRect(bx, by, bw, 2, bcol)
-        Gui.fillRect(bx, by + bh - 2, bw, 2, bcol)
-        Gui.fillRect(bx, by, 2, bh, bcol)
-        Gui.fillRect(bx + bw - 2, by, 2, bh, bcol)
+        let irad = this.numProp("Input", "border-radius", 0)
+        if (irad > 0) {
+            Gui.fillRoundRect(bx, by, bw, bh, irad, bcol)
+            let ir2 = irad - 2
+            if (ir2 < 1) { ir2 = 1; }
+            Gui.fillRoundRect(bx + 2, by + 2, bw - 4, bh - 4, ir2, ibg)
+        } else {
+            Gui.fillRect(bx, by, bw, bh, ibg)
+            Gui.fillRect(bx, by, bw, 2, bcol)
+            Gui.fillRect(bx, by + bh - 2, bw, 2, bcol)
+            Gui.fillRect(bx, by, 2, bh, bcol)
+            Gui.fillRect(bx + bw - 2, by, 2, bh, bcol)
+        }
 
         // String visible (enmascarado si password)
         let raw = ""
@@ -429,12 +543,14 @@ export public class GuiRenderer {
         } else if (!disabled && hover) {
             color = this.colBtnHov
         }
-        Gui.fillRect(bx, by, bw, bh, color)
+        this.fillBox("Select", bx, by, bw, bh, color)
 
         let display = "" + value
         if (disabled) { display = "  " + display + "  "; }
         else { display = "< " + display + " >"; }
+        let sfam = this.setFam("Select")
         Gui.drawText(bx + 10, by + 9, display, 2, this.colorFor("Select", "color", this.colText))
+        if (sfam) { Gui.setFont(""); }
         if (focused) { this.drawFocusRing(bx, by, bw, bh) }
 
         this.regions.push(["Select", bx, by, bw, bh, node])
@@ -456,6 +572,7 @@ export public class GuiRenderer {
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
 
+        let cfam  = this.setFam("Checkbox")
         let lm    = Gui.measureText("" + label, 2)
         let regW  = boxSize + 8 + lm[0]
         let hover = this.mouseX >= bx && this.mouseX < bx + regW && this.mouseY >= by && this.mouseY < by + boxSize
@@ -471,6 +588,7 @@ export public class GuiRenderer {
             Gui.drawText(bx + 4, by + 4, "X", 2, this.colorFor("Checkbox", "color", this.colText))
         }
         Gui.drawText(bx + boxSize + 8, by + 2, "" + label, 2, this.colorFor("Checkbox", "color", this.colText))
+        if (cfam) { Gui.setFont(""); }
         if (focused) { this.drawFocusRing(bx, by, regW, boxSize); }
 
         this.regions.push(["Checkbox", bx, by, regW, boxSize, node])
@@ -500,13 +618,22 @@ export public class GuiRenderer {
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
 
-        Gui.fillRect(bx, by, bw, bh, this.colorFor("Textarea", "background-color", this.colInput))
+        let tbg  = this.colorFor("Textarea", "background-color", this.colInput)
         let bcol = this.colBorder
         if (focused) { bcol = this.colFocus; }
-        Gui.fillRect(bx, by, bw, 2, bcol)
-        Gui.fillRect(bx, by + bh - 2, bw, 2, bcol)
-        Gui.fillRect(bx, by, 2, bh, bcol)
-        Gui.fillRect(bx + bw - 2, by, 2, bh, bcol)
+        let trad = this.numProp("Textarea", "border-radius", 0)
+        if (trad > 0) {
+            Gui.fillRoundRect(bx, by, bw, bh, trad, bcol)
+            let tr2 = trad - 2
+            if (tr2 < 1) { tr2 = 1; }
+            Gui.fillRoundRect(bx + 2, by + 2, bw - 4, bh - 4, tr2, tbg)
+        } else {
+            Gui.fillRect(bx, by, bw, bh, tbg)
+            Gui.fillRect(bx, by, bw, 2, bcol)
+            Gui.fillRect(bx, by + bh - 2, bw, 2, bcol)
+            Gui.fillRect(bx, by, 2, bh, bcol)
+            Gui.fillRect(bx + bw - 2, by, 2, bh, bcol)
+        }
 
         if (val.length() == 0 && placeholder != null) {
             Gui.drawText(bx + 6, by + 6, "" + placeholder, scale, this.colMuted)
@@ -566,6 +693,7 @@ export public class GuiRenderer {
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
 
+        let rfam = this.setFam("RadioGroup")
         let i = 0
         while (i < options.length()) {
             let oy  = startY + i * lineH
@@ -577,6 +705,7 @@ export public class GuiRenderer {
             Gui.drawText(bx + 26, oy + 4, "" + opt, 2, this.colText)
             i = i + 1
         }
+        if (rfam) { Gui.setFont(""); }
 
         let totalH = options.length() * lineH
         if (totalH == 0) { totalH = lineH; }
@@ -643,8 +772,8 @@ export public class GuiRenderer {
         if (v < 0) { v = 0; }
         if (v > span) { v = span; }
 
-        Gui.fillRect(bx, by, bw, bh, this.colInput)
-        Gui.fillRect(bx, by, (v * bw) / span, bh, this.colBtn)
+        this.fillBox("ProgressBar", bx, by, bw, bh, this.colInput)
+        this.fillBox("ProgressBar", bx, by, (v * bw) / span, bh, this.colBtn)
         if (label != null) { Gui.drawText(bx + 8, by + 4, "" + label, 1, this.colText); }
         this.cy = this.cy + bh + 12
     }
@@ -663,8 +792,10 @@ export public class GuiRenderer {
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
 
-        Gui.fillRect(bx, by, bw, bh, this.colorFor("Dropdown", "background-color", this.colInput))
+        this.fillBox("Dropdown", bx, by, bw, bh, this.colorFor("Dropdown", "background-color", this.colInput))
+        let dfam = this.setFam("Dropdown")
         Gui.drawText(bx + 10, by + 9, "" + value, 2, this.colorFor("Dropdown", "color", this.colText))
+        if (dfam) { Gui.setFont(""); }
         Gui.drawText(bx + bw - 22, by + 9, "v", 2, this.colMuted)
         if (focused) { this.drawFocusRing(bx, by, bw, bh); }
 
@@ -693,6 +824,7 @@ export public class GuiRenderer {
         let oy0 = this.openDropY + this.openDropH
         let optH = 30
 
+        let ofam = this.setFam("Dropdown")
         let i = 0
         while (i < opts.length()) {
             let oy = oy0 + i * optH
@@ -703,6 +835,7 @@ export public class GuiRenderer {
             Gui.drawText(dx + 10, oy + 9, "" + opts[i], 2, this.colText)
             i = i + 1
         }
+        if (ofam) { Gui.setFont(""); }
         Gui.fillRect(dx, oy0 + opts.length() * optH, dw, 2, this.colBorder)
     }
 
@@ -714,6 +847,7 @@ export public class GuiRenderer {
     public void renderLink(any node) {
         let label    = this.collectText(node)
         let scale    = 2
+        let fam      = this.setFam("Link")
         let m        = Gui.measureText(label, scale)
         let lw       = m[0]
         let bx       = this.cx
@@ -726,6 +860,7 @@ export public class GuiRenderer {
 
         let col = this.colorFor("Link", "color", this.colLink)
         Gui.drawText(bx, by, label, scale, col)
+        if (fam) { Gui.setFont(""); }
         Gui.fillRect(bx, by + 8 * scale + 1, lw, 1, col)
         if (focused) { this.drawFocusRing(bx, by, lw, 8 * scale + 4); }
 
@@ -740,20 +875,20 @@ export public class GuiRenderer {
     public int measureNodeWidth(any node) {
         if (node == null) { return 0; }
         let isPrim = node is string || node is int || node is decimal || node is bool
-        if (isPrim) { return Gui.measureText("" + node, 2)[0]; }
+        if (isPrim) { return this.measureFor("body", "" + node, 2); }
         let tag = node.getTag()
-        if (tag == "Button") { return Gui.measureText(this.collectText(node), 2)[0] + 28; }
-        if (tag == "Link")   { return Gui.measureText(this.collectText(node), 2)[0]; }
-        if (tag == "Label")  { return Gui.measureText(this.collectText(node), 2)[0]; }
+        if (tag == "Button") { return this.measureFor("Button", this.collectText(node), 2) + 28; }
+        if (tag == "Link")   { return this.measureFor("Link", this.collectText(node), 2); }
+        if (tag == "Label")  { return this.measureFor("Label", this.collectText(node), 2); }
         if (tag == "Checkbox") {
             let lbl = node.getProp("label")
             if (lbl == null) { lbl = this.collectText(node); }
             return 28 + Gui.measureText("" + lbl, 2)[0]
         }
-        if (tag == "h1") { return Gui.measureText(this.collectText(node), this.numProp("h1", "font-scale", 3))[0]; }
-        if (tag == "h2") { return Gui.measureText(this.collectText(node), this.numProp("h2", "font-scale", 2))[0]; }
+        if (tag == "h1") { return this.measureFor("h1", this.collectText(node), this.numProp("h1", "font-scale", 3)); }
+        if (tag == "h2") { return this.measureFor("h2", this.collectText(node), this.numProp("h2", "font-scale", 2)); }
         if (tag == "p" || tag == "span" || tag == "h3" || tag == "li") {
-            return Gui.measureText(this.collectText(node), this.numProp(tag, "font-scale", 2))[0]
+            return this.measureFor(tag, this.collectText(node), this.numProp(tag, "font-scale", 2))
         }
         return 0
     }
