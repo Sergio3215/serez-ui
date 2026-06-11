@@ -193,6 +193,13 @@ ignored):
 | `direction` | `Row` | `column` (stack vertically) |
 | `font-scale` | h1/h2/h3/p/span/li | integer (text-size multiplier) |
 | `white-space` | h1/h2/h3/p/span/li | `nowrap` (one line, may clip) |
+| `text-align` | h1/h2/h3/p/span/li/Label | `left` / `center` / `right` |
+| `padding` | containers (div, Col, section, form, ul) | integer px (inner spacing) |
+| `margin-bottom` | any tag | integer px (extra space below) |
+| `gap` | `Row` | integer px (space between children) |
+| `display` | any tag | `none` (hide the element) |
+
+Sizes are plain integers (pixels) — no `px` unit.
 
 Any of these can carry a condition — `Button (width < 600) { font-scale: 1; }` — re-checked each
 frame against `styleVars()` plus the built-in `width`/`height`.

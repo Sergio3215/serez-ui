@@ -157,12 +157,17 @@ export public class GuiRenderer {
         } else {
             lines = this.wrapText(text, scale)
         }
+        let align = "left"
+        if (tag != "") { align = this.strProp(tag, "text-align", "left"); }
         let lh    = 8 * scale + 4
         let maxW  = 0
         let li    = 0
         while (li < lines.length()) {
-            Gui.drawText(this.cx, this.cy + li * lh, lines[li], scale, color)
             let lw = Gui.measureText(lines[li], scale)[0]
+            let lx = this.cx
+            if (align == "center") { lx = this.cx + (this.colWidth - lw) / 2; }
+            else if (align == "right") { lx = this.cx + this.colWidth - lw; }
+            Gui.drawText(lx, this.cy + li * lh, lines[li], scale, color)
             if (lw > maxW) { maxW = lw; }
             li = li + 1
         }
@@ -227,6 +232,7 @@ export public class GuiRenderer {
         }
 
         let tag      = node.getTag()
+        if (this.strProp(tag, "display", "block") == "none") { return; }   // .szs: ocultar
         let children = node.getChildren()
 
         if (tag == "h1") {
@@ -270,13 +276,23 @@ export public class GuiRenderer {
         } else if (tag == "Row") {
             this.renderRow(node)
         } else {
-            // div, Col, section, form, ul, __fragment__ — contenedores verticales
+            // div, Col, section, form, ul, __fragment__ — contenedores verticales (con padding)
+            let pad = this.numProp(tag, "padding", 0)
+            let savedCx = this.cx
+            let savedCW = this.colWidth
+            this.cx       = this.cx + pad
+            this.cy       = this.cy + pad
+            this.colWidth = this.colWidth - pad * 2
             let i = 0
             while (i < children.length()) {
                 this.renderNode(children[i])
                 i = i + 1
             }
+            this.cx       = savedCx
+            this.colWidth = savedCW
+            this.cy       = this.cy + pad
         }
+        this.cy = this.cy + this.numProp(tag, "margin-bottom", 0)   // .szs: espacio extra abajo
     }
 
     // ── Anillo de foco (4 barras finas alrededor del rect) ─────────────────────
@@ -760,7 +776,7 @@ export public class GuiRenderer {
         }
         if (k == 0) { return; }
 
-        let gap   = 10
+        let gap   = this.numProp("Row", "gap", 10)
         // Auto-wrap (Capa 3): si los hijos de ancho fijo no entran lado a lado, apilar en
         // vertical. `wrap={false}` lo desactiva. (`direction: column` del .szs ya forzó vertical.)
         if (node.getProp("wrap") != false) {
