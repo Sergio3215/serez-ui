@@ -36,6 +36,9 @@ export public class Window {
         this.effects  = []
         this.__focus    = 0      // índice del enfocable activo (loops GUI)
         this.__caret    = 0      // posición del cursor en el campo de texto enfocado
+        this.__selAnchor = -1    // otro extremo de la selección (-1 = sin selección)
+        this.__mouseDown = false // estado del botón del mouse (lo setea el loop GUI)
+        this.__dragIdx   = -1    // índice de region del Input en arrastre (-1 = ninguno)
         this.__dropOpen = false  // ¿hay un Dropdown desplegado?
         this.__dropHi   = 0      // opción resaltada del Dropdown abierto
         this.__sheet    = null   // Stylesheet (.szs) opcional
@@ -49,6 +52,23 @@ export public class Window {
     // Override en subclases — produce el árbol VNode
     public any render() {
         return h("div", [], [])
+    }
+
+    // Override opcional — se llama una vez por frame en el loop GUI (incluso sin
+    // input). Hacé aquí trabajo periódico (sondeo de progreso, auto-cierre de
+    // toasts, animación). Devolvé `true` si mutaste estado y querés un re-render.
+    // En REPOSO el loop ahora duerme (CPU ~0) hasta el próximo evento; si necesitás
+    // que onFrame se invoque a alta frecuencia de forma continua (p.ej. una prueba de
+    // carga en vivo), devolvé true desde wantsFrames() mientras dure.
+    public bool onFrame() {
+        return false
+    }
+
+    // Override opcional — devolvé true mientras la app necesite frames continuos
+    // (animación/carga en curso) para que el loop NO entre en reposo. Default: false
+    // → en reposo duerme hasta el próximo input (cualquier evento despierta al toque).
+    public bool wantsFrames() {
+        return false
     }
 
     // Monta el componente: primer render
@@ -118,6 +138,28 @@ export public class Window {
     public void setMaxWidth(int px) { this.__maxW = px }
     public void setMinWidth(int px) { this.__minW = px }
 
+    // ── Control de ventana (envuelve el core; llamar tras abrir, p.ej. en onFrame
+    //    o tras runGui). Aditivo: si no se usan, la ventana se comporta como antes. ──
+    public void setMinWindowSize(int w, int h) { Gui.setMinSize(w, h) }
+    public void setResizable(bool b)           { Gui.setResizable(b) }
+    public void setFullscreen(bool b)          { Gui.setFullscreen(b) }
+    public void maximize(bool b)               { Gui.maximize(b) }
+    public void setDecorations(bool b)         { Gui.setDecorations(b) }
+    public void setWindowPosition(int x, int y){ Gui.setPosition(x, y) }
+
+    // HiDPI: factor de escala del monitor (1.0 = 96dpi). Útil para escalar tamaños
+    // en pantallas 4K. Leer tras abrir la ventana.
+    public any scaleFactor() { return Gui.scaleFactor() }
+
+    // Diálogos nativos de archivo. Devuelven la ruta elegida o "" si se canceló.
+    //   extsCsv: extensiones separadas por coma (p.ej. "json,txt"); "" = todos.
+    public string openFileDialog(string filterName, string extsCsv) {
+        return Gui.openFileDialog(filterName, extsCsv)
+    }
+    public string saveFileDialog(string filterName, string extsCsv, string defaultName) {
+        return Gui.saveFileDialog(filterName, extsCsv, defaultName)
+    }
+
     // Layout responsive en código (Capa 2): ancho de viewport vivo (px) y breakpoint actual.
     // En GUI se actualizan en cada frame de runGui (incl. resize) ANTES de render(), así que
     // render() puede devolver otra estructura según el tamaño. Leer dentro de render().
@@ -150,11 +192,18 @@ export public class Window {
         let val  = node.getProp("value")
         if (val == null) { val = ""; }
         val = "" + val
-        let charW = 16            // scale 2 → 8*2
-        let rel = mx - (rg[1] + 10)
+        // El renderer adjunta charW/textX/start (índices 6/7/8) para el avance real
+        // de la fuente; si no están (regiones de test de 6 campos), caemos a 8*2=16.
+        let charW = 16
+        let textX = rg[1] + 10
+        let start = 0
+        if (rg.length() > 8) { charW = rg[6]; textX = rg[7]; start = rg[8]; }
+        if (charW < 1) { charW = 16; }
+        let rel = mx - textX
         if (rel < 0) { rel = 0; }
-        let idx = rel / charW
+        let idx = start + rel / charW
         if (idx > val.length()) { idx = val.length(); }
+        if (idx < 0) { idx = 0; }
         return idx
     }
 
@@ -283,6 +332,38 @@ export public class Window {
         if (this.__focus < 0) { this.__focus = 0; }
         if (n > 0 && this.__focus >= n) { this.__focus = n - 1; }
 
+        // ── Modal abierto: la interacción se restringe a SUS regiones (índices
+        // >= mStart); el scrim de fondo absorbe el resto. mStart=0 si no hay modal,
+        // así que el comportamiento sin modal es idéntico al anterior. ──
+        let mStart = 0
+        if (r.modalActive()) {
+            mStart = r.getModalRegStart()
+            if (mStart < 0) { mStart = 0; }
+            if (this.__focus < mStart) { this.__focus = mStart; }
+            if (n > 0 && this.__focus >= n) { this.__focus = n - 1; }
+
+            // Esc cierra el modal (no la ventana) si define onClose.
+            let mke = 0
+            while (mke < keys.length()) {
+                if (keys[mke] == "Esc") {
+                    let mn = r.getModalNode()
+                    if (mn != null) {
+                        let oc = mn.getProp("onClose")
+                        if (oc != null) { oc(); return true; }
+                    }
+                }
+                mke = mke + 1
+            }
+            // Clic en el scrim (fuera de la caja) cierra el modal si define onClose.
+            if (pressed && !r.modalBoxContains(mx, my)) {
+                let mn2 = r.getModalNode()
+                if (mn2 != null) {
+                    let oc2 = mn2.getProp("onClose")
+                    if (oc2 != null) { oc2(); return true; }
+                }
+            }
+        }
+
         // ── Dropdown abierto: su overlay intercepta el clic antes que nada ─────
         if (pressed && this.__dropOpen && n > 0 && this.__focus < n) {
             let fdrop = regions[this.__focus]
@@ -314,9 +395,9 @@ export public class Window {
             }
         }
 
-        // ── Clic: enfocar + activar la región pulsada ──────────────────────────
+        // ── Clic: enfocar + activar la región pulsada (desde mStart si hay modal) ─
         if (pressed) {
-            let j = 0
+            let j = mStart
             while (j < n) {
                 let rg = regions[j]
                 let inside = mx >= rg[1] && mx < rg[1] + rg[3] && my >= rg[2] && my < rg[2] + rg[4]
@@ -326,15 +407,21 @@ export public class Window {
                     let tag  = rg[0]
                     if (tag == "Input") {
                         this.__caret = this.caretFromClick(rg, mx)
+                        this.__selAnchor = this.__caret   // ancla en el clic; al arrastrar, selecciona
+                        this.__dragIdx = j                // este Input queda en arrastre
                     } else if (tag == "Textarea") {
                         let tv = node.getProp("value")
                         if (tv == null) { tv = ""; }
                         this.__caret = ("" + tv).length()
+                        this.__selAnchor = -1
                     } else if (tag == "Button" || tag == "Link") {
                         if (node.getProp("disabled") != true) {
                             let hb = node.getProp("onClick")
                             if (hb != null) { hb(); }
                         }
+                    } else if (tag == "ModalClose") {
+                        let oc = node.getProp("onClose")
+                        if (oc != null) { oc(); }
                     } else if (tag == "Checkbox") {
                         if (node.getProp("disabled") != true) {
                             let oc = node.getProp("onChange")
@@ -369,13 +456,29 @@ export public class Window {
             }
         }
 
+        // ── Arrastre de selección con el mouse ─────────────────────────────────
+        // Con el botón mantenido (no el flanco) sobre el Input que se empezó a
+        // arrastrar, extender el caret al carácter bajo el cursor; el ancla quedó
+        // fija en el punto de clic → se selecciona el rango. Al soltar, se limpia.
+        if (this.__mouseDown && !pressed && this.__dragIdx >= 0 && this.__dragIdx < n) {
+            let drg = regions[this.__dragIdx]
+            if (drg[0] == "Input") {
+                let nc = this.caretFromClick(drg, mx)
+                if (nc != this.__caret) { this.__caret = nc; changed = true; }
+            }
+        }
+        if (!this.__mouseDown) { this.__dragIdx = -1 }
+
         // ── Tab / Shift+Tab: navegar el foco ───────────────────────────────────
         let kt = 0
         while (kt < keys.length()) {
             if (keys[kt] == "Tab" && n > 0) {
-                if (shift) { this.__focus = (this.__focus - 1 + n) % n; }
-                else       { this.__focus = (this.__focus + 1) % n; }
+                let cnt = n - mStart            // ciclo dentro del rango del modal (o todo si mStart=0)
+                if (cnt < 1) { cnt = 1; }
+                if (shift) { this.__focus = mStart + ((this.__focus - mStart - 1 + cnt) % cnt); }
+                else       { this.__focus = mStart + ((this.__focus - mStart + 1) % cnt); }
                 this.__caret = this.caretEndOfFocus(regions)
+                this.__selAnchor = -1
                 this.__dropOpen = false
                 changed = true
             }
@@ -461,55 +564,143 @@ export public class Window {
             let car = this.__caret
             if (car > val.length()) { car = val.length(); }
             if (car < 0) { car = 0; }
+            let anchor = this.__selAnchor
+            if (anchor > val.length()) { anchor = val.length(); }
             let newVal = val
             let newCar = car
+            let newAnchor = anchor
             let textChanged = false
 
-            // Borrado y navegación (con auto-repeat)
+            // Selección activa: rango [selLo, selHi). anchor=-1 → sin selección, y
+            // todo el camino de abajo se comporta EXACTAMENTE como sin selección.
+            let hasSel = anchor >= 0 && anchor != car
+            let selLo = car
+            let selHi = car
+            if (hasSel) {
+                if (anchor < car) { selLo = anchor; } else { selLo = car; }
+                if (anchor < car) { selHi = car; } else { selHi = anchor; }
+            }
+
+            // Modificadores. AltGr = Ctrl+Alt juntos (Windows) y SÍ produce carácter
+            // (@, ~, {, }… habituales en URLs) → se deja tipear. Ctrl solo o Alt solo
+            // son atajos → NO deben insertar la letra (p.ej. Ctrl+V no escribe "v").
+            let ctrlDown = Gui.keyDown("Ctrl")
+            let altDown  = Gui.keyDown("Alt")
+            let altGr    = ctrlDown && altDown
+            let isShortcut = (ctrlDown || altDown) && !altGr   // Ctrl XOR Alt
+
+            // Clipboard (Ctrl+C/X/V) + Ctrl+A — SOLO con Ctrl puro (no AltGr). Con
+            // selección, C/X/V operan sobre el rango; sin selección, C/X sobre el
+            // valor completo y V pega en el caret.
+            if (ctrlDown && !altDown) {
+                let kc = 0
+                while (kc < keys.length()) {
+                    let ckey = keys[kc]
+                    if (ckey == "a") {
+                        newAnchor = 0
+                        newCar = newVal.length()
+                    } else if (ckey == "c") {
+                        if (hasSel) { Gui.clipboardSet(newVal.substring(selLo, selHi)); }
+                        else { Gui.clipboardSet(newVal); }
+                    } else if (ckey == "x") {
+                        if (hasSel) {
+                            Gui.clipboardSet(newVal.substring(selLo, selHi))
+                            newVal = newVal.substring(0, selLo) + newVal.substring(selHi, newVal.length())
+                            newCar = selLo
+                        } else {
+                            Gui.clipboardSet(newVal)
+                            newVal = ""
+                            newCar = 0
+                        }
+                        newAnchor = -1; hasSel = false; textChanged = true
+                    } else if (ckey == "v") {
+                        let paste = Gui.clipboardGet()
+                        if (paste.length() > 0) {
+                            if (ftag == "Input") { paste = paste.replaceAll("\r", "").replaceAll("\n", " "); }
+                            if (hasSel) {
+                                newVal = newVal.substring(0, selLo) + paste + newVal.substring(selHi, newVal.length())
+                                newCar = selLo + paste.length()
+                            } else {
+                                newVal = newVal.substring(0, newCar) + paste + newVal.substring(newCar, newVal.length())
+                                newCar = newCar + paste.length()
+                            }
+                            newAnchor = -1; hasSel = false; textChanged = true
+                        }
+                    }
+                    kc = kc + 1
+                }
+            }
+
+            // Borrado y navegación (con auto-repeat). Backspace/Delete con selección
+            // borran el rango. Las flechas con Shift extienden la selección; sin
+            // Shift la limpian (movimiento normal, idéntico al comportamiento previo).
             let ri = 0
             while (ri < repeatKeys.length()) {
                 let key = repeatKeys[ri]
                 if (key == "Backspace") {
-                    if (newCar > 0) {
+                    if (hasSel) {
+                        newVal = newVal.substring(0, selLo) + newVal.substring(selHi, newVal.length())
+                        newCar = selLo; newAnchor = -1; hasSel = false; textChanged = true
+                    } else if (newCar > 0) {
                         newVal = newVal.substring(0, newCar - 1) + newVal.substring(newCar, newVal.length())
-                        newCar = newCar - 1
-                        textChanged = true
+                        newCar = newCar - 1; textChanged = true
                     }
                 } else if (key == "Delete") {
-                    if (newCar < newVal.length()) {
+                    if (hasSel) {
+                        newVal = newVal.substring(0, selLo) + newVal.substring(selHi, newVal.length())
+                        newCar = selLo; newAnchor = -1; hasSel = false; textChanged = true
+                    } else if (newCar < newVal.length()) {
                         newVal = newVal.substring(0, newCar) + newVal.substring(newCar + 1, newVal.length())
                         textChanged = true
                     }
                 } else if (key == "Left") {
+                    if (shift) { if (newAnchor < 0) { newAnchor = newCar; } } else { newAnchor = -1; }
                     if (newCar > 0) { newCar = newCar - 1; }
                 } else if (key == "Right") {
+                    if (shift) { if (newAnchor < 0) { newAnchor = newCar; } } else { newAnchor = -1; }
                     if (newCar < newVal.length()) { newCar = newCar + 1; }
                 } else if (key == "Home") {
+                    if (shift) { if (newAnchor < 0) { newAnchor = newCar; } } else { newAnchor = -1; }
                     newCar = 0
                 } else if (key == "End") {
+                    if (shift) { if (newAnchor < 0) { newAnchor = newCar; } } else { newAnchor = -1; }
                     newCar = newVal.length()
                 } else if (key == "Up" && ftag == "Textarea") {
+                    if (shift) { if (newAnchor < 0) { newAnchor = newCar; } } else { newAnchor = -1; }
                     newCar = this.caretLineMove(newVal, newCar, -1)
                 } else if (key == "Down" && ftag == "Textarea") {
+                    if (shift) { if (newAnchor < 0) { newAnchor = newCar; } } else { newAnchor = -1; }
                     newCar = this.caretLineMove(newVal, newCar, 1)
                 }
                 ri = ri + 1
             }
 
-            // Texto escrito
-            if (typed.length() > 0) {
-                newVal = newVal.substring(0, newCar) + typed + newVal.substring(newCar, newVal.length())
-                newCar = newCar + typed.length()
+            // Texto escrito (reemplaza la selección si la hay). Se ignora si es un
+            // atajo (Ctrl/Alt solo) — así Ctrl+V no escribe "v", Alt+x no escribe "x".
+            if (typed.length() > 0 && !isShortcut) {
+                if (hasSel) {
+                    newVal = newVal.substring(0, selLo) + typed + newVal.substring(selHi, newVal.length())
+                    newCar = selLo + typed.length()
+                    newAnchor = -1; hasSel = false
+                } else {
+                    newVal = newVal.substring(0, newCar) + typed + newVal.substring(newCar, newVal.length())
+                    newCar = newCar + typed.length()
+                }
                 textChanged = true
             }
 
-            // Enter: salto de línea (Textarea) u onSubmit (Input)
+            // Enter: salto de línea (Textarea, reemplaza selección) u onSubmit (Input)
             let ke = 0
             while (ke < keys.length()) {
                 if (keys[ke] == "Enter") {
                     if (ftag == "Textarea") {
-                        newVal = newVal.substring(0, newCar) + "\n" + newVal.substring(newCar, newVal.length())
-                        newCar = newCar + 1
+                        if (hasSel) {
+                            newVal = newVal.substring(0, selLo) + "\n" + newVal.substring(selHi, newVal.length())
+                            newCar = selLo + 1; newAnchor = -1; hasSel = false
+                        } else {
+                            newVal = newVal.substring(0, newCar) + "\n" + newVal.substring(newCar, newVal.length())
+                            newCar = newCar + 1
+                        }
                         textChanged = true
                     } else {
                         let os = fnode.getProp("onSubmit")
@@ -519,9 +710,14 @@ export public class Window {
                 ke = ke + 1
             }
 
-            if (newCar != car) { this.__caret = newCar; changed = true; }
+            if (newCar != car || newAnchor != anchor) {
+                this.__caret = newCar
+                this.__selAnchor = newAnchor
+                changed = true
+            }
             if (textChanged) {
                 this.__caret = newCar
+                this.__selAnchor = newAnchor
                 let oc = fnode.getProp("onChange")
                 if (oc != null) { oc(newVal); }
                 changed = true
@@ -550,6 +746,7 @@ export public class Window {
         r.setMouse(m0[0], m0[1], Gui.mouseDown())
         r.setFocus(this.__focus)
         r.setCaret(this.__caret)
+        r.setSel(this.__selAnchor)
         r.setDropOpen(this.__dropOpen)
         r.setDropHi(this.__dropHi)
         r.setStyles(this.__sheet, this.styleVars())
@@ -565,11 +762,16 @@ export public class Window {
         // tras present() y comparándolo con nuestro prevDown sí detectamos el down inicial.
         let prevDown  = false
         let prevBlink = 0     // última fase del blink (0=visible, 1=oculto) — para forzar redraw
+        let prevCur   = ""    // último cursor aplicado (evita setCursor en cada frame)
+        let prevMx    = -1    // última pos del mouse (evita el hit-test de cursor si no se movió)
+        let prevMy    = -1
 
         while (Gui.isOpen()) {
             // Presentar: muestra el último buffer y sondea los eventos (mouse/teclado).
             Gui.present()
-            if (Gui.keyDown("Esc")) { break; }
+            // Esc cierra la ventana, salvo que haya un modal abierto (ahí lo cierra
+            // el modal vía onClose en handleGuiInput).
+            if (Gui.keyDown("Esc") && !r.modalActive()) { break; }
 
             // Autosize: si la ventana cambió de tamaño, re-render con el tamaño vivo.
             let szv     = Gui.size()
@@ -584,14 +786,31 @@ export public class Window {
             let down    = Gui.mouseDown()
             let pressed = down && !prevDown
             prevDown    = down
+            this.__mouseDown = down    // para el arrastre de selección en handleGuiInput
 
             let m       = Gui.mouse()
             let shift   = Gui.keyDown("Shift")
             let changed = this.handleGuiInput(r, m[0], m[1], pressed, Gui.charsTyped(), Gui.keysPressed(), Gui.keysRepeated(), shift)
 
-            // Blink del caret: redibuja cuando cambia la fase (visible↔oculto) sin cambio de estado.
+            // Hook de frame del componente: trabajo periódico (progreso, toasts…).
+            // Devuelve true si mutó estado y quiere redibujo. Se llama cada frame.
+            let ticked = this.onFrame()
+            if (ticked) { changed = true; }
+
+            // Cursor según lo que hay bajo el mouse (mano sobre interactivos, I-beam
+            // sobre campos de texto). Solo se recalcula si el mouse se movió o cambió
+            // el layout (antes corría el hit-test + setCursor en CADA frame, ~250/s).
+            if (m[0] != prevMx || m[1] != prevMy || changed || resized) {
+                let cur = r.cursorName(m[0], m[1])
+                if (cur != prevCur) { Gui.setCursor(cur); prevCur = cur; }
+                prevMx = m[0]; prevMy = m[1]
+            }
+
+            // Blink del caret: redibuja al cambiar la fase SOLO si el último render dibujó
+            // un caret (Input/Textarea enfocado). Sin campo de texto activo no hay parpadeo
+            // → no se re-renderiza en reposo (clave para CPU ~0 en apps grandes).
             let blinkPhase = Gui.time() % 1000 / 700    // 0 = visible, 1 = oculto
-            let blinking   = blinkPhase != prevBlink && this.__focus >= 0
+            let blinking   = blinkPhase != prevBlink && r.caretActive()
             prevBlink = blinkPhase
 
             // Re-render si hubo cambios de estado o si la ventana se redimensionó.
@@ -603,11 +822,26 @@ export public class Window {
                 r.setMouse(m2[0], m2[1], down)
                 r.setFocus(this.__focus)
                 r.setCaret(this.__caret)
+                r.setSel(this.__selAnchor)
                 r.setDropOpen(this.__dropOpen)
                 r.setDropHi(this.__dropHi)
                 r.setStyles(this.__sheet, this.styleVars())
                 r.setWidthBounds(this.__minW, this.__maxW)
                 r.render(this.getVDom(), curW, curH)
+            }
+
+            // CPU en reposo ~0: si no hay nada que animar, dormir hasta el próximo
+            // evento (o timeout). Cualquier input despierta de inmediato (input_epoch
+            // del core). Con foco se usa un timeout corto para mantener el parpadeo del
+            // caret; wantsFrames() lo desactiva para apps con animación/carga en curso.
+            // Reposo: dormir hasta el próximo evento (cualquier input despierta al
+            // instante vía input_epoch del core). Sin foco, timeout largo (CPU ~0). Con
+            // foco, más corto para animar el parpadeo del caret. wantsFrames() lo desactiva.
+            let busy = changed || resized || scrolled || ticked || this.wantsFrames()
+            if (!busy) {
+                let idleMs = 800
+                if (r.caretActive()) { idleMs = 250; }   // animar el parpadeo del caret
+                Gui.idleWait(idleMs)
             }
         }
 

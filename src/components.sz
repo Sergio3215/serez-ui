@@ -182,6 +182,75 @@ export fn any Col(any props, any children) {
     return new VNode("Col", props, children)
 }
 
+// ── Image ─────────────────────────────────────────────────────────────────────
+// Imagen rasterizada (PNG/JPG…) dibujada vía el backend del core (Gui.drawImage).
+// Se dibuja a su TAMAÑO NATURAL (el backend no escala); prepará el archivo al
+// tamaño deseado. No interactivo (no entra en el orden de foco).
+//
+// Props:
+//   src : string — ruta al archivo de imagen (relativa al CWD)
+//   alt : string — texto si la imagen no carga (opcional)
+//
+//   <Image src="assets/logo.png" />
+export fn any Image(any props, any children) {
+    return new VNode("Image", props, children)
+}
+
+// ── Table ─────────────────────────────────────────────────────────────────────
+// Tabla de solo-lectura para mostrar datos tabulares (headers de respuesta,
+// métricas, pares clave/valor). Celdas alineadas con bordes.
+//
+// Props:
+//   columns : [string]    — encabezados de columna (opcional)
+//   rows    : [[string]]  — filas; cada fila es un array de celdas (strings)
+//
+//   <Table columns={["Header", "Value"]} rows={[["Content-Type","application/json"]]} />
+export fn any Table(any props, any children) {
+    return new VNode("Table", props, children)
+}
+
+// ── Modal ───────────────────────────────────────────────────────────────────--
+// Diálogo modal: cuando open=true, oscurece el fondo (scrim alpha) y dibuja una
+// caja centrada con `title` + children ENCIMA de todo, capturando los clics (lo
+// de atrás queda inerte). Sus children interactivos (Button/Input…) funcionan.
+//
+// Props:
+//   open  : bool   — visible si true
+//   title : string — título de la caja (opcional)
+//
+//   <Modal open={this.confirmOpen} title="Confirmar">
+//       <p>¿Seguro?</p>
+//       <Row><Button onClick={ok}>Sí</Button><Button onClick={no}>No</Button></Row>
+//   </Modal>
+export fn any Modal(any props, any children) {
+    return new VNode("Modal", props, children)
+}
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+// Envoltorio: dibuja su(s) child(ren) y, al pasar el mouse por encima, muestra una
+// cajita con `tip` junto al cursor.
+//
+// Props:
+//   tip : string — texto del tooltip
+//
+//   <Tooltip tip="Copia la respuesta"><Button onClick={copy}>Copiar</Button></Tooltip>
+export fn any Tooltip(any props, any children) {
+    return new VNode("Tooltip", props, children)
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+// Aviso transitorio (banner). Se muestra mientras esté en el árbol; el auto-cierre
+// por tiempo lo maneja el componente con onFrame() (quitándolo del render).
+//
+// Props:
+//   message : string — texto (o usar children)
+//   kind    : string — "info" (default) | "success" | "warn" | "error" (color)
+//
+//   <Toast message="Copiado" kind="success" />
+export fn any Toast(any props, any children) {
+    return new VNode("Toast", props, children)
+}
+
 // ── Registro de built-ins ───────────────────────────────────────────────────--
 // Permite al runtime saber qué tags son componentes built-in de la librería
 // (en contraposición a los tags HTML primitivos). Mantener en sync con
@@ -191,4 +260,6 @@ export fn bool isBuiltinComponent(string tag) {
         || tag == "Checkbox" || tag == "Textarea" || tag == "RadioGroup"
         || tag == "Slider" || tag == "ProgressBar" || tag == "Dropdown"
         || tag == "Label" || tag == "Link" || tag == "Row" || tag == "Col"
+        || tag == "Image" || tag == "Table" || tag == "Modal"
+        || tag == "Tooltip" || tag == "Toast"
 }

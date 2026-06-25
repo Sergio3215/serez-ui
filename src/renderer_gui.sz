@@ -30,6 +30,7 @@ export public class GuiRenderer {
         this.focusOrd   = 0      // contador de enfocables durante el render
         this.focus      = 0      // índice del enfocable activo
         this.caret      = 0      // posición del cursor en el campo de texto enfocado
+        this.selAnchor  = -1     // otro extremo de la selección (-1 = sin selección)
         this.mouseX     = -1
         this.mouseY     = -1
         this.mouseHeld  = false
@@ -38,6 +39,7 @@ export public class GuiRenderer {
         this.fullCtx    = []     // ctx + width/height inyectados (media queries .szs)
         this.scrollY    = 0      // desplazamiento vertical del scroll (px)
         this.contentH   = 0      // alto total del contenido del último render (px)
+        this.drewCaret  = false  // ¿el último render dibujó un caret de texto?
         this.fontsReady     = false  // ¿ya se cargaron las fuentes :font de la hoja?
         this.fontAliasNames = []     // alias declarados en :font
         this.fontRealNames  = []     // nombre real de familia que devolvió Gui.loadFont
@@ -51,6 +53,25 @@ export public class GuiRenderer {
         this.openDropW    = 0
         this.openDropH    = 0
         this.openDropNode = null
+
+        // Caché de imágenes: ruta → handle de Gui.loadImage (cargar una sola vez).
+        this.imgPaths   = []
+        this.imgHandles = []
+
+        // Modal diferido (scrim + caja, dibujado al final, captura clics).
+        this.hasModal       = false
+        this.modalNode      = null
+        this.modalRegStart  = 0   // primer índice de region que pertenece al modal
+        this.modalBoxX      = 0   // rect de la caja (para distinguir clic en scrim vs caja)
+        this.modalBoxY      = 0
+        this.modalBoxW      = 0
+        this.modalBoxH      = 0
+
+        // Tooltip diferido (cajita junto al mouse al hacer hover).
+        this.hasTip = false
+        this.tipText = ""
+        this.tipX = 0
+        this.tipY = 0
 
         // Tema (oscuro)
         this.colBg     = 0x0f172a
@@ -73,9 +94,14 @@ export public class GuiRenderer {
 
     public void setFocus(int idx)      { this.focus = idx }
     public void setCaret(int c)        { this.caret = c }
+    public void setSel(int a)          { this.selAnchor = a }
     public void setDropOpen(bool b)    { this.dropOpen = b }
     public void setDropHi(int i)       { this.dropHi = i }
     public void setWidthBounds(int mn, int mx) { this.minW = mn; this.maxW = mx }
+
+    // ¿El último render dibujó un caret de texto (Input/Textarea enfocado)? El loop lo
+    // usa para animar el parpadeo SOLO cuando hace falta (si no, no re-renderiza en reposo).
+    public bool caretActive() { return this.drewCaret }
 
     // Ajusta el scroll vertical con la rueda (dy = delta de Gui.scroll()). Acota a [0, max].
     public void scrollBy(int dy) {
@@ -158,6 +184,27 @@ export public class GuiRenderer {
     public bool setFam(string tag) {
         let f = this.famFor(tag)
         if (f == "") { return false; }
+        return Gui.setFont(f)
+    }
+
+    // Como setFam pero SIN heredar la familia de body. Para Input/Textarea: queremos
+    // una monoespaciada propia (el caret asume avance uniforme) y NUNCA la
+    // proporcional de body. Devuelve true si quedó una familia custom activa.
+    public bool setMonoFam(string tag) {
+        let f = this.strProp(tag, "font-family", "")
+        if (f == "") { return false; }
+        if (f.length() >= 2) {
+            let a = f.charAt(0)
+            let b = f.charAt(f.length() - 1)
+            if ((a == "\"" && b == "\"") || (a == "'" && b == "'")) {
+                f = f.substring(1, f.length() - 1)
+            }
+        }
+        let i = 0
+        while (i < this.fontAliasNames.length()) {
+            if (this.fontAliasNames[i] == f) { return Gui.setFont(this.fontRealNames[i]); }
+            i = i + 1
+        }
         return Gui.setFont(f)
     }
 
@@ -260,6 +307,13 @@ export public class GuiRenderer {
         }
         let align = "left"
         if (tag != "") { align = this.strProp(tag, "text-align", "left"); }
+        // Estilo de fuente desde el .szs: font-weight:bold (bit0) + font-style:italic (bit1).
+        // Sin propiedad → 0 → idéntico a antes (texto normal).
+        let style = 0
+        if (tag != "") {
+            if (this.strProp(tag, "font-weight", "normal") == "bold")  { style = style + 1; }
+            if (this.strProp(tag, "font-style", "normal")  == "italic"){ style = style + 2; }
+        }
         let lh    = 8 * scale + 4
         let maxW  = 0
         let li    = 0
@@ -268,7 +322,7 @@ export public class GuiRenderer {
             let lx = this.cx
             if (align == "center") { lx = this.cx + (this.colWidth - lw) / 2; }
             else if (align == "right") { lx = this.cx + this.colWidth - lw; }
-            Gui.drawText(lx, this.cy + li * lh, lines[li], scale, color)
+            Gui.drawText(lx, this.cy + li * lh, lines[li], scale, color, style)
             if (lw > maxW) { maxW = lw; }
             li = li + 1
         }
@@ -301,7 +355,10 @@ export public class GuiRenderer {
         this.colWidth    = eff
         this.regions     = []
         this.focusOrd    = 0
+        this.drewCaret   = false   // ¿se dibujó un caret de texto? (para el blink/idle)
         this.hasOpenDrop = false
+        this.hasModal    = false
+        this.hasTip      = false
         Gui.clear(this.colorFor("body", "background-color", this.colBg))
         this.renderNode(vdom)
         this.contentH = this.cy + this.scrollY - this.pad   // alto total del contenido
@@ -310,6 +367,9 @@ export public class GuiRenderer {
             this.drawDropdownOverlay()
         }
         this.drawScrollbar()
+        // Modal y Tooltip se dibujan por ENCIMA de todo (incluida la scrollbar).
+        if (this.hasModal) { this.drawModalOverlay() }
+        if (this.hasTip)   { this.drawTooltipOverlay() }
     }
 
     // Barra de scroll fina a la derecha cuando el contenido no entra en la ventana.
@@ -336,6 +396,7 @@ export public class GuiRenderer {
 
         let tag      = node.getTag()
         if (this.strProp(tag, "display", "block") == "none") { return; }   // .szs: ocultar
+        this.cy = this.cy + this.numProp(tag, "margin-top", 0)             // .szs: espacio arriba
         let children = node.getChildren()
 
         if (tag == "h1") {
@@ -376,6 +437,16 @@ export public class GuiRenderer {
             this.renderLabel(node)
         } else if (tag == "Link") {
             this.renderLink(node)
+        } else if (tag == "Image") {
+            this.renderImage(node)
+        } else if (tag == "Table") {
+            this.renderTable(node)
+        } else if (tag == "Toast") {
+            this.renderToast(node)
+        } else if (tag == "Modal") {
+            this.renderModal(node)
+        } else if (tag == "Tooltip") {
+            this.renderTooltip(node)
         } else if (tag == "Row") {
             this.renderRow(node)
         } else {
@@ -405,6 +476,17 @@ export public class GuiRenderer {
         Gui.fillRect(bx - 2, by + bh, bw + 4, 2, c)
         Gui.fillRect(bx - 2, by - 2, 2, bh + 4, c)
         Gui.fillRect(bx + bw, by - 2, 2, bh + 4, c)
+    }
+
+    // Triángulo lleno apuntando hacia abajo (▼): base arriba (ancho 2*half+1) que
+    // converge a un punto abajo. Para la flecha del Dropdown (no la letra "v").
+    public void drawTriDown(int cx, int topY, int half, int color) {
+        let row = 0
+        while (row <= half) {
+            let w = (half - row) * 2 + 1
+            Gui.fillRect(cx - (half - row), topY + row, w, 1, color)
+            row = row + 1
+        }
     }
 
     // ── Button ─────────────────────────────────────────────────────────────────
@@ -454,7 +536,11 @@ export public class GuiRenderer {
         let bw = this.colWidth
         let bh = 34
         let scale = 2
+        // Fuente del campo: si la hoja define Input { font-family } (monoespaciada),
+        // se activa y el ancho de celda se MIDE; si no, la rejilla 8x8 por defecto.
+        let fam = this.setMonoFam("Input")
         let charW = 8 * scale
+        if (fam) { charW = Gui.measureText("M", scale)[0]; if (charW < 1) { charW = 8 * scale; } }
 
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
@@ -499,6 +585,18 @@ export public class GuiRenderer {
         let start = 0
         if (focused && car > fit) { start = car - fit; }
 
+        // Resaltado de selección (rango [lo, hi) acotado a la ventana visible).
+        if (focused && this.selAnchor >= 0 && this.selAnchor != car) {
+            let lo = car
+            let hi = car
+            if (this.selAnchor < car) { lo = this.selAnchor; } else { hi = this.selAnchor; }
+            let vlo = lo - start; if (vlo < 0) { vlo = 0; }
+            let vhi = hi - start; if (vhi > fit) { vhi = fit; }
+            if (vhi > vlo) {
+                Gui.fillRectAlpha(textX + vlo * charW, by + 7, (vhi - vlo) * charW, bh - 14, this.colFocus, 110)
+            }
+        }
+
         let tcol = this.colorFor("Input", "color", this.colText)
         if (display.length() == 0 && placeholder != null) {
             Gui.drawText(textX, by + 9, "" + placeholder, scale, this.colMuted)
@@ -510,6 +608,7 @@ export public class GuiRenderer {
         }
 
         if (focused) {
+            this.drewCaret = true   // hay caret → el loop anima el blink
             let cpos = car - start
             if (cpos < 0) { cpos = 0; }
             let caretX = textX + cpos * charW
@@ -520,7 +619,11 @@ export public class GuiRenderer {
             Gui.setImePosition(caretX, by + 7)
         }
 
-        this.regions.push(["Input", bx, by, bw, bh, node])
+        if (fam) { Gui.setFont(""); }
+        // Región con metadata extra para el hit-test del caret: charW (avance real,
+        // medido para la fuente del campo), textX (inicio del texto) y start (offset
+        // de scroll horizontal). caretFromClick los usa para mapear x→carácter.
+        this.regions.push(["Input", bx, by, bw, bh, node, charW, textX, start])
         this.cy = this.cy + bh + 12
     }
 
@@ -598,12 +701,20 @@ export public class GuiRenderer {
         this.cy = this.cy + boxSize + 12
     }
 
-    // ── Textarea (multilínea, cursor sobre el string plano con \n) ─────────────
+    // ── Textarea (multilínea con AJUSTE de línea + recorte a la caja) ──────────
+    // El texto se parte en "segmentos visuales" (cada línea lógica \n se corta cada
+    // `maxCols` caracteres, preservando los caracteres EXACTOS — sin colapsar espacios —
+    // para que los offsets cuadren con el string plano del caret/selección). Todo se
+    // dibuja dentro de un clip a la caja, así NADA se desborda por los bordes.
+    //   rows  = alto fijo en líneas visibles.
+    //   grow  = true → la caja crece hasta el contenido (con tope) y el scroll de
+    //           página muestra el resto (ideal para el cuerpo de una respuesta).
     public void renderTextarea(any node) {
         let val         = node.getProp("value")
         let placeholder = node.getProp("placeholder")
         let rows        = node.getProp("rows")
         let disabled    = node.getProp("disabled") == true
+        let grow        = node.getProp("grow") == true
         if (rows == null) { rows = 4; }
         if (val == null) { val = ""; }
         val = "" + val
@@ -611,10 +722,50 @@ export public class GuiRenderer {
         let bx = this.cx
         let by = this.cy
         let bw = this.colWidth
-        let lineH = 18
-        let bh = rows * lineH + 12
-        let scale = 1
+        // Tamaño respeta font-scale del .szs (antes fijo a 1 = 8px, se veía diminuto).
+        let scale = this.numProp("Textarea", "font-scale", 1)
+        let lineH = 12 * scale + 6
+        // Fuente del campo (monoespaciada propia, sin heredar body); ancho medido.
+        let fam = this.setMonoFam("Textarea")
         let charW = 8 * scale
+        if (fam) { charW = Gui.measureText("M", scale)[0]; if (charW < 1) { charW = 8 * scale; } }
+
+        // Columnas que entran (monoespaciada → exacto; int/int = división entera).
+        let maxCols = (bw - 12) / charW
+        if (maxCols < 1) { maxCols = 1; }
+
+        // Segmentos visuales con su offset de inicio en el string plano.
+        let segStart = []
+        let segText  = []
+        let paras = val.split("\n")
+        let flat  = 0
+        let pi = 0
+        while (pi < paras.length()) {
+            let para = paras[pi]
+            if (para.length() == 0) {
+                segStart.push(flat); segText.push("")
+            } else {
+                let off = 0
+                while (off < para.length()) {
+                    let end = off + maxCols
+                    if (end > para.length()) { end = para.length(); }
+                    segStart.push(flat + off)
+                    segText.push(para.substring(off, end))
+                    off = end
+                }
+            }
+            flat = flat + para.length() + 1   // +1 por el \n (tras la última sobra, no se usa)
+            pi = pi + 1
+        }
+
+        // Alto: fijo a `rows`, o crece hasta el contenido (con tope) si grow.
+        let visRows = rows
+        if (grow) {
+            visRows = segText.length()
+            if (visRows < 1) { visRows = 1; }
+            if (visRows > 40) { visRows = 40; }   // tope para no crecer sin límite
+        }
+        let bh = visRows * lineH + 12
 
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
@@ -637,46 +788,73 @@ export public class GuiRenderer {
         if (val.length() == 0 && placeholder != null) {
             Gui.drawText(bx + 6, by + 6, "" + placeholder, scale, this.colMuted)
         } else {
-            let lines = val.split("\n")
-
-            // Línea y columna del cursor (recorriendo el string hasta el caret)
+            // Caret (offset plano) → línea/columna VISUAL localizando su segmento.
             let car = this.caret
             if (car > val.length()) { car = val.length(); }
             if (car < 0) { car = 0; }
-            let caretLine = 0
-            let caretCol  = 0
-            let ci = 0
-            while (ci < car) {
-                if (val.charAt(ci) == "\n") { caretLine = caretLine + 1; caretCol = 0; }
-                else { caretCol = caretCol + 1; }
-                ci = ci + 1
+            let dl = 0
+            let dc = 0
+            let found = false
+            let si = 0
+            while (si < segStart.length()) {
+                let s = segStart[si]
+                let e = s + segText[si].length()
+                if (car >= s && car <= e) {
+                    dl = si; dc = car - s; found = true
+                    // En un corte por ajuste (no por \n) el final de un segmento coincide
+                    // con el inicio del siguiente → el caret salta al renglón siguiente.
+                    if (car == e && si + 1 < segStart.length() && segStart[si + 1] == e) { dl = si + 1; dc = 0; }
+                    si = segStart.length()
+                } else { si = si + 1 }
+            }
+            if (!found) { dl = segText.length() - 1; if (dl < 0) { dl = 0; } dc = segText[dl].length(); }
+
+            // Scroll vertical para mantener el cursor visible.
+            let startSeg = 0
+            if (focused && dl >= visRows) { startSeg = dl - visRows + 1; }
+
+            // Selección: rango [selLo, selHi) sobre el string plano.
+            let hasSel = focused && this.selAnchor >= 0 && this.selAnchor != car
+            let selLo = car
+            let selHi = car
+            if (hasSel) {
+                if (this.selAnchor < car) { selLo = this.selAnchor; } else { selHi = this.selAnchor; }
             }
 
-            // Scroll vertical para mantener el cursor visible
-            let startLine = 0
-            if (focused && caretLine >= rows) { startLine = caretLine - rows + 1; }
-
             let tcol  = this.colorFor("Textarea", "color", this.colText)
-            let li    = startLine
+            Gui.pushClip(bx + 2, by + 2, bw - 4, bh - 4)
+            let li    = startSeg
             let yrow  = by + 6
             let drawn = 0
-            while (li < lines.length() && drawn < rows) {
-                Gui.drawText(bx + 6, yrow, lines[li], scale, tcol)
+            while (li < segText.length() && drawn < visRows) {
+                let s = segStart[li]
+                let segLen = segText[li].length()
+                if (hasSel) {
+                    let a = selLo; if (a < s) { a = s; }
+                    let bsel = selHi; if (bsel > s + segLen) { bsel = s + segLen; }
+                    if (bsel > a) {
+                        Gui.fillRectAlpha(bx + 6 + (a - s) * charW, yrow - 1, (bsel - a) * charW, lineH - 2, this.colFocus, 110)
+                    }
+                }
+                Gui.drawText(bx + 6, yrow, segText[li], scale, tcol)
                 yrow  = yrow + lineH
                 li    = li + 1
                 drawn = drawn + 1
             }
 
             if (focused) {
-                let crow = by + 6 + (caretLine - startLine) * lineH
-                let caretPx = bx + 6 + caretCol * charW
+                this.drewCaret = true   // hay caret → el loop anima el blink
+                let crow = by + 6 + (dl - startSeg) * lineH
+                let caretPx = bx + 6 + dc * charW
                 if (Gui.time() % 1000 < 700) {
                     Gui.fillRect(caretPx, crow, 1, lineH - 2, this.colText)
                 }
                 Gui.setImePosition(caretPx, crow)
             }
+            Gui.popClip()
         }
 
+        if (fam) { Gui.setFont(""); }
         this.regions.push(["Textarea", bx, by, bw, bh, node])
         this.cy = this.cy + bh + 12
     }
@@ -799,7 +977,7 @@ export public class GuiRenderer {
         let dfam = this.setFam("Dropdown")
         Gui.drawText(bx + 10, by + 9, "" + value, 2, this.colorFor("Dropdown", "color", this.colText))
         if (dfam) { Gui.setFont(""); }
-        Gui.drawText(bx + bw - 22, by + 9, "v", 2, this.colMuted)
+        this.drawTriDown(bx + bw - 16, by + 14, 4, this.colMuted)
         if (focused) { this.drawFocusRing(bx, by, bw, bh); }
 
         this.regions.push(["Dropdown", bx, by, bw, bh, node])
@@ -930,7 +1108,22 @@ export public class GuiRenderer {
                 return
             }
         }
-        let cellW = (this.colWidth - gap * (k - 1)) / k
+        // Reparto por pesos: cada hijo puede llevar `flex={n}` (default 1). El ancho
+        // disponible se reparte proporcional a los pesos. Sin flex en ningún hijo →
+        // reparto en partes iguales (idéntico al comportamiento anterior).
+        let avail = this.colWidth - gap * (k - 1)
+        let totalFlex = 0
+        let fi = 0
+        while (fi < children.length()) {
+            if (children[fi] != null) {
+                let fx = children[fi].getProp("flex")
+                if (fx == null) { fx = 1; }
+                totalFlex = totalFlex + fx
+            }
+            fi = fi + 1
+        }
+        if (totalFlex < 1) { totalFlex = 1; }
+
         let startX    = this.cx
         let startY    = this.cy
         let savedColW = this.colWidth
@@ -941,6 +1134,9 @@ export public class GuiRenderer {
         while (i < children.length()) {
             let child = children[i]
             if (child != null) {
+                let fx = child.getProp("flex")
+                if (fx == null) { fx = 1; }
+                let cellW = (avail * fx) / totalFlex
                 this.cx       = xi
                 this.cy       = startY
                 this.colWidth = cellW
@@ -956,6 +1152,274 @@ export public class GuiRenderer {
         this.colWidth = savedColW
         this.cx       = startX
         this.cy       = startY + maxH
+    }
+
+    // ── Sombra suave (alpha) ───────────────────────────────────────────────────
+    public void softShadow(int x, int y, int w, int h) {
+        Gui.fillRectAlpha(x + 2, y + 4, w, h, 0x000000, 55)
+        Gui.fillRectAlpha(x + 1, y + 2, w, h, 0x000000, 35)
+    }
+
+    // ── Caché de imágenes (ruta → handle de Gui.loadImage) ─────────────────────
+    public int imgHandle(string path) {
+        let i = 0
+        while (i < this.imgPaths.length()) {
+            if (this.imgPaths[i] == path) { return this.imgHandles[i]; }
+            i = i + 1
+        }
+        let hnd = -1
+        try { hnd = Gui.loadImage(path); } catch (e) { hnd = -1; }
+        this.imgPaths.push(path)
+        this.imgHandles.push(hnd)
+        return hnd
+    }
+
+    // ── Image (tamaño natural; el backend no escala) ───────────────────────────
+    public void renderImage(any node) {
+        let src = node.getProp("src")
+        if (src == null) { return; }
+        let hnd = this.imgHandle("" + src)
+        if (hnd < 0) {
+            let alt = node.getProp("alt")
+            if (alt == null) { alt = "[image]"; }
+            this.drawWrapped("", "" + alt, 2, this.colMuted, 6)
+            return
+        }
+        let sz = Gui.imageSize(hnd)
+        // width/height opcionales → escala (aspect ratio si solo se da uno); sin ellos,
+        // tamaño nativo (como antes). alpha opcional (0–255) para imágenes semitransparentes.
+        let pw = node.getProp("width")
+        let ph = node.getProp("height")
+        let dw = sz[0]
+        let dh = sz[1]
+        if (pw != null && ph != null) { dw = pw; dh = ph }
+        else if (pw != null && sz[0] > 0) { dw = pw; dh = sz[1] * pw / sz[0] }
+        else if (ph != null && sz[1] > 0) { dh = ph; dw = sz[0] * ph / sz[1] }
+        if (dw != sz[0] || dh != sz[1]) {
+            let al = node.getProp("alpha")
+            if (al == null) { Gui.drawImage(this.cx, this.cy, hnd, dw, dh) }
+            else { Gui.drawImage(this.cx, this.cy, hnd, dw, dh, al) }
+        } else {
+            Gui.drawImage(this.cx, this.cy, hnd)
+        }
+        this.lastW = dw
+        this.cy = this.cy + dh + 10
+    }
+
+    // ── Table (solo lectura: encabezados + filas, celdas alineadas) ────────────
+    public void renderTable(any node) {
+        let columns = node.getProp("columns")
+        let rows    = node.getProp("rows")
+        if (columns == null) { columns = []; }
+        if (rows == null) { rows = []; }
+        let ncol = columns.length()
+        if (ncol == 0 && rows.length() > 0) { ncol = rows[0].length(); }
+        if (ncol == 0) { return; }
+
+        let bx = this.cx
+        let by = this.cy
+        let bw = this.colWidth
+        let cellW = bw / ncol
+        // Texto legible con fuente real (proporcional, hereda body); tamaño y alto
+        // de fila desde font-scale (antes era scale 1 = 8px con la bitmap → ilegible).
+        let scale = this.numProp("Table", "font-scale", 2)
+        let fam   = this.setFam("Table")
+        let rowH  = 8 * scale + 12
+        let ty    = (rowH - 8 * scale) / 2
+        if (ty < 2) { ty = 2; }
+
+        let y = by
+        if (columns.length() > 0) {
+            Gui.fillRect(bx, y, bw, rowH, this.colBtn)
+            let c = 0
+            while (c < ncol) {
+                let label = ""
+                if (c < columns.length()) { label = "" + columns[c]; }
+                Gui.drawText(bx + c * cellW + 8, y + ty, this.fitCell(label, cellW - 16, scale), scale, 0xffffff)
+                c = c + 1
+            }
+            y = y + rowH
+        }
+
+        let r2 = 0
+        while (r2 < rows.length()) {
+            let bgc = this.colInput
+            if (r2 % 2 == 1) { bgc = this.colBg; }
+            Gui.fillRect(bx, y, bw, rowH, bgc)
+            let row = rows[r2]
+            let c2 = 0
+            while (c2 < ncol) {
+                let cell = ""
+                if (c2 < row.length()) { cell = "" + row[c2]; }
+                Gui.drawText(bx + c2 * cellW + 8, y + ty, this.fitCell(cell, cellW - 16, scale), scale, this.colText)
+                c2 = c2 + 1
+            }
+            y = y + rowH
+            r2 = r2 + 1
+        }
+        if (fam) { Gui.setFont(""); }
+        Gui.drawRect(bx, by, bw, y - by, this.colBorder)
+        this.lastW = bw
+        this.cy = y + 12
+    }
+
+    // Recorta `text` (con la fuente activa) para que entre en `maxW` px.
+    public string fitCell(string text, int maxW, int scale) {
+        if (Gui.measureText(text, scale)[0] <= maxW) { return text; }
+        let t = text
+        while (t.length() > 1 && Gui.measureText(t + "…", scale)[0] > maxW) {
+            t = t.substring(0, t.length() - 1)
+        }
+        return t + "…"
+    }
+
+    // ── Toast (banner transitorio; el auto-cierre lo maneja el componente) ─────
+    public void renderToast(any node) {
+        let msg = node.getProp("message")
+        if (msg == null) { msg = this.collectText(node); }
+        let kind = node.getProp("kind")
+        if (kind == null) { kind = "info"; }
+        let col = this.colBtn
+        if (kind == "success") { col = 0x16a34a; }
+        else if (kind == "warn") { col = 0xd97706; }
+        else if (kind == "error") { col = 0xdc2626; }
+
+        let bx = this.cx
+        let by = this.cy
+        let bw = this.colWidth
+        let bh = 34
+        this.softShadow(bx, by, bw, bh)
+        Gui.fillRoundRect(bx, by, bw, bh, 6, col)
+        Gui.drawText(bx + 12, by + 9, "" + msg, 2, 0xffffff)
+        this.cy = this.cy + bh + 12
+    }
+
+    // ── Modal (diferido): solo marca; el overlay se pinta al final ─────────────
+    public void renderModal(any node) {
+        if (node.getProp("open") != true) { return; }
+        this.hasModal  = true
+        this.modalNode = node
+    }
+
+    public bool modalActive()     { return this.hasModal }
+    public int  getModalRegStart() { return this.modalRegStart }
+    public any  getModalNode()    { return this.modalNode }
+    // ¿(mx,my) cae dentro de la caja del modal (no en el scrim de fondo)?
+    public bool modalBoxContains(int mx, int my) {
+        return mx >= this.modalBoxX && mx < this.modalBoxX + this.modalBoxW
+            && my >= this.modalBoxY && my < this.modalBoxY + this.modalBoxH
+    }
+
+    // Scrim + caja centrada con los children del Modal (registra sus regiones a
+    // partir de modalRegStart → handleGuiInput restringe la interacción al modal).
+    public void drawModalOverlay() {
+        let node = this.modalNode
+        if (node == null) { return; }
+        Gui.fillRectAlpha(0, 0, this.w, this.h, 0x000000, 150)
+
+        let mw = this.w * 3 / 4
+        if (mw > 520) { mw = 520; }
+        if (mw < 240) { mw = 240; }
+        let mh = this.h * 3 / 5
+        if (mh > 360) { mh = 360; }
+        if (mh < 140) { mh = 140; }
+        let mx = (this.w - mw) / 2
+        let my = (this.h - mh) / 2
+        this.modalBoxX = mx; this.modalBoxY = my; this.modalBoxW = mw; this.modalBoxH = mh
+        this.softShadow(mx, my, mw, mh)
+        Gui.fillRoundRect(mx, my, mw, mh, 10, this.colInput)
+        Gui.drawRect(mx, my, mw, mh, this.colBorder)
+
+        let innerX = mx + 18
+        let innerW = mw - 36
+        let topY   = my + 16
+        let title  = node.getProp("title")
+        if (title != null) {
+            Gui.drawText(innerX, topY, "" + title, 2, this.colText)
+            topY = topY + 28
+            Gui.fillRect(innerX, topY, innerW, 1, this.colBorder)
+            topY = topY + 12
+        }
+
+        this.modalRegStart = this.regions.length()
+        // Botón de cierre ✕ (arriba-derecha) si el Modal define onClose.
+        if (node.getProp("onClose") != null) {
+            let cs  = 26
+            let cxb = mx + mw - cs - 8
+            let cyb = my + 8
+            let chov = this.mouseX >= cxb && this.mouseX < cxb + cs && this.mouseY >= cyb && this.mouseY < cyb + cs
+            let ccol = this.colMuted
+            if (chov) { ccol = this.colText; }
+            Gui.drawText(cxb + 8, cyb + 5, "x", 2, ccol)
+            this.regions.push(["ModalClose", cxb, cyb, cs, cs, node])
+        }
+        let savedCx = this.cx
+        let savedCy = this.cy
+        let savedCW = this.colWidth
+        Gui.pushClip(mx, my, mw, mh)
+        this.cx       = innerX
+        this.cy       = topY
+        this.colWidth = innerW
+        let kids = node.getChildren()
+        let i = 0
+        while (i < kids.length()) {
+            this.renderNode(kids[i])
+            i = i + 1
+        }
+        Gui.popClip()
+        this.cx       = savedCx
+        this.cy       = savedCy
+        this.colWidth = savedCW
+    }
+
+    // ── Tooltip (envoltorio): dibuja children; al hover difiere la cajita ──────
+    public void renderTooltip(any node) {
+        let startX = this.cx
+        let startY = this.cy
+        let kids = node.getChildren()
+        let i = 0
+        while (i < kids.length()) { this.renderNode(kids[i]); i = i + 1 }
+        let endY = this.cy
+        if (this.mouseX >= startX && this.mouseX < startX + this.colWidth && this.mouseY >= startY && this.mouseY < endY) {
+            let tip = node.getProp("tip")
+            if (tip != null) {
+                this.hasTip  = true
+                this.tipText = "" + tip
+                this.tipX    = this.mouseX
+                this.tipY    = this.mouseY
+            }
+        }
+    }
+
+    public void drawTooltipOverlay() {
+        let tip = this.tipText
+        let scale = 1
+        let tw = Gui.measureText(tip, scale)[0] + 12
+        let th = 20
+        let tx = this.tipX + 12
+        let ty = this.tipY + 18
+        if (tx + tw > this.w) { tx = this.w - tw - 4; }
+        if (ty + th > this.h) { ty = this.tipY - th - 4; }
+        this.softShadow(tx, ty, tw, th)
+        Gui.fillRoundRect(tx, ty, tw, th, 4, 0x1f2937)
+        Gui.drawText(tx + 6, ty + 5, tip, scale, this.colText)
+    }
+
+    // Nombre de cursor para la posición del mouse (mano sobre interactivos, I-beam
+    // sobre campos de texto). Recorre de arriba hacia abajo (overlays primero).
+    public string cursorName(int mx, int my) {
+        let i = this.regions.length() - 1
+        while (i >= 0) {
+            let rg = this.regions[i]
+            if (mx >= rg[1] && mx < rg[1] + rg[3] && my >= rg[2] && my < rg[2] + rg[4]) {
+                let tag = rg[0]
+                if (tag == "Button" || tag == "Link" || tag == "Dropdown" || tag == "Select" || tag == "Checkbox") { return "hand"; }
+                if (tag == "Input" || tag == "Textarea") { return "text"; }
+                return "default"
+            }
+            i = i - 1
+        }
+        return "default"
     }
 
     public string collectText(any node) {

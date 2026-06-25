@@ -44,6 +44,8 @@ fn bool is_builtin_tag(string tag) {
         || tag == "Checkbox" || tag == "Textarea" || tag == "RadioGroup"
         || tag == "Slider" || tag == "ProgressBar" || tag == "Dropdown"
         || tag == "Label" || tag == "Link" || tag == "Row" || tag == "Col"
+        || tag == "Image" || tag == "Table" || tag == "Modal"
+        || tag == "Tooltip" || tag == "Toast"
 }
 
 fn bool is_user_component(string tag) {
@@ -137,6 +139,11 @@ fn bool is_method_decl(string t) {
     if (t.length() == 0) { return false; }
     if (t.startsWith("//")) { return false; }
     if (t.startsWith("public ") || t.startsWith("private ")) { return false; }
+    // Una declaración de método nunca empieza con '}'. Esto descarta los cierres
+    // de bloque seguidos de control de flujo en la misma línea — `} else if (…) {`,
+    // `} catch (e) {`, `} while (…)` — cuyo primer token es "}" (no un keyword) y
+    // que de otro modo se confundirían con un método y recibirían "public ".
+    if (t.startsWith("\}")) { return false; }
     let p = t.indexOf("(")
     if (p < 0) { return false; }
     if (!t.includes("\{")) { return false; }

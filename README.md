@@ -41,6 +41,11 @@ A component is a class that **extends `Window`** and returns JSX from `render()`
 - `render()` — override; returns the VNode tree (JSX).
 - `styleVars()` — override; returns `[[name, value], …]` exposed to the reactive CSS (`.szs`).
 - `onKey(evt)` / `onMouse(evt)` — optional overrides for raw input.
+- `onFrame()` — optional override called once per GUI frame (even without input); do periodic
+  work here (poll progress, auto-dismiss a `Toast`, animate) and return `true` to request a
+  redraw. The loop doesn't sleep, so **throttle inside** (gate on a clock). In text fields,
+  `Ctrl+C` / `Ctrl+V` / `Ctrl+X` use the system clipboard; hovering interactive elements shows
+  a hand cursor.
 - Run it: `app.runGui(title, w, h)` (native window) or `app.runTui()` (terminal). The event loop
   is a method of your component — it must run with `this` = your top-level app (see note below).
 - The GUI **reflows on resize** (autosize): full-width controls stretch/shrink to the window. Cap
@@ -86,6 +91,11 @@ width, with a gap — and it **stacks them vertically when they no longer fit**,
 | `ProgressBar` | `value`, `max`, `label` | Non-interactive (skipped by focus) |
 | `Label`       | — | Caption text (children); non-interactive |
 | `Link`        | `href`, `onClick`, `disabled` | Underlined accent · click or Enter activates |
+| `Image`       | `src`, `alt` | Raster image (PNG/JPG) drawn at natural size via the core; `alt` shows if it can't load |
+| `Table`       | `columns`, `rows` | Read-only grid (aligned cells, header row) — response headers, metrics, key/value |
+| `Modal`       | `open`, `title` | When `open`, dims the background (alpha scrim) and centers a box with the children **on top**, capturing clicks/focus |
+| `Tooltip`     | `tip` | Wraps a child; shows a small box with `tip` next to the cursor on hover |
+| `Toast`       | `message`, `kind` | Transient banner (`info`/`success`/`warn`/`error`); auto-dismiss it from `onFrame()` |
 
 ```sz
 <Input value={this.name} placeholder="your name" onChange={(v) => { this.name = v }} />
