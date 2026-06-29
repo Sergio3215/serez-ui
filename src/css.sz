@@ -271,6 +271,23 @@ export public class Stylesheet {
         // Fuentes declaradas en bloques `:font { alias: ruta.ttf; }` (paralelos).
         this.fontAliases = fontAliases
         this.fontPaths   = fontPaths
+
+        // Precompute: rango [start,end) de declaraciones por selector. Las decls se
+        // agregan agrupadas por regla al parsear, así que cada regla ocupa un rango
+        // contiguo en los arrays paralelos. Acota el loop interno de resolveProp a las
+        // ~pocas decls de la regla en vez de TODAS (era el cuello del render).
+        this.declStart = []
+        this.declEnd   = []
+        let ns = selectors.length()
+        let si = 0
+        while (si < ns) { this.declStart.push(-1); this.declEnd.push(0); si = si + 1 }
+        let di = 0
+        while (di < declRuleIdx.length()) {
+            let r = declRuleIdx[di]
+            if (this.declStart[r] == -1) { this.declStart[r] = di }
+            this.declEnd[r] = di + 1
+            di = di + 1
+        }
     }
 
     // Fuentes declaradas con :font — el renderer las carga perezosamente.
@@ -290,12 +307,16 @@ export public class Stylesheet {
                     pass = cssCondEval(this.condVars[ri], this.condOps[ri], this.condVals[ri], ctx)
                 }
                 if (pass) {
-                    let di = 0
-                    while (di < this.declRuleIdx.length()) {
-                        if (this.declRuleIdx[di] == ri && this.declProps[di] == prop) {
-                            found = this.declVals[di]
+                    let ds = this.declStart[ri]
+                    if (ds >= 0) {
+                        let de = this.declEnd[ri]
+                        let di = ds
+                        while (di < de) {
+                            if (this.declRuleIdx[di] == ri && this.declProps[di] == prop) {
+                                found = this.declVals[di]
+                            }
+                            di = di + 1
                         }
-                        di = di + 1
                     }
                 }
             }
@@ -309,6 +330,54 @@ export public class Stylesheet {
         let v = this.resolveProp(tag, prop, ctx)
         if (v == null) { return fallback; }
         let c = cssColor(v)
+        if (c < 0) { return fallback; }
+        return c
+    }
+
+    // Resuelve TODAS las props aplicables a `tag` en UN solo escaneo (última gana),
+    // devolviendo [props[], vals[]]. El renderer cachea esto por tag y por frame, así
+    // hace ~1 escaneo por tag en vez de uno por (tag,prop) (el cuello del render).
+    public any allPropsForTag(string tag, any ctx) {
+        let props = []
+        let vals  = []
+        let ri = 0
+        while (ri < this.selectors.length()) {
+            let sel = this.selectors[ri]
+            if (sel == tag || sel == "*") {
+                let pass = true
+                if (this.hasConds[ri]) {
+                    pass = cssCondEval(this.condVars[ri], this.condOps[ri], this.condVals[ri], ctx)
+                }
+                if (pass) {
+                    let ds = this.declStart[ri]
+                    if (ds >= 0) {
+                        let de = this.declEnd[ri]
+                        let di = ds
+                        while (di < de) {
+                            if (this.declRuleIdx[di] == ri) {
+                                let p = this.declProps[di]
+                                let fi = -1
+                                let k = 0
+                                while (k < props.length()) {
+                                    if (props[k] == p) { fi = k; k = props.length() } else { k = k + 1 }
+                                }
+                                if (fi >= 0) { vals[fi] = this.declVals[di] }
+                                else { props.push(p); vals.push(this.declVals[di]) }
+                            }
+                            di = di + 1
+                        }
+                    }
+                }
+            }
+            ri = ri + 1
+        }
+        return [props, vals]
+    }
+
+    // Convierte un valor crudo (string|null) a color int, o `fallback`.
+    public int rawToColor(any v, int fallback) {
+        if (v == null) { return fallback; }
+        let c = cssColor(("" + v).trim())
         if (c < 0) { return fallback; }
         return c
     }

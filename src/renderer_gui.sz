@@ -72,6 +72,19 @@ export public class GuiRenderer {
         this.fontAliasNames = []     // alias declarados en :font
         this.fontRealNames  = []     // nombre real de familia que devolvió Gui.loadFont
 
+        // Caché de resolución de estilos: resolveProp/colorProp son O(selectores×decls)
+        // POR llamada, y se invocan por cada propiedad de cada widget POR frame (el cuello
+        // del render). Cachear por (tag|prop) baja el render de ~decenas de ms a ~pocos ms.
+        // Se invalida cuando cambia la firma del ctx (width/height/styleVars → media queries).
+        this.styleSig       = "?" // firma del fullCtx del último refresh
+        this.cacheTagNames  = []  // tags resueltos (paralelo a Start/End)
+        this.cacheTagStart  = []  // rango [start,end) del tag en los arrays flat
+        this.cacheTagEnd    = []
+        this.cacheFlatProps = []  // props de TODOS los tags concatenadas (FLAT → sin copias por value-sem)
+        this.cacheFlatVals  = []
+        this.lastStyleTag   = "?" // fast-path: último tag consultado (lookups consecutivos del mismo widget)
+        this.lastStyleIdx   = -1
+
         // Dropdown abierto (overlay diferido, dibujado encima al final)
         this.dropOpen     = false
         this.dropHi       = 0
@@ -264,15 +277,76 @@ export public class GuiRenderer {
     }
 
     // Color de una prop CSS para un tag, o el fallback si no hay hoja/regla.
+    // Invalida la caché de estilos si cambió la firma del ctx (width/height/styleVars).
+    // Llamado al inicio de cada render(), tras armar fullCtx.
+    public void refreshStyleCache() {
+        let sig = ""
+        let i = 0
+        while (i < this.fullCtx.length()) {
+            sig = sig + this.fullCtx[i][0] + "=" + ("" + this.fullCtx[i][1]) + ";"
+            i = i + 1
+        }
+        if (sig != this.styleSig) {
+            this.styleSig       = sig
+            this.cacheTagNames  = []
+            this.cacheTagStart  = []
+            this.cacheTagEnd    = []
+            this.cacheFlatProps = []
+            this.cacheFlatVals  = []
+            this.lastStyleTag   = "?"
+            this.lastStyleIdx   = -1
+        }
+    }
+
+    // Valor crudo (string|null) de (tag, prop). Cachea por tag en arrays FLAT (sin
+    // copias por value-semantics) + fast-path del último tag. La 1ra prop de un tag
+    // resuelve TODAS sus props de una (un escaneo), el resto del frame son lecturas flat.
+    public any styleRaw(string tag, string prop) {
+        let idx = -1
+        if (tag == this.lastStyleTag) {
+            idx = this.lastStyleIdx
+        } else {
+            let i = 0
+            while (i < this.cacheTagNames.length()) {
+                if (this.cacheTagNames[i] == tag) { idx = i; i = this.cacheTagNames.length() } else { i = i + 1 }
+            }
+            if (idx < 0) {
+                let rec = this.sheet.allPropsForTag(tag, this.fullCtx)
+                let p = rec[0]
+                let v = rec[1]
+                let start = this.cacheFlatProps.length()
+                let j = 0
+                while (j < p.length()) {
+                    this.cacheFlatProps.push(p[j])
+                    this.cacheFlatVals.push(v[j])
+                    j = j + 1
+                }
+                this.cacheTagNames.push(tag)
+                this.cacheTagStart.push(start)
+                this.cacheTagEnd.push(this.cacheFlatProps.length())
+                idx = this.cacheTagNames.length() - 1
+            }
+            this.lastStyleTag = tag
+            this.lastStyleIdx = idx
+        }
+        let e = this.cacheTagEnd[idx]
+        let k = this.cacheTagStart[idx]
+        while (k < e) {
+            if (this.cacheFlatProps[k] == prop) { return this.cacheFlatVals[k]; }
+            k = k + 1
+        }
+        return null
+    }
+
     public int colorFor(string tag, string prop, int fallback) {
         if (this.sheet == null) { return fallback; }
-        return this.sheet.colorProp(tag, prop, fallback, this.fullCtx)
+        return this.sheet.rawToColor(this.styleRaw(tag, prop), fallback)
     }
 
     // Valor numérico de una prop CSS (o fallback). Reactivo por ancho vía fullCtx.
     public int numProp(string tag, string prop, int fallback) {
         if (this.sheet == null) { return fallback; }
-        let v = this.sheet.resolveProp(tag, prop, this.fullCtx)
+        let v = this.styleRaw(tag, prop)
         if (v == null) { return fallback; }
         return parseInt(("" + v).trim())
     }
@@ -280,7 +354,7 @@ export public class GuiRenderer {
     // Valor string de una prop CSS (o fallback).
     public string strProp(string tag, string prop, string fallback) {
         if (this.sheet == null) { return fallback; }
-        let v = this.sheet.resolveProp(tag, prop, this.fullCtx)
+        let v = this.styleRaw(tag, prop)
         if (v == null) { return fallback; }
         return ("" + v).trim()
     }
@@ -489,6 +563,7 @@ export public class GuiRenderer {
         while (ci < this.ctx.length()) { this.fullCtx.push(this.ctx[ci]); ci = ci + 1 }
         this.fullCtx.push(["width", this.w])
         this.fullCtx.push(["height", this.h])
+        this.refreshStyleCache()   // invalida la caché de estilos si cambió el ctx
         // Ancho de contenido acotado por min/max-width; se centra si max lo limita.
         let avail = width - this.pad * 2
         let eff   = avail
