@@ -40,6 +40,34 @@ export public class GuiRenderer {
         this.scrollY    = 0      // desplazamiento vertical del scroll (px)
         this.contentH   = 0      // alto total del contenido del último render (px)
         this.drewCaret  = false  // ¿el último render dibujó un caret de texto?
+
+        // Scrollbar de la ventana: métricas para hit-test en window.sz.
+        this.sbVisible  = false  // ¿la scrollbar se dibujó en el último render?
+        this.sbTrackX   = 0      // borde izquierdo del track (px)
+        this.sbTrackW   = 14     // ancho del track (px)
+        this.sbThumbY   = 0      // posición Y del thumb (px)
+        this.sbThumbH   = 0      // alto del thumb (px)
+        this.sbMaxS     = 0      // scroll máximo (px)
+
+        // Textarea scroll interno: cada Textarea (por focusOrd) puede tener su
+        // propio desplazamiento vertical independiente del scroll de la ventana.
+        this.taScrollOrd = []    // focusOrd de cada Textarea registrado
+        this.taScrollY   = []    // scrollY interno de cada Textarea registrado
+        this.taLastCarOrd= []    // focusOrd para el tracking del caret
+        this.taLastCarVal= []    // última posición del caret (evita snap-back del scroll)
+        this.taHoverIdx  = -1    // índice en regions del Textarea bajo el mouse (-1 = ninguno)
+
+        // Caché de segmentos de Textarea: evita re-segmentar O(n) en cada frame
+        // cuando el valor y el ancho no cambiaron (clave para respuestas grandes).
+        this.taSegCacheOrd   = []   // focusOrd
+        this.taSegCacheVal   = []   // último valor (string) cacheado
+        this.taSegCacheCols  = []   // último maxCols cacheado
+        this.taSegCacheStart = []   // segStart[] cacheado
+        this.taSegCacheText  = []   // segText[] cacheado
+        this.taSegCacheLen   = []   // length() del valor cacheado (rechazo O(1) antes del compare)
+        this.vdomDirty       = true // ¿el vdom cambió desde el último render? lo fija window.sz.
+                                    // En scroll/blink el vdom es idéntico → reusar segmentos sin
+                                    // comparar el string entero (evita O(n) por frame en respuestas grandes).
         this.fontsReady     = false  // ¿ya se cargaron las fuentes :font de la hoja?
         this.fontAliasNames = []     // alias declarados en :font
         this.fontRealNames  = []     // nombre real de familia que devolvió Gui.loadFont
@@ -98,6 +126,10 @@ export public class GuiRenderer {
     public void setDropOpen(bool b)    { this.dropOpen = b }
     public void setDropHi(int i)       { this.dropHi = i }
     public void setWidthBounds(int mn, int mx) { this.minW = mn; this.maxW = mx }
+    // window.sz lo fija antes de cada render: true si el vdom se reconstruyó (cambio
+    // de estado/resize), false si es un re-rasterizado puro (scroll/blink) donde los
+    // valores son idénticos al frame anterior → el caché de segmentos es válido sin comparar.
+    public void setVdomDirty(bool d) { this.vdomDirty = d }
 
     // ¿El último render dibujó un caret de texto (Input/Textarea enfocado)? El loop lo
     // usa para animar el parpadeo SOLO cuando hace falta (si no, no re-renderiza en reposo).
@@ -110,6 +142,119 @@ export public class GuiRenderer {
         if (maxS < 0) { maxS = 0; }
         if (this.scrollY > maxS) { this.scrollY = maxS; }
         if (this.scrollY < 0) { this.scrollY = 0; }
+    }
+
+    // Fija el scroll a una posición proporcional [0..1] (para click en scrollbar).
+    public void scrollTo(int posY) {
+        let maxS = this.contentH + this.pad - this.h
+        if (maxS < 1) { maxS = 1; }
+        // posY es la Y del click en la ventana → convertir a ratio sobre el track.
+        let ratio = posY
+        if (ratio < 0) { ratio = 0; }
+        if (ratio > this.h) { ratio = this.h; }
+        this.scrollY = (ratio * maxS) / this.h
+        if (this.scrollY > maxS) { this.scrollY = maxS; }
+        if (this.scrollY < 0) { this.scrollY = 0; }
+    }
+
+    // ¿El punto (mx, my) está sobre la scrollbar de la ventana?
+    public bool scrollbarHit(int mx, int my) {
+        if (!this.sbVisible) { return false; }
+        return mx >= this.sbTrackX && mx < this.sbTrackX + this.sbTrackW && my >= 0 && my < this.h
+    }
+
+    // Scroll interno de un Textarea (por su focusOrd). Devuelve el startSeg.
+    public int getTaScroll(int ord) {
+        let i = 0
+        while (i < this.taScrollOrd.length()) {
+            if (this.taScrollOrd[i] == ord) { return this.taScrollY[i]; }
+            i = i + 1
+        }
+        return 0
+    }
+    public void setTaScroll(int ord, int val) {
+        let i = 0
+        while (i < this.taScrollOrd.length()) {
+            if (this.taScrollOrd[i] == ord) {
+                this.taScrollY[i] = val;
+                return;
+            }
+            i = i + 1
+        }
+        this.taScrollOrd.push(ord)
+        this.taScrollY.push(val)
+    }
+
+    // Tracking del último caret por Textarea (para no forzar scroll salvo que se mueva).
+    public int getTaLastCar(int ord) {
+        let i = 0
+        while (i < this.taLastCarOrd.length()) {
+            if (this.taLastCarOrd[i] == ord) { return this.taLastCarVal[i]; }
+            i = i + 1
+        }
+        return -1
+    }
+    public void setTaLastCar(int ord, int val) {
+        let i = 0
+        while (i < this.taLastCarOrd.length()) {
+            if (this.taLastCarOrd[i] == ord) { this.taLastCarVal[i] = val; return; }
+            i = i + 1
+        }
+        this.taLastCarOrd.push(ord)
+        this.taLastCarVal.push(val)
+    }
+
+    // Scroll con rueda del mouse sobre un Textarea. dy = delta de Gui.scroll().
+    // Devuelve true si consumió el scroll (hay un Textarea bajo el mouse).
+    public bool scrollTaByWheel(int dy) {
+        if (this.taHoverIdx < 0) { return false; }
+        let rg = this.regions[this.taHoverIdx]
+        let node = rg[5]
+        // Necesitamos el total de segmentos y visRows para acotar. Los guardamos
+        // como campos extra en la region: [tag, x, y, w, h, node, taOrd, taTotalSegs, taVisRows]
+        if (rg.length() < 9) { return false; }
+        let taOrd      = rg[6]
+        let totalSegs  = rg[7]
+        let visRows    = rg[8]
+        let maxStart   = totalSegs - visRows
+        if (maxStart < 0) { maxStart = 0; }
+        let cur = this.getTaScroll(taOrd)
+        let step = 3    // líneas por notch de rueda
+        cur = cur - dy * step
+        if (cur < 0) { cur = 0; }
+        if (cur > maxStart) { cur = maxStart; }
+        this.setTaScroll(taOrd, cur)
+        return true
+    }
+
+    // Scroll de Textarea arrastrando su propia barra interna.
+    public void scrollToTa(any rg, int my) {
+        if (rg.length() < 9) { return; }
+        let by = rg[2]
+        let bh = rg[4]
+        let taOrd = rg[6]
+        let totalSegs = rg[7]
+        let visRows = rg[8]
+
+        let sbY = by + 4
+        let sbH = bh - 8
+        if (sbH < 1) { return; }
+
+        let stH = (visRows * sbH) / totalSegs
+        if (stH < 20) { stH = 20; }
+
+        let trackH = sbH - stH
+        if (trackH < 1) { return; }
+
+        let relY = my - sbY - (stH / 2)
+        if (relY < 0) { relY = 0; }
+        if (relY > trackH) { relY = trackH; }
+
+        let maxSt = totalSegs - visRows
+        if (maxSt < 0) { maxSt = 0; }
+
+        let cur = (relY * maxSt) / trackH
+        this.setTaScroll(taOrd, cur)
     }
 
     // Asigna la hoja de estilos (.szs) y el contexto de estado para condiciones.
@@ -359,6 +504,7 @@ export public class GuiRenderer {
         this.hasOpenDrop = false
         this.hasModal    = false
         this.hasTip      = false
+        this.taHoverIdx  = -1     // reset hover de Textarea (se detecta durante el render)
         Gui.clear(this.colorFor("body", "background-color", this.colBg))
         this.renderNode(vdom)
         this.contentH = this.cy + this.scrollY - this.pad   // alto total del contenido
@@ -372,17 +518,28 @@ export public class GuiRenderer {
         if (this.hasTip)   { this.drawTooltipOverlay() }
     }
 
-    // Barra de scroll fina a la derecha cuando el contenido no entra en la ventana.
+    // Barra de scroll a la derecha cuando el contenido no entra en la ventana.
+    // Ahora de 14px de ancho (más fácil de clickear) y guarda las métricas para
+    // que window.sz pueda hacer hit-test y click/drag.
     public void drawScrollbar() {
-        if (this.contentH + this.pad <= this.h) { return; }
-        let trackX = this.w - 6
-        Gui.fillRect(trackX, 0, 6, this.h, this.colBorder)
+        if (this.contentH + this.pad <= this.h) { this.sbVisible = false; return; }
+        let tw = this.sbTrackW       // 14px
+        let trackX = this.w - tw
+        this.sbTrackX = trackX
+        Gui.fillRect(trackX, 0, tw, this.h, this.colBorder)
         let thumbH = (this.h * this.h) / this.contentH
-        if (thumbH < 24) { thumbH = 24; }
+        if (thumbH < 32) { thumbH = 32; }
         let maxS = this.contentH + this.pad - this.h
         if (maxS < 1) { maxS = 1; }
+        this.sbMaxS = maxS
         let thumbY = (this.scrollY * (this.h - thumbH)) / maxS
-        Gui.fillRect(trackX, thumbY, 6, thumbH, this.colMuted)
+        this.sbThumbY = thumbY
+        this.sbThumbH = thumbH
+        this.sbVisible = true
+        // Track: borde sutil. Thumb: color más visible, redondeado.
+        let thumbX = trackX + 2
+        let thumbW = tw - 4
+        Gui.fillRoundRect(thumbX, thumbY, thumbW, thumbH, 4, this.colMuted)
     }
 
     public void renderNode(any node) {
@@ -717,7 +874,7 @@ export public class GuiRenderer {
         let grow        = node.getProp("grow") == true
         if (rows == null) { rows = 4; }
         if (val == null) { val = ""; }
-        val = "" + val
+        if (type_of(val) != "string") { val = "" + val; }
 
         let bx = this.cx
         let by = this.cy
@@ -734,28 +891,79 @@ export public class GuiRenderer {
         let maxCols = (bw - 12) / charW
         if (maxCols < 1) { maxCols = 1; }
 
+        // Índice de foco para este Textarea (necesario antes del caché de segmentos).
+        let myOrd  = this.focusOrd
+        this.focusOrd = this.focusOrd + 1
+
         // Segmentos visuales con su offset de inicio en el string plano.
+        // CACHÉ: si el valor y maxCols no cambiaron desde el último render,
+        // reutilizar los arrays sin re-splitear (O(1) en vez de O(n) por frame).
         let segStart = []
         let segText  = []
-        let paras = val.split("\n")
-        let flat  = 0
-        let pi = 0
-        while (pi < paras.length()) {
-            let para = paras[pi]
-            if (para.length() == 0) {
-                segStart.push(flat); segText.push("")
-            } else {
-                let off = 0
-                while (off < para.length()) {
-                    let end = off + maxCols
-                    if (end > para.length()) { end = para.length(); }
-                    segStart.push(flat + off)
-                    segText.push(para.substring(off, end))
-                    off = end
+        let cacheHit = false
+        let ci = 0
+        while (ci < this.taSegCacheOrd.length()) {
+            if (this.taSegCacheOrd[ci] == myOrd) {
+                // Hot path: si el vdom NO cambió (scroll/blink), el valor y maxCols de este
+                // Textarea son idénticos al frame previo → reusar sin comparar el string entero.
+                let valid = !this.vdomDirty
+                if (!valid) {
+                    // Frame con vdom nuevo: rechazo barato (cols + length) antes del compare O(n).
+                    valid = this.taSegCacheCols[ci] == maxCols
+                         && this.taSegCacheLen[ci] == val.length()
+                         && this.taSegCacheVal[ci] == val
                 }
+                if (valid) {
+                    segStart = this.taSegCacheStart[ci]
+                    segText  = this.taSegCacheText[ci]
+                    cacheHit = true
+                }
+                ci = this.taSegCacheOrd.length()  // salir
+            } else { ci = ci + 1 }
+        }
+        if (!cacheHit) {
+            let paras = val.split("\n")
+            let flat  = 0
+            let pi = 0
+            while (pi < paras.length()) {
+                let para = paras[pi]
+                if (para.length() == 0) {
+                    segStart.push(flat); segText.push("")
+                } else {
+                    let off = 0
+                    while (off < para.length()) {
+                        let end = off + maxCols
+                        if (end > para.length()) { end = para.length(); }
+                        segStart.push(flat + off)
+                        segText.push(para.substring(off, end))
+                        off = end
+                    }
+                }
+                flat = flat + para.length() + 1
+                pi = pi + 1
             }
-            flat = flat + para.length() + 1   // +1 por el \n (tras la última sobra, no se usa)
-            pi = pi + 1
+            // Guardar en caché (actualizar si existe, sino push).
+            let found = false
+            let ui = 0
+            while (ui < this.taSegCacheOrd.length()) {
+                if (this.taSegCacheOrd[ui] == myOrd) {
+                    this.taSegCacheVal[ui]   = val
+                    this.taSegCacheLen[ui]   = val.length()
+                    this.taSegCacheCols[ui]  = maxCols
+                    this.taSegCacheStart[ui] = segStart
+                    this.taSegCacheText[ui]  = segText
+                    found = true
+                    ui = this.taSegCacheOrd.length()
+                } else { ui = ui + 1 }
+            }
+            if (!found) {
+                this.taSegCacheOrd.push(myOrd)
+                this.taSegCacheVal.push(val)
+                this.taSegCacheLen.push(val.length())
+                this.taSegCacheCols.push(maxCols)
+                this.taSegCacheStart.push(segStart)
+                this.taSegCacheText.push(segText)
+            }
         }
 
         // Alto: fijo a `rows`, o crece hasta el contenido (con tope) si grow.
@@ -767,9 +975,7 @@ export public class GuiRenderer {
         }
         let bh = visRows * lineH + 12
 
-        let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
-        this.focusOrd = this.focusOrd + 1
 
         let tbg  = this.colorFor("Textarea", "background-color", this.colInput)
         let bcol = this.colBorder
@@ -785,6 +991,25 @@ export public class GuiRenderer {
             Gui.drawRect(bx, by, bw, bh, bcol)
         }
 
+        // Detectar si el mouse está sobre este Textarea (para scroll por rueda).
+        let mxH = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
+        if (mxH) { this.taHoverIdx = this.regions.length(); }  // será el siguiente push
+
+        // ¿Hay contenido que excede las filas visibles? → necesita scroll interno.
+        let totalSegs = segText.length()
+        let needsScroll = totalSegs > visRows
+
+        // Scroll interno: leer/acotar el startSeg guardado para este Textarea.
+        let startSeg = 0
+        if (needsScroll) {
+            startSeg = this.getTaScroll(myOrd)
+            let maxStart = totalSegs - visRows
+            if (maxStart < 0) { maxStart = 0; }
+            if (startSeg > maxStart) { startSeg = maxStart;
+                this.setTaScroll(myOrd, startSeg);
+            }
+        }
+
         if (val.length() == 0 && placeholder != null) {
             Gui.drawText(bx + 6, by + 6, "" + placeholder, scale, this.colMuted)
         } else {
@@ -795,23 +1020,34 @@ export public class GuiRenderer {
             let dl = 0
             let dc = 0
             let found = false
-            let si = 0
-            while (si < segStart.length()) {
-                let s = segStart[si]
-                let e = s + segText[si].length()
+            let low = 0
+            let high = segStart.length() - 1
+            while (low <= high) {
+                let mid = (low + high) / 2
+                let s = segStart[mid]
+                let e = s + segText[mid].length()
                 if (car >= s && car <= e) {
-                    dl = si; dc = car - s; found = true
+                    dl = mid; dc = car - s; found = true
                     // En un corte por ajuste (no por \n) el final de un segmento coincide
                     // con el inicio del siguiente → el caret salta al renglón siguiente.
-                    if (car == e && si + 1 < segStart.length() && segStart[si + 1] == e) { dl = si + 1; dc = 0; }
-                    si = segStart.length()
-                } else { si = si + 1 }
+                    if (car == e && mid + 1 < segStart.length() && segStart[mid + 1] == e) { dl = mid + 1; dc = 0; }
+                    low = high + 1  // salir del loop
+                } else if (car < s) {
+                    high = mid - 1
+                } else {
+                    low = mid + 1
+                }
             }
             if (!found) { dl = segText.length() - 1; if (dl < 0) { dl = 0; } dc = segText[dl].length(); }
 
-            // Scroll vertical para mantener el cursor visible.
-            let startSeg = 0
-            if (focused && dl >= visRows) { startSeg = dl - visRows + 1; }
+            // Scroll vertical para mantener el cursor visible (enfocado: sigue al caret SOLO si se movió).
+            let lastCar = this.getTaLastCar(myOrd)
+            let caretMoved = car != lastCar
+            if (focused && caretMoved) {
+                if (dl < startSeg) { startSeg = dl; this.setTaScroll(myOrd, startSeg); }
+                if (dl >= startSeg + visRows) { startSeg = dl - visRows + 1; this.setTaScroll(myOrd, startSeg); }
+                this.setTaLastCar(myOrd, car)
+            }
 
             // Selección: rango [selLo, selHi) sobre el string plano.
             let hasSel = focused && this.selAnchor >= 0 && this.selAnchor != car
@@ -851,11 +1087,27 @@ export public class GuiRenderer {
                 }
                 Gui.setImePosition(caretPx, crow)
             }
+
+            // Mini-scrollbar interna a la derecha de la caja (si hay contenido que no entra).
+            if (needsScroll) {
+                let sbW   = 12
+                let sbX   = bx + bw - sbW - 2
+                let sbH   = bh - 8
+                let sbY   = by + 4
+                let stH   = (visRows * sbH) / totalSegs
+                if (stH < 20) { stH = 20; }
+                let maxSt = totalSegs - visRows
+                if (maxSt < 1) { maxSt = 1; }
+                let stY   = sbY + (startSeg * (sbH - stH)) / maxSt
+                Gui.fillRectAlpha(sbX, sbY, sbW, sbH, this.colBorder, 50)
+                Gui.fillRoundRect(sbX + 2, stY, sbW - 4, stH, (sbW - 4)/2, this.colMuted)
+            }
             Gui.popClip()
         }
 
         if (fam) { Gui.setFont(""); }
-        this.regions.push(["Textarea", bx, by, bw, bh, node])
+        // Region extendida: [tag, x, y, w, h, node, taOrd, totalSegs, visRows]
+        this.regions.push(["Textarea", bx, by, bw, bh, node, myOrd, totalSegs, visRows])
         this.cy = this.cy + bh + 12
     }
 
@@ -1307,7 +1559,7 @@ export public class GuiRenderer {
     // ¿(mx,my) cae dentro de la caja del modal (no en el scrim de fondo)?
     public bool modalBoxContains(int mx, int my) {
         return mx >= this.modalBoxX && mx < this.modalBoxX + this.modalBoxW
-            && my >= this.modalBoxY && my < this.modalBoxY + this.modalBoxH
+        && my >= this.modalBoxY && my < this.modalBoxY + this.modalBoxH
     }
 
     // Scrim + caja centrada con los children del Modal (registra sus regiones a
@@ -1414,7 +1666,15 @@ export public class GuiRenderer {
             if (mx >= rg[1] && mx < rg[1] + rg[3] && my >= rg[2] && my < rg[2] + rg[4]) {
                 let tag = rg[0]
                 if (tag == "Button" || tag == "Link" || tag == "Dropdown" || tag == "Select" || tag == "Checkbox") { return "hand"; }
-                if (tag == "Input" || tag == "Textarea") { return "text"; }
+                if (tag == "Textarea") {
+                    let totalSegs = rg[7]
+                    let visRows = rg[8]
+                    if (totalSegs > visRows && mx >= rg[1] + rg[3] - 24) {
+                        return "default"
+                    }
+                    return "text"
+                }
+                if (tag == "Input") { return "text"; }
                 return "default"
             }
             i = i - 1

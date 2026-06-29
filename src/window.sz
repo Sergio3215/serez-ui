@@ -39,14 +39,27 @@ export public class Window {
         this.__selAnchor = -1    // otro extremo de la selección (-1 = sin selección)
         this.__mouseDown = false // estado del botón del mouse (lo setea el loop GUI)
         this.__dragIdx   = -1    // índice de region del Input en arrastre (-1 = ninguno)
+        this.__sbDragging = false // arrastre de scrollbar principal
         this.__dropOpen = false  // ¿hay un Dropdown desplegado?
         this.__dropHi   = 0      // opción resaltada del Dropdown abierto
+        this.__reqTaScroll = false
+        this.__reqTaMy     = 0
+        this.__reqTaRg     = null
         this.__sheet    = null   // Stylesheet (.szs) opcional
         this.__minW     = 0      // min-width del contenido GUI (0 = sin límite)
         this.__maxW     = 0      // max-width del contenido GUI (0 = sin límite)
         this.__vw       = 0      // ancho de viewport vivo (px) — viewportWidth()/breakpoint()
         this.__bpSm     = 600    // umbral sm|md
         this.__bpMd     = 960    // umbral md|lg
+        this.__frameMs    = 0    // ms del último rasterizado completo (medidor de rendimiento)
+        this.__frameMsMax = 0    // peor rasterizado (ms) desde el último resetFrameMsPeak()
+        this.__pressX     = -1   // X del último clic en un Input (umbral anti-selección espuria)
+        this.__dragSel    = false // ¿el arrastre ya superó el umbral y está seleccionando?
+        // Undo/redo por campo de texto enfocado. Cada entrada: [value, caret, anchor].
+        // Se vacían al cambiar de campo (__undoFocus) para no mezclar historiales.
+        this.__undoStack  = []
+        this.__redoStack  = []
+        this.__undoFocus  = -1
     }
 
     // Override en subclases — produce el árbol VNode
@@ -111,6 +124,14 @@ export public class Window {
     public bool isMounted() {
         return this.mounted
     }
+
+    // ── Medidor de rendimiento (lo llena runGui alrededor del rasterizado) ──────
+    // frameMs()     = ms del último rasterizado completo (re-dibujo de la ventana).
+    // frameMsPeak() = peor rasterizado (ms) desde el último resetFrameMsPeak(); útil
+    //   para ver picos de lag al scrollear (el último frame suele ser ~0 en reposo).
+    public int frameMs()          { return this.__frameMs }
+    public int frameMsPeak()      { return this.__frameMsMax }
+    public void resetFrameMsPeak() { this.__frameMsMax = 0 }
 
     public void runEffects() {
         let i = 0
@@ -409,11 +430,17 @@ export public class Window {
                         this.__caret = this.caretFromClick(rg, mx)
                         this.__selAnchor = this.__caret   // ancla en el clic; al arrastrar, selecciona
                         this.__dragIdx = j                // este Input queda en arrastre
+                        this.__pressX  = mx               // punto de clic (umbral de arrastre)
+                        this.__dragSel = false            // aún no se está seleccionando
                     } else if (tag == "Textarea") {
-                        let tv = node.getProp("value")
-                        if (tv == null) { tv = ""; }
-                        this.__caret = ("" + tv).length()
                         this.__selAnchor = -1
+                        // Check if click is on scrollbar (right edge 24px para ser más tolerante)
+                        if (mx >= rg[1] + rg[3] - 24) {
+                            this.__dragIdx = j
+                            this.__reqTaScroll = true
+                            this.__reqTaMy = my
+                            this.__reqTaRg = rg
+                        }
                     } else if (tag == "Button" || tag == "Link") {
                         if (node.getProp("disabled") != true) {
                             let hb = node.getProp("onClick")
@@ -463,8 +490,22 @@ export public class Window {
         if (this.__mouseDown && !pressed && this.__dragIdx >= 0 && this.__dragIdx < n) {
             let drg = regions[this.__dragIdx]
             if (drg[0] == "Input") {
-                let nc = this.caretFromClick(drg, mx)
-                if (nc != this.__caret) { this.__caret = nc; changed = true; }
+                // Umbral: no seleccionar hasta moverse >4px del clic. El jitter de la
+                // mano al clickear no debe crear una selección de 1 char (que el primer
+                // tipeo reemplazaría = el "primer carácter seleccionado" reportado).
+                if (!this.__dragSel) {
+                    let dx = mx - this.__pressX
+                    if (dx < 0) { dx = 0 - dx }
+                    if (dx > 4) { this.__dragSel = true; }
+                }
+                if (this.__dragSel) {
+                    let nc = this.caretFromClick(drg, mx)
+                    if (nc != this.__caret) { this.__caret = nc; changed = true; }
+                }
+            } else if (drg[0] == "Textarea") {
+                this.__reqTaScroll = true
+                this.__reqTaMy = my
+                this.__reqTaRg = drg
             }
         }
         if (!this.__mouseDown) { this.__dragIdx = -1 }
@@ -571,6 +612,18 @@ export public class Window {
             let newAnchor = anchor
             let textChanged = false
 
+            // Undo/redo: si cambió el campo enfocado, descartar el historial previo
+            // (no mezclar el undo de un campo con otro).
+            if (this.__focus != this.__undoFocus) {
+                this.__undoStack = []
+                this.__redoStack = []
+                this.__undoFocus = this.__focus
+            }
+            let undoPreVal    = val      // estado ANTES de las ediciones de este frame
+            let undoPreCar    = car
+            let undoPreAnchor = anchor
+            let undoRedoDone  = false    // true si la edición vino de Ctrl+Z/Y → no apilar
+
             // Selección activa: rango [selLo, selHi). anchor=-1 → sin selección, y
             // todo el camino de abajo se comporta EXACTAMENTE como sin selección.
             let hasSel = anchor >= 0 && anchor != car
@@ -628,6 +681,32 @@ export public class Window {
                         }
                     }
                     kc = kc + 1
+                }
+            }
+
+            // ── Undo / Redo: Ctrl+Z (deshacer), Ctrl+Shift+Z y Ctrl+Y (rehacer) ──
+            if (ctrlDown && !altDown) {
+                let kz = 0
+                while (kz < keys.length()) {
+                    let zk = keys[kz]
+                    let isZ = zk == "z" || zk == "Z"
+                    let isY = zk == "y" || zk == "Y"
+                    let doUndo = isZ && !shift
+                    let doRedo = (isZ && shift) || isY
+                    if (doUndo && this.__undoStack.length() > 0) {
+                        this.__redoStack.push([newVal, newCar, newAnchor])
+                        let top = this.__undoStack[this.__undoStack.length() - 1]
+                        this.__undoStack.remove(this.__undoStack.length() - 1)
+                        newVal = top[0]; newCar = top[1]; newAnchor = top[2]
+                        hasSel = false; textChanged = true; undoRedoDone = true
+                    } else if (doRedo && this.__redoStack.length() > 0) {
+                        this.__undoStack.push([newVal, newCar, newAnchor])
+                        let top = this.__redoStack[this.__redoStack.length() - 1]
+                        this.__redoStack.remove(this.__redoStack.length() - 1)
+                        newVal = top[0]; newCar = top[1]; newAnchor = top[2]
+                        hasSel = false; textChanged = true; undoRedoDone = true
+                    }
+                    kz = kz + 1
                 }
             }
 
@@ -716,6 +795,12 @@ export public class Window {
                 changed = true
             }
             if (textChanged) {
+                // Apilar para undo el estado PREVIO (salvo que la edición sea undo/redo).
+                if (!undoRedoDone) {
+                    this.__undoStack.push([undoPreVal, undoPreCar, undoPreAnchor])
+                    if (this.__undoStack.length() > 200) { this.__undoStack.remove(0); }
+                    this.__redoStack = []
+                }
                 this.__caret = newCar
                 this.__selAnchor = newAnchor
                 let oc = fnode.getProp("onChange")
@@ -725,6 +810,34 @@ export public class Window {
         }
 
         return changed
+    }
+
+    public bool handleScrollWheelTa(any r, int mx, int my, int dy) {
+        let regions = r.getRegions()
+        let i = 0
+        while (i < regions.length()) {
+            let rg = regions[i]
+            if (rg[0] == "Textarea") {
+                let inside = mx >= rg[1] && mx < rg[1] + rg[3] && my >= rg[2] && my < rg[2] + rg[4]
+                if (inside) {
+                    let total = rg[7]
+                    let vis = rg[8]
+                    if (total > vis) {
+                        let ord = rg[6]
+                        let cur = r.getTaScroll(ord)
+                        cur = cur - (dy * 3)
+                        let maxSt = total - vis
+                        if (maxSt < 0) { maxSt = 0; }
+                        if (cur < 0) { cur = 0; }
+                        if (cur > maxSt) { cur = maxSt; }
+                        r.setTaScroll(ord, cur)
+                        return true
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return false
     }
 
     // Arranca la app en una ventana nativa. Bloquea hasta cerrar (Esc o la X).
@@ -753,7 +866,11 @@ export public class Window {
         r.setWidthBounds(this.__minW, this.__maxW)
         let curW = width
         let curH = height
+        r.setVdomDirty(true)
+        let __t0 = Gui.time()
         r.render(this.getVDom(), curW, curH)
+        this.__frameMs = Gui.time() - __t0
+        this.__frameMsMax = this.__frameMs
 
         // El flanco del click lo calculamos NOSOTROS (prevDown), NO con Gui.mousePressed().
         // Motivo: Gui.present() sondea los eventos de la ventana y, en el core, actualiza
@@ -780,8 +897,42 @@ export public class Window {
 
             // Scroll vertical con la rueda del mouse.
             let scr      = Gui.scroll()
-            let scrolled = scr[1] != 0
-            if (scrolled) { r.scrollBy(scr[1]); }
+            let scrolled = false
+            if (scr[1] != 0) {
+                let m = Gui.mouse()
+                let handledTa = false
+                let regions = r.getRegions()
+                let i = 0
+                while (i < regions.length()) {
+                    let rg = regions[i]
+                    if (rg[0] == "Textarea") {
+                        let inside = m[0] >= rg[1] && m[0] < rg[1] + rg[3] && m[1] >= rg[2] && m[1] < rg[2] + rg[4]
+                        if (inside) {
+                            let total = rg[7]
+                            let vis = rg[8]
+                            if (total > vis) {
+                                let ord = rg[6]
+                                let oldCur = r.getTaScroll(ord)
+                                let cur = oldCur - (scr[1] * 3)
+                                let maxSt = total - vis
+                                if (maxSt < 0) { maxSt = 0; }
+                                if (cur < 0) { cur = 0; }
+                                if (cur > maxSt) { cur = maxSt; }
+                                if (cur != oldCur) {
+                                    r.setTaScroll(ord, cur)
+                                    handledTa = true
+                                }
+                            }
+                        }
+                    }
+                    i = i + 1
+                }
+
+                if (!handledTa) {
+                    r.scrollBy(scr[1])
+                }
+                scrolled = true
+            }
 
             let down    = Gui.mouseDown()
             let pressed = down && !prevDown
@@ -789,8 +940,32 @@ export public class Window {
             this.__mouseDown = down    // para el arrastre de selección en handleGuiInput
 
             let m       = Gui.mouse()
+            
+            let sbHandled = false
+            if (pressed && r.scrollbarHit(m[0], m[1])) {
+                r.scrollTo(m[1])
+                this.__sbDragging = true
+                sbHandled = true
+                scrolled = true
+            } else if (this.__sbDragging && down) {
+                r.scrollTo(m[1])
+                sbHandled = true
+                scrolled = true
+            } else if (!down) {
+                this.__sbDragging = false
+            }
+
             let shift   = Gui.keyDown("Shift")
-            let changed = this.handleGuiInput(r, m[0], m[1], pressed, Gui.charsTyped(), Gui.keysPressed(), Gui.keysRepeated(), shift)
+            let changed = false
+            if (!sbHandled) {
+                changed = this.handleGuiInput(r, m[0], m[1], pressed, Gui.charsTyped(), Gui.keysPressed(), Gui.keysRepeated(), shift)
+            }
+
+            if (this.__reqTaScroll) {
+                r.scrollToTa(this.__reqTaRg, this.__reqTaMy)
+                this.__reqTaScroll = false
+                changed = true
+            }
 
             // Hook de frame del componente: trabajo periódico (progreso, toasts…).
             // Devuelve true si mutó estado y quiere redibujo. Se llama cada frame.
@@ -827,7 +1002,14 @@ export public class Window {
                 r.setDropHi(this.__dropHi)
                 r.setStyles(this.__sheet, this.styleVars())
                 r.setWidthBounds(this.__minW, this.__maxW)
+                // vdom solo se reconstruye (update) en cambio de estado/resize; en scroll/blink
+                // es idéntico → el renderer reusa el caché de segmentos sin comparar strings.
+                r.setVdomDirty(changed || resized)
+                let __tf = Gui.time()
                 r.render(this.getVDom(), curW, curH)
+                let __df = Gui.time() - __tf
+                this.__frameMs = __df
+                if (__df > this.__frameMsMax) { this.__frameMsMax = __df }
             }
 
             // CPU en reposo ~0: si no hay nada que animar, dormir hasta el próximo
