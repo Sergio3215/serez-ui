@@ -48,6 +48,13 @@ fn bool is_builtin_tag(string tag) {
         || tag == "Tooltip" || tag == "Toast"
 }
 
+// Métodos REALES de un dict (no se reescriben en `.props.X(...)`: quedan como método).
+fn bool is_dict_method(string name) {
+    return name == "Add" || name == "Remove" || name == "RemoveAll" || name == "clear"
+        || name == "toList" || name == "keys" || name == "values" || name == "toArray"
+        || name == "length" || name == "toString"
+}
+
 fn bool is_user_component(string tag) {
     return is_upper_first(tag) && !is_builtin_tag(tag)
 }
@@ -91,10 +98,17 @@ fn string rewrite_props(string code) {
                 ident = ident + code.charAt(j)
                 j = j + 1
             }
-            if (ident.length() > 0 && (j >= n || code.charAt(j) != "(")) {
-                result = result + ".props[" + dq + ident + dq + "]"
-                i = j
-                continue
+            if (ident.length() > 0) {
+                // `props` es siempre un dict: `.props.X` → `.props["X"]` tanto en acceso
+                // como en LLAMADA de callback (serez-code soporta `dict[k](args)`).
+                // Excepción: una llamada a un método REAL de dict (keys/values/Add/...)
+                // se deja como método.
+                let isCall = j < n && code.charAt(j) == "("
+                if (!isCall || !is_dict_method(ident)) {
+                    result = result + ".props[" + dq + ident + dq + "]"
+                    i = j
+                    continue
+                }
             }
         }
 
