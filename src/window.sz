@@ -60,6 +60,7 @@ export public class Window {
         this.__undoStack  = []
         this.__redoStack  = []
         this.__undoFocus  = -1
+        this.__hoveredFiles = []  // rutas arrastradas SOBRE la ventana ahora (Gui.hoveredFiles)
     }
 
     // Override en subclases — produce el árbol VNode
@@ -83,6 +84,38 @@ export public class Window {
     public bool wantsFrames() {
         return false
     }
+
+    // ── Hooks de eventos del SO (drag&drop de archivos, gestos) ────────────────
+    // Todos son override opcional; devolvé `true` si mutaste estado y querés redibujo.
+
+    // Se SUELTAN archivos sobre la ventana (drag&drop del SO). `files` = arreglo de
+    // rutas. Para leer su contenido la app necesita permiso File.
+    public bool onFilesDropped(any files) {
+        return false
+    }
+
+    // Archivos que se están ARRASTRANDO sobre la ventana (antes de soltar), para
+    // resaltar zonas de drop. Se llama al cambiar el conjunto. También accesible
+    // desde render() vía hoveredFiles(). `files` = [] cuando no hay arrastre.
+    public bool onFilesHovered(any files) {
+        return false
+    }
+
+    // Gesto de pinch/zoom (trackpad). `delta` = decimal acumulado del frame
+    // (>0 acercar, <0 alejar).
+    public bool onPinch(any delta) {
+        return false
+    }
+
+    // Toques activos del frame (pantallas táctiles de escritorio): arreglo plano
+    // [id, fase, x, y, …] (fase 0=start/1=move/2=end/3=cancel).
+    public bool onTouch(any touches) {
+        return false
+    }
+
+    // Rutas que se están arrastrando sobre la ventana ahora mismo. Leer desde
+    // render() para resaltar una zona de drop. [] cuando no hay arrastre.
+    public any hoveredFiles() { return this.__hoveredFiles }
 
     // Monta el componente: primer render
     public any mount() {
@@ -881,6 +914,8 @@ export public class Window {
         // tras present() y comparándolo con nuestro prevDown sí detectamos el down inicial.
         let prevDown  = false
         let prevBlink = 0     // última fase del blink (0=visible, 1=oculto) — para forzar redraw
+        let prevFocused = true // foco de la ventana del frame anterior (redraw al cambiar caret)
+        let prevIme   = ""    // composición IME del frame anterior (redraw al cambiar)
         let prevCur   = ""    // último cursor aplicado (evita setCursor en cada frame)
         let prevMx    = -1    // última pos del mouse (evita el hit-test de cursor si no se movió)
         let prevMy    = -1
@@ -974,6 +1009,47 @@ export public class Window {
             let ticked = this.onFrame()
             if (ticked) { changed = true; }
 
+            // ── Eventos del SO (foco, IME, drag&drop de archivos, gestos) ──────────
+            // Foco de la ventana: al cambiar hay que re-rasterizar (mostrar/ocultar el
+            // caret). NO reconstruye el vdom (el caret lo dibuja el renderer según foco).
+            let winFoc     = Gui.focused()
+            let focChanged = winFoc != prevFocused
+            prevFocused    = winFoc
+
+            // Composición IME en curso (CJK): cambia el dibujo del caret, no el vdom.
+            let pre        = Gui.imePreedit()
+            let imeChanged = pre != prevIme
+            prevIme        = pre
+
+            // Archivos arrastrados SOBRE la ventana (para resaltar zonas de drop). Como
+            // la app lo lee en render() vía hoveredFiles(), un cambio sí reconstruye vdom.
+            let hov        = Gui.hoveredFiles()
+            let hovChanged = hov.length() != this.__hoveredFiles.length()
+            this.__hoveredFiles = hov
+            if (hovChanged) {
+                this.onFilesHovered(hov)
+                changed = true
+            }
+
+            // Archivos SOLTADOS este frame → hook de la app (puede mutar estado).
+            let dropped = Gui.droppedFiles()
+            if (dropped.length() > 0) {
+                if (this.onFilesDropped(dropped)) { changed = true; }
+            }
+
+            // Gestos: pinch/zoom y toques (pantallas táctiles desktop).
+            let pinch = Gui.pinchDelta()
+            if (pinch != 0) {
+                if (this.onPinch(pinch)) { changed = true; }
+            }
+            let tch = Gui.touches()
+            if (tch.length() > 0) {
+                if (this.onTouch(tch)) { changed = true; }
+            }
+
+            // Solo re-rasterizado (no rebuild de vdom): foco/IME afectan el caret.
+            let osRaster = focChanged || imeChanged
+
             // Cursor según lo que hay bajo el mouse (mano sobre interactivos, I-beam
             // sobre campos de texto). Solo se recalcula si el mouse se movió o cambió
             // el layout (antes corría el hit-test + setCursor en CADA frame, ~250/s).
@@ -994,7 +1070,7 @@ export public class Window {
             // En resize re-ejecutamos render() (no solo el dibujo) → el componente puede
             // devolver OTRA estructura según viewportWidth()/breakpoint() (responsive Capa 2).
             if (changed || resized) { this.update(); }
-            if (changed || resized || scrolled || blinking) {
+            if (changed || resized || scrolled || blinking || osRaster) {
                 let m2 = Gui.mouse()
                 r.setMouse(m2[0], m2[1], down)
                 r.setFocus(this.__focus)
@@ -1002,6 +1078,8 @@ export public class Window {
                 r.setSel(this.__selAnchor)
                 r.setDropOpen(this.__dropOpen)
                 r.setDropHi(this.__dropHi)
+                r.setWinFocused(winFoc)
+                r.setImePreedit(pre)
                 r.setStyles(this.__sheet, this.styleVars())
                 r.setWidthBounds(this.__minW, this.__maxW)
                 // vdom solo se reconstruye (update) en cambio de estado/resize; en scroll/blink
@@ -1021,10 +1099,12 @@ export public class Window {
             // Reposo: dormir hasta el próximo evento (cualquier input despierta al
             // instante vía input_epoch del core). Sin foco, timeout largo (CPU ~0). Con
             // foco, más corto para animar el parpadeo del caret. wantsFrames() lo desactiva.
-            let busy = changed || resized || scrolled || ticked || this.wantsFrames()
+            let busy = changed || resized || scrolled || ticked || osRaster || this.wantsFrames()
             if (!busy) {
                 let idleMs = 800
-                if (r.caretActive()) { idleMs = 250; }   // animar el parpadeo del caret
+                // Solo animar el blink si hay caret Y la ventana tiene foco (sin foco no
+                // parpadea → dormir largo, CPU ~0 con la app en segundo plano).
+                if (r.caretActive() && winFoc) { idleMs = 250; }
                 Gui.idleWait(idleMs)
             }
         }

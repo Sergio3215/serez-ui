@@ -40,6 +40,8 @@ export public class GuiRenderer {
         this.scrollY    = 0      // desplazamiento vertical del scroll (px)
         this.contentH   = 0      // alto total del contenido del último render (px)
         this.drewCaret  = false  // ¿el último render dibujó un caret de texto?
+        this.winFocused = true   // ¿la VENTANA tiene foco del SO? (Gui.focused) — sin foco no se anima el caret
+        this.imePreedit = ""     // composición IME en curso (Gui.imePreedit), "" si no hay
 
         // Scrollbar de la ventana: métricas para hit-test en window.sz.
         this.sbVisible  = false  // ¿la scrollbar se dibujó en el último render?
@@ -144,8 +146,14 @@ export public class GuiRenderer {
     // valores son idénticos al frame anterior → el caché de segmentos es válido sin comparar.
     public void setVdomDirty(bool d) { this.vdomDirty = d }
 
-    // ¿El último render dibujó un caret de texto (Input/Textarea enfocado)? El loop lo
-    // usa para animar el parpadeo SOLO cuando hace falta (si no, no re-renderiza en reposo).
+    // Foco del SO de la ventana (Gui.focused). Sin foco, los campos no dibujan caret
+    // (ni lo animan): un Input enfocado de una ventana en segundo plano no parpadea.
+    public void setWinFocused(bool b) { this.winFocused = b }
+    // Composición IME en curso (Gui.imePreedit). Se pinta subrayada tras el caret.
+    public void setImePreedit(string s) { this.imePreedit = s }
+
+    // ¿El último render dibujó un caret de texto (Input/Textarea enfocado Y ventana
+    // enfocada)? El loop lo usa para animar el parpadeo SOLO cuando hace falta.
     public bool caretActive() { return this.drewCaret }
 
     // Ajusta el scroll vertical con la rueda (dy = delta de Gui.scroll()). Acota a [0, max].
@@ -839,12 +847,20 @@ export public class GuiRenderer {
             Gui.drawText(textX, by + 9, shown, scale, tcol)
         }
 
-        if (focused) {
+        // Caret solo si el campo Y la ventana tienen foco: un Input enfocado de una
+        // ventana en segundo plano no parpadea (winFocused = Gui.focused).
+        if (focused && this.winFocused) {
             this.drewCaret = true   // hay caret → el loop anima el blink
             let cpos = car - start
             if (cpos < 0) { cpos = 0; }
             let caretX = textX + cpos * charW
-            // blink: visible 500ms, oculto 500ms
+            // Composición IME en curso (CJK): se pinta subrayada justo en el caret.
+            let pre = this.imePreedit
+            if (pre != null && pre != "") {
+                Gui.drawText(caretX, by + 9, "" + pre, scale, tcol, 4)
+                caretX = caretX + pre.length() * charW
+            }
+            // blink: visible 700ms, oculto 300ms
             if (Gui.time() % 1000 < 700) {
                 Gui.fillRect(caretX, by + 7, 2, bh - 14, this.colText)
             }
@@ -1153,10 +1169,16 @@ export public class GuiRenderer {
                 drawn = drawn + 1
             }
 
-            if (focused) {
+            if (focused && this.winFocused) {
                 this.drewCaret = true   // hay caret → el loop anima el blink
                 let crow = by + 6 + (dl - startSeg) * lineH
                 let caretPx = bx + 6 + dc * charW
+                // Composición IME en curso (CJK): subrayada justo en el caret.
+                let pre = this.imePreedit
+                if (pre != null && pre != "") {
+                    Gui.drawText(caretPx, crow, "" + pre, scale, tcol, 4)
+                    caretPx = caretPx + pre.length() * charW
+                }
                 if (Gui.time() % 1000 < 700) {
                     Gui.fillRect(caretPx, crow, 1, lineH - 2, this.colText)
                 }
