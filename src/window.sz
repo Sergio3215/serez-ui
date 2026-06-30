@@ -764,6 +764,7 @@ export public class Window {
                 } else {
                     newVal = newVal.substring(0, newCar) + typed + newVal.substring(newCar, newVal.length())
                     newCar = newCar + typed.length()
+                    newAnchor = -1   // tipear nunca deja selección (el click dejó ancla=caret)
                 }
                 textChanged = true
             }
@@ -779,6 +780,7 @@ export public class Window {
                         } else {
                             newVal = newVal.substring(0, newCar) + "\n" + newVal.substring(newCar, newVal.length())
                             newCar = newCar + 1
+                            newAnchor = -1   // Enter tampoco deja selección
                         }
                         textChanged = true
                     } else {
