@@ -560,6 +560,17 @@ export public class Window {
                         }
                     } else if (tag == "Slider") {
                         this.sliderFromClick(node, rg, mx)
+                    } else if (tag == "Tabs") {
+                        if (node.getProp("disabled") != true && rg.length() > 6) {
+                            let bounds = rg[6]
+                            let idx = 0
+                            while (idx < bounds.length() && mx >= bounds[idx]) { idx = idx + 1 }
+                            if (idx >= bounds.length()) { idx = bounds.length() - 1; }
+                            if (idx >= 0) {
+                                let oc = node.getProp("onChange")
+                                if (oc != null) { oc(idx); }
+                            }
+                        }
                     }
                     changed = true
                 }
@@ -637,6 +648,14 @@ export public class Window {
             } else if (ftag == "Select") {
                 if (key == "Left")  { this.cycleSelect(fnode, -1); changed = true; }
                 if (key == "Right" || key == "Space" || key == "Enter") { this.cycleSelect(fnode, 1); changed = true; }
+            } else if (ftag == "Tabs") {
+                let ttabs = fnode.getProp("tabs")
+                if (ttabs == null) { ttabs = []; }
+                let tact = fnode.getProp("active")
+                if (tact == null) { tact = 0; }
+                let tnoc = fnode.getProp("onChange")
+                if (key == "Left" && tact > 0) { if (tnoc != null) { tnoc(tact - 1); } changed = true; }
+                if (key == "Right" && tact < ttabs.length() - 1) { if (tnoc != null) { tnoc(tact + 1); } changed = true; }
             } else if (ftag == "Dropdown") {
                 if ((key == "Enter" || key == "Space") && !fdis) {
                     if (this.__dropOpen) {

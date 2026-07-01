@@ -1,0 +1,71 @@
+// tabs_test.sz — Test headless del enrutado de Tabs: el clic mapea x→índice usando
+// los límites-x guardados en la región (campo 6), y ←/→ navegan. Corre a TOP-LEVEL
+// (gotcha de scope de los closures que mutan `this`).
+import "serez-ui"
+
+class T {
+    public T() { this.pass = 0; this.fail = 0 }
+    public void ok(bool c, string label) {
+        if (c) { this.pass = this.pass + 1 }
+        else   { this.fail = this.fail + 1; out "  FAIL  " + label }
+    }
+    public int done() { out ""; out "Resultado TABS: " + this.pass + " PASS, " + this.fail + " FAIL"; return this.fail }
+}
+
+class StubR {
+    public StubR(any regs) { this.regs = regs }
+    public any getRegions() { return this.regs }
+    public bool modalActive() { return false }
+    public int getModalRegStart() { return 0 }
+}
+
+class App:Window {
+    public App() { super(); this.tab = 0; this.picks = 0 }
+    public render() {
+        return h("div", [], [
+            Tabs([["tabs", ["Info", "Config", "Logs"]], ["active", this.tab], ["onChange", (i) => { this.tab = i; this.picks = this.picks + 1 }]], [])
+        ])
+    }
+}
+
+// Barra desde x=10; límites-x (fin de cada pestaña): Info<90, Config 90..210, Logs 210..320.
+fn any regionsOf(any app) {
+    let c = app.getVDom().getChildren()
+    return new StubR([["Tabs", 10, 0, 310, 34, c[0], [90, 210, 320]]])
+}
+
+let t = new T()
+let E = []
+
+let app = new App()
+app.mount()
+
+// 1) Clic en la 3ra pestaña (x dentro de Logs) → active 2.
+app.handleGuiInput(regionsOf(app), 280, 10, true, "", E, E, false); app.update()
+t.ok(app.tab == 2, "clic en Logs -> active 2")
+
+// 2) Clic en la 1ra (x dentro de Info) → active 0.
+app.handleGuiInput(regionsOf(app), 40, 10, true, "", E, E, false); app.update()
+t.ok(app.tab == 0, "clic en Info -> active 0")
+
+// 3) Clic en la 2da (x dentro de Config) → active 1.
+app.handleGuiInput(regionsOf(app), 150, 10, true, "", E, E, false); app.update()
+t.ok(app.tab == 1, "clic en Config -> active 1")
+
+// 4) Flecha derecha → active 2; izquierda → active 1.
+app.handleGuiInput(regionsOf(app), 0, 0, false, "", ["Right"], E, false); app.update()
+t.ok(app.tab == 2, "Right -> active 2")
+app.handleGuiInput(regionsOf(app), 0, 0, false, "", ["Left"], E, false); app.update()
+t.ok(app.tab == 1, "Left -> active 1")
+
+// 5) Left en la 1ra no baja de 0; Right en la última no pasa del máximo.
+let app2 = new App()
+app2.mount()
+app2.handleGuiInput(regionsOf(app2), 0, 0, false, "", ["Left"], E, false); app2.update()
+t.ok(app2.tab == 0 && app2.picks == 0, "Left en active 0 no hace nada")
+app2.tab = 2
+app2.update()
+app2.handleGuiInput(regionsOf(app2), 0, 0, false, "", ["Right"], E, false); app2.update()
+t.ok(app2.tab == 2, "Right en la ultima no pasa del maximo")
+
+t.done()

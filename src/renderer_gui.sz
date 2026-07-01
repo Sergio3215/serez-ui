@@ -670,6 +670,8 @@ export public class GuiRenderer {
             this.renderCheckbox(node)
         } else if (tag == "Switch" || tag == "Toggle") {
             this.renderSwitch(node)
+        } else if (tag == "Tabs") {
+            this.renderTabs(node)
         } else if (tag == "Textarea") {
             this.renderTextarea(node)
         } else if (tag == "RadioGroup") {
@@ -1065,6 +1067,57 @@ export public class GuiRenderer {
         this.regions.push(["Switch", bx, by, regW, trackH, node])
         this.lastW = regW
         this.cy = this.cy + trackH + 12
+    }
+
+    // ── Tabs (barra de pestañas; la app renderiza el contenido según `active`) ──
+    // Controlado: props tabs (array de labels), active (int), onChange (fn(idx)).
+    // La región guarda los límites-x de cada pestaña (campo 6) para mapear el clic.
+    public void renderTabs(any node) {
+        let tabs = node.getProp("tabs")
+        if (tabs == null) { tabs = []; }
+        let active = node.getProp("active")
+        if (active == null) { active = 0; }
+        let disabled = node.getProp("disabled") == true
+
+        let bx = this.cx
+        let by = this.cy
+        let barH = 34
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        // Línea inferior a lo ancho (el subrayado del activo se dibuja encima).
+        Gui.fillRect(bx, by + barH - 1, this.colWidth, 1, this.colBorder)
+
+        let tfam = this.setFam("Tabs")
+        let accent = this.colorFor("Tabs", "background-color", this.colBtn)
+        let bounds = []
+        let padX = 14
+        let x = bx
+        let i = 0
+        while (i < tabs.length()) {
+            let label = "" + tabs[i]
+            let tw    = Gui.measureText(label, 2)[0] + padX * 2
+            let isAct = (i == active)
+            let hover = this.mouseX >= x && this.mouseX < x + tw && this.mouseY >= by && this.mouseY < by + barH
+            if (isAct) { Gui.fillRect(x, by, tw, barH - 1, this.colInput); }
+            else if (!disabled && hover) { Gui.fillRect(x, by, tw, barH - 1, this.colInput); }
+            let tcol = this.colMuted
+            if (isAct) { tcol = this.colorFor("Tabs", "color", this.colText); }
+            else if (!disabled && hover) { tcol = this.colText; }
+            Gui.drawText(x + padX, by + 9, label, 2, tcol)
+            if (isAct) { Gui.fillRect(x, by + barH - 3, tw, 3, accent); }   // subrayado del activo
+            x = x + tw
+            bounds.push(x)
+            i = i + 1
+        }
+        if (tfam) { Gui.setFont(""); }
+        if (focused) { this.drawFocusRing(bx, by, x - bx, barH); }
+
+        this.regions.push(["Tabs", bx, by, x - bx, barH, node, bounds])
+        this.lastW = x - bx
+        this.cy = this.cy + barH + 10
     }
 
     // ── Textarea (multilínea con AJUSTE de línea + recorte a la caja) ──────────
@@ -2085,7 +2138,7 @@ export public class GuiRenderer {
             let rg = this.regions[i]
             if (mx >= rg[1] && mx < rg[1] + rg[3] && my >= rg[2] && my < rg[2] + rg[4]) {
                 let tag = rg[0]
-                if (tag == "Button" || tag == "Link" || tag == "Dropdown" || tag == "Select" || tag == "Checkbox" || tag == "Switch" || tag == "FileInput") { return "hand"; }
+                if (tag == "Button" || tag == "Link" || tag == "Dropdown" || tag == "Select" || tag == "Checkbox" || tag == "Switch" || tag == "FileInput" || tag == "Tabs") { return "hand"; }
                 if (tag == "Textarea") {
                     let totalSegs = rg[7]
                     let visRows = rg[8]
