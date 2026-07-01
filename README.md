@@ -1,8 +1,9 @@
 # serez-ui
 
-**v1.5.0** · React-style UI library for [Serez-Code](../Serez-code). Components, a transparent
-Virtual DOM, and hooks — the **same component** runs in the terminal (TUI) or in a real native
-window (GUI). Written in pure `.sz`; the JSX layer (`.szx`) compiles away entirely (no web runtime).
+**v1.9.0** · React-style UI library for [Serez-Code](../Serez-code). 23 built-in components, a
+transparent Virtual DOM, and hooks — the **same component** runs in the terminal (TUI) or in a real
+native window (GUI). Written in pure `.sz`; the JSX layer (`.szx`) compiles away entirely (no web
+runtime). Requires Serez-Code **≥ 7.2.0**.
 
 ```sz
 import "serez-ui"
@@ -91,11 +92,16 @@ width, with a gap — and it **stacks them vertically when they no longer fit**,
 | `ProgressBar` | `value`, `max`, `label` | Non-interactive (skipped by focus) |
 | `Label`       | — | Caption text (children); non-interactive |
 | `Link`        | `href`, `onClick`, `disabled` | Underlined accent · click or Enter activates |
-| `Image`       | `src`, `alt` | Raster image (PNG/JPG) drawn at natural size via the core; `alt` shows if it can't load |
+| `Image`       | `src`, `bytes`, `width`, `height`, `alpha`, `alt` | Raster image (PNG/JPG) from a file (`src`) **or from bytes in memory** (`bytes`, e.g. a fetched image); scales to `width`/`height`, `alpha` fades; `alt` shows if it can't load |
 | `Table`       | `columns`, `rows` | Read-only grid (aligned cells, header row) — response headers, metrics, key/value |
 | `Modal`       | `open`, `title` | When `open`, dims the background (alpha scrim) and centers a box with the children **on top**, capturing clicks/focus |
 | `Tooltip`     | `tip` | Wraps a child; shows a small box with `tip` next to the cursor on hover |
 | `Toast`       | `message`, `kind` | Transient banner (`info`/`success`/`warn`/`error`); auto-dismiss it from `onFrame()` |
+| `Chart`       | `data`, `type` (`line`/`area`/`bar`), `height`, `color`, `min`, `max`, `dots` | Plots a numeric series with the core vector primitives; non-interactive (sparkline in TUI) |
+| `Switch` / `Toggle` | `checked`, `label`, `onChange`, `disabled` | On/off pill switch (same semantics as `Checkbox`); click or Enter/Space toggles |
+| `Tabs`        | `tabs`, `active`, `onChange`, `disabled` | Controlled tab bar — draws the strip; **you** render the content per `active`; click or ←→, active underlined |
+| `FileInput`   | `onChange`, `value`, `label`, `filterName`, `exts`, `save`, `defaultName` | "Choose file…" button → native file dialog; `onChange(path)`, shows the picked file name · Enter/Space opens |
+| `DropZone`    | `onDrop`, `label`, `height` | Drop area for OS file drag-drop; highlights while files hover over the window, `onDrop(paths)` on drop |
 
 ```sz
 <Input value={this.name} placeholder="your name" onChange={(v) => { this.name = v }} />
@@ -106,10 +112,24 @@ width, with a gap — and it **stacks them vertically when they no longer fit**,
 <RadioGroup value={this.size} options={["S", "M", "L"]} onChange={(v) => { this.size = v }} />
 <Slider value={this.vol} min={0} max={100} step={5} onChange={(v) => { this.vol = v }} />
 <ProgressBar value={this.vol} max={100} label="level" />
+<Switch checked={this.dark} label="Dark mode" onChange={(b) => { this.dark = b }} />
+<Chart data={[3, 7, 4, 9, 6, 11, 8]} type="area" height={140} dots={true} />
 <Row>
     <Button onClick={save} disabled={!this.canSave}>Save</Button>
     <Button onClick={clear}>Clear</Button>
 </Row>
+
+// Tabs draw the strip; you render the panel for the active index:
+<Tabs tabs={["Info", "Config", "Logs"]} active={this.tab} onChange={(i) => { this.tab = i }} />
+{ this.tab == 0 ? <Info /> : this.tab == 1 ? <Config /> : <Logs /> }
+
+// Files: a native picker button, and a drag-drop area (both need the File permission to read):
+<FileInput exts="json" filterName="JSON" onChange={(p) => { this.path = p }} />
+<DropZone label="Drop files here" onDrop={(paths) => { this.files = paths }} />
+
+// An image fetched over the network (bytes), drawn scaled — cached by `src` (the URL):
+let r = fetch(url, ({"binary", true}))
+<Image src={url} bytes={r} width={200} />
 ```
 
 ## Focus & keyboard (GUI)
@@ -121,9 +141,9 @@ element shows a ring (text fields highlight their border and draw the caret).
 |-----|--------|
 | `Tab` / `Shift+Tab` | Move focus to the next / previous component |
 | click | Focus that component (and, in a text field, place the caret under the cursor) |
-| `←` `→` `Home` `End` | Move the caret (text fields) · change value (Select / Slider) |
+| `←` `→` `Home` `End` | Move the caret (text fields) · change value (Select / Slider) · switch tab (`Tabs`) |
 | `Backspace` / `Delete` | Delete before / at the caret (auto-repeat when held) |
-| `Enter` / `Space` | Activate the focused Button / Link / Checkbox / Dropdown |
+| `Enter` / `Space` | Activate the focused Button / Link / Checkbox / Switch / Dropdown · open the dialog (`FileInput`) |
 | `Enter` | Newline in a Textarea · `onSubmit` in an Input |
 | `↑` `↓` | Navigate options in an open Dropdown / a RadioGroup |
 | `Esc` | Close the window |
@@ -131,6 +151,29 @@ element shows a ring (text fields highlight their border and draw the caret).
 > Text is drawn with real glyphs on a monospace grid (the core rasterizes a font, so `ñ á é í ó ú
 > ¿ ¡` and Unicode like `→` render). Typing goes through your **OS keyboard layout and IME**, so
 > accented characters can be typed straight into `Input` / `Textarea` — no programmatic workaround.
+> A CJK **IME composition** in progress is drawn underlined at the caret. When the window **loses
+> OS focus** the caret stops blinking (and the loop idles), so a background window costs ~0 CPU.
+
+## OS events (drag-drop, gestures)
+
+The GUI surfaces a few window-level OS events as **optional `Window` overrides** (all default to
+no-op; return `true` from a handler to request a redraw). The `DropZone` / `FileInput` components
+cover the common cases, but you can also handle them directly:
+
+```sz
+public bool onFilesDropped(any paths) {        // files dropped on the window (needs File perm to read)
+    this.attached = paths
+    return true
+}
+public bool onFilesHovered(any paths) { … }    // files dragged over the window (before dropping)
+public bool onPinch(any delta)        { … }    // trackpad pinch/zoom (delta > 0 in, < 0 out)
+public bool onTouch(any touches)      { … }    // touchscreen points: flat [id, phase, x, y, …]
+```
+
+`app.hoveredFiles()` returns the paths currently being dragged over the window (or `[]`), so a
+component can read it from `render()` to highlight a drop target — which is exactly what `DropZone`
+does. (winit doesn't report the drop *position*, so with several `DropZone`s the drop routes to the
+one under the mouse, or the first.)
 
 ## TUI and GUI
 
@@ -198,7 +241,7 @@ ignored):
 
 | Property | Applies to | Values |
 |----------|-----------|--------|
-| `background-color` | body, Button, Input, Select, Checkbox, Dropdown, Textarea | hex / name |
+| `background-color` | body, Button, Input, Select, Checkbox, Dropdown, Textarea, Switch, Tabs, Chart (series color) | hex / name |
 | `color` | text tags + controls | hex / name |
 | `direction` | `Row` | `column` (stack vertically) |
 | `font-scale` | h1/h2/h3/p/span/li | integer (text-size multiplier) |
@@ -244,6 +287,10 @@ frame against `styleVars()` plus the built-in `width`/`height`.
 | `app.setMaxWidth(px)` / `app.setMinWidth(px)` | Window methods — clamp the GUI content width (`0` = no limit; centers under max-width) |
 | `app.viewportWidth()` / `app.breakpoint()` | Window methods — live viewport width (px) / current breakpoint (`sm`/`md`/`lg`) for a responsive `render()` |
 | `app.setBreakpoints(smMax, mdMax)` | Window method — set the `sm`\|`md` and `md`\|`lg` width thresholds (default `600` / `960`) |
+| `app.onFrame()` | Window override — per-frame hook; return `true` to redraw |
+| `app.onFilesDropped(paths)` / `onFilesHovered(paths)` | Window overrides — OS file drag-drop (dropped / hovering) |
+| `app.onPinch(delta)` / `onTouch(touches)` | Window overrides — trackpad pinch / touchscreen points |
+| `app.hoveredFiles()` | Window method — paths being dragged over the window right now (`[]` if none) |
 | `Renderer` / `GuiRenderer` | TUI / GUI renderers (used internally by the run methods) |
 | `parseCss` | `.szs` stylesheet parser |
 
@@ -273,7 +320,9 @@ serez-ui/
     state.sz effect.sz memo.sz   hooks
     window.sz          Window base class + the GUI/TUI event loops (runGui/runTui)
     components.sz      Button, Input, Textarea, Select, Dropdown, Checkbox,
-                       RadioGroup, Slider, ProgressBar, Label, Link, Row, Col
+                       RadioGroup, Slider, ProgressBar, Label, Link, Row, Col,
+                       Image, Table, Modal, Tooltip, Toast, Chart, Switch/Toggle,
+                       Tabs, FileInput, DropZone
     renderer.sz events.sz   TUI renderer + event helpers
     renderer_gui.sz    GUI renderer (pixels via the core Gui backend)
     event_loop.sz gui_event_loop.sz   deprecated loop shims → app.runTui/runGui
