@@ -1,0 +1,69 @@
+// switch_test.sz — Test headless del Switch/Toggle (comparte la semántica de
+// toggle de Checkbox: onChange(!checked) por click o Enter/Space; disabled no
+// togglea). Corre a nivel TOP-LEVEL (gotcha de scope de los closures).
+import "serez-ui"
+
+class T {
+    public T() { this.pass = 0; this.fail = 0 }
+    public void ok(bool c, string label) {
+        if (c) { this.pass = this.pass + 1 }
+        else   { this.fail = this.fail + 1; out "  FAIL  " + label }
+    }
+    public int done() { out ""; out "Resultado SWITCH: " + this.pass + " PASS, " + this.fail + " FAIL"; return this.fail }
+}
+
+class StubR {
+    public StubR(any regs) { this.regs = regs }
+    public any getRegions() { return this.regs }
+    public bool modalActive() { return false }
+    public int getModalRegStart() { return 0 }
+}
+
+class App:Window {
+    public App() {
+        super()
+        this.on = false
+        this.calls = 0
+        this.dcalls = 0
+    }
+    public render() {
+        return h("div", [], [
+            Switch([["checked", this.on], ["onChange", (b) => { this.on = b; this.calls = this.calls + 1 }]], []),
+            Switch([["checked", true], ["disabled", true], ["onChange", (b) => { this.dcalls = this.dcalls + 1 }]], [])
+        ])
+    }
+}
+
+fn any regionsOf(any app) {
+    let c = app.getVDom().getChildren()
+    return new StubR([
+        ["Switch", 0,  0, 44, 22, c[0]],
+        ["Switch", 0, 40, 44, 22, c[1]]
+    ])
+}
+
+let t = new T()
+let E = []
+
+let app = new App()
+app.mount()
+
+// 1) Click en el Switch OFF → ON.
+app.handleGuiInput(regionsOf(app), 10, 10, true, "", E, E, false); app.update()
+t.ok(app.on == true, "click en Switch OFF -> ON")
+t.ok(app.calls == 1, "onChange llamado 1 vez")
+
+// 2) Space (foco quedó en 0) → ON -> OFF.
+app.handleGuiInput(regionsOf(app), 0, 0, false, "", ["Space"], E, false); app.update()
+t.ok(app.on == false, "Space en Switch ON -> OFF")
+t.ok(app.calls == 2, "onChange llamado 2 veces")
+
+// 3) Enter → OFF -> ON.
+app.handleGuiInput(regionsOf(app), 0, 0, false, "", ["Enter"], E, false); app.update()
+t.ok(app.on == true, "Enter en Switch OFF -> ON")
+
+// 4) Click en el Switch deshabilitado → NO togglea.
+app.handleGuiInput(regionsOf(app), 10, 50, true, "", E, E, false); app.update()
+t.ok(app.dcalls == 0, "Switch disabled: click no dispara onChange")
+
+t.done()

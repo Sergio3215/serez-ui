@@ -312,6 +312,24 @@ export fn any FileInput(any props, any children) {
     return new VNode("FileInput", props, children)
 }
 
+// ── Switch / Toggle ─────────────────────────────────────────────────────────--
+// Interruptor on/off (pill con knob deslizante). Misma semántica que Checkbox pero
+// con aspecto de switch. `Toggle` es un alias (produce el mismo nodo). Enfocable.
+//
+// Props:
+//   checked  : bool       — estado on/off
+//   onChange : fn(bool)   — handler con el nuevo estado al alternar
+//   label    : string     — etiqueta opcional a la derecha (o usar children)
+//   disabled : bool
+//
+//   <Switch checked={dark} onChange={setDark} label="Modo oscuro" />
+export fn any Switch(any props, any children) {
+    return new VNode("Switch", props, children)
+}
+export fn any Toggle(any props, any children) {
+    return new VNode("Switch", props, children)
+}
+
 // ── Registro de built-ins ───────────────────────────────────────────────────--
 // Permite al runtime saber qué tags son componentes built-in de la librería
 // (en contraposición a los tags HTML primitivos). Mantener en sync con
@@ -324,4 +342,5 @@ export fn bool isBuiltinComponent(string tag) {
         || tag == "Image" || tag == "Table" || tag == "Modal"
         || tag == "Tooltip" || tag == "Toast" || tag == "Chart"
         || tag == "DropZone" || tag == "FileInput"
+        || tag == "Switch" || tag == "Toggle"
 }

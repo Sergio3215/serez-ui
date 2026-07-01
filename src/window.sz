@@ -533,7 +533,7 @@ export public class Window {
                     } else if (tag == "ModalClose") {
                         let oc = node.getProp("onClose")
                         if (oc != null) { oc(); }
-                    } else if (tag == "Checkbox") {
+                    } else if (tag == "Checkbox" || tag == "Switch") {
                         if (node.getProp("disabled") != true) {
                             let oc = node.getProp("onChange")
                             if (oc != null) { oc(node.getProp("checked") != true); }
@@ -629,7 +629,7 @@ export public class Window {
                 if ((key == "Enter" || key == "Space") && !fdis) {
                     this.openFilePicker(fnode); changed = true;
                 }
-            } else if (ftag == "Checkbox") {
+            } else if (ftag == "Checkbox" || ftag == "Switch") {
                 if ((key == "Space" || key == "Enter") && !fdis) {
                     let oc = fnode.getProp("onChange")
                     if (oc != null) { oc(fnode.getProp("checked") != true); changed = true; }

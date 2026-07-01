@@ -668,6 +668,8 @@ export public class GuiRenderer {
             this.renderSelect(node)
         } else if (tag == "Checkbox") {
             this.renderCheckbox(node)
+        } else if (tag == "Switch" || tag == "Toggle") {
+            this.renderSwitch(node)
         } else if (tag == "Textarea") {
             this.renderTextarea(node)
         } else if (tag == "RadioGroup") {
@@ -1014,6 +1016,55 @@ export public class GuiRenderer {
         this.regions.push(["Checkbox", bx, by, regW, boxSize, node])
         this.lastW = regW
         this.cy = this.cy + boxSize + 12
+    }
+
+    // ── Switch / Toggle (pill con knob deslizante; misma semántica que Checkbox) ─
+    public void renderSwitch(any node) {
+        let checked  = node.getProp("checked") == true
+        let label    = node.getProp("label")
+        if (label == null) { label = this.collectText(node); }
+        let disabled = node.getProp("disabled") == true
+
+        let bx = this.cx
+        let by = this.cy
+        let trackW = 44
+        let trackH = 22
+        let knobR  = 8
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        let sfam = this.setFam("Switch")
+        let lm   = Gui.measureText("" + label, 2)
+        let regW = trackW + 8 + lm[0]
+        let hover = this.mouseX >= bx && this.mouseX < bx + regW && this.mouseY >= by && this.mouseY < by + trackH
+
+        // Track (pill redondeado): acento si ON, borde si OFF.
+        let track = this.colBorder
+        if (checked) { track = this.colorFor("Switch", "background-color", this.colBtn); }
+        if (disabled) { track = this.colBorder; }
+        else if (checked && hover) { track = this.colBtnHov; }
+        Gui.fillRoundRect(bx, by, trackW, trackH, trackH / 2, track)
+
+        // Knob (círculo): izquierda (OFF) o derecha (ON).
+        let knobCx = bx + knobR + 3
+        if (checked) { knobCx = bx + trackW - knobR - 3; }
+        let knobCy  = by + trackH / 2
+        let knobCol = this.colText
+        if (disabled) { knobCol = this.colMuted; }
+        Gui.fillCircle(knobCx, knobCy, knobR, knobCol)
+
+        // Etiqueta a la derecha (si hay).
+        if (("" + label) != "") {
+            Gui.drawText(bx + trackW + 8, by + 3, "" + label, 2, this.colorFor("Switch", "color", this.colText))
+        }
+        if (sfam) { Gui.setFont(""); }
+        if (focused) { this.drawFocusRing(bx, by, regW, trackH); }
+
+        this.regions.push(["Switch", bx, by, regW, trackH, node])
+        this.lastW = regW
+        this.cy = this.cy + trackH + 12
     }
 
     // ── Textarea (multilínea con AJUSTE de línea + recorte a la caja) ──────────
@@ -2034,7 +2085,7 @@ export public class GuiRenderer {
             let rg = this.regions[i]
             if (mx >= rg[1] && mx < rg[1] + rg[3] && my >= rg[2] && my < rg[2] + rg[4]) {
                 let tag = rg[0]
-                if (tag == "Button" || tag == "Link" || tag == "Dropdown" || tag == "Select" || tag == "Checkbox") { return "hand"; }
+                if (tag == "Button" || tag == "Link" || tag == "Dropdown" || tag == "Select" || tag == "Checkbox" || tag == "Switch" || tag == "FileInput") { return "hand"; }
                 if (tag == "Textarea") {
                     let totalSegs = rg[7]
                     let visRows = rg[8]

@@ -162,6 +162,15 @@ export public class Renderer {
             }
             this.row = this.row + 1
 
+        } else if (tag == "Switch" || tag == "Toggle") {
+            let son = node.getProp("checked") == true
+            let slabel = node.getProp("label")
+            if (slabel == null) { slabel = this.collectText(node); }
+            Terminal.setCursor(this.row, 0)
+            if (son) { out "(=o) " + slabel; }
+            else     { out "(o=) " + slabel; }
+            this.row = this.row + 1
+
         } else if (tag == "Textarea") {
             let val = node.getProp("value")
             let disabled = node.getProp("disabled") == true
