@@ -287,6 +287,26 @@ export fn any DropZone(any props, any children) {
     return new VNode("DropZone", props, children)
 }
 
+// ── FileInput ───────────────────────────────────────────────────────────────--
+// Botón "Elegir archivo…" que abre el diálogo nativo de archivo (Gui.openFileDialog)
+// al activarse y dispara onChange con la ruta elegida; muestra el nombre del archivo.
+// Enfocable por teclado (Enter/Space abre el diálogo).
+//
+// Props:
+//   onChange    : fn(path) — handler; `path` = ruta absoluta elegida
+//   value       : string   — ruta actual (se muestra el nombre)
+//   label       : string   — texto del botón (default "Elegir archivo...")
+//   placeholder : string   — texto si no hay archivo (default "Ningun archivo")
+//   filterName  : string   — nombre del filtro (p.ej. "Imagenes")
+//   exts        : string   — extensiones CSV (p.ej. "png,jpg"); "" = todos
+//   save        : bool      — si true usa saveFileDialog (con defaultName)
+//   defaultName : string    — nombre por defecto al guardar
+//
+//   <FileInput value={ruta} exts="json" onChange={(p) => setRuta(p)} />
+export fn any FileInput(any props, any children) {
+    return new VNode("FileInput", props, children)
+}
+
 // ── Registro de built-ins ───────────────────────────────────────────────────--
 // Permite al runtime saber qué tags son componentes built-in de la librería
 // (en contraposición a los tags HTML primitivos). Mantener en sync con
@@ -298,5 +318,5 @@ export fn bool isBuiltinComponent(string tag) {
         || tag == "Label" || tag == "Link" || tag == "Row" || tag == "Col"
         || tag == "Image" || tag == "Table" || tag == "Modal"
         || tag == "Tooltip" || tag == "Toast" || tag == "Chart"
-        || tag == "DropZone"
+        || tag == "DropZone" || tag == "FileInput"
 }

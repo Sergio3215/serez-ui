@@ -357,6 +357,28 @@ export public class Window {
         if (oc != null) { oc(opts[nidx]); }
     }
 
+    // Abre el diálogo nativo de archivo del FileInput (bloquea hasta elegir) y, si el
+    // usuario eligió algo, dispara onChange con la ruta. `save`=true usa saveFileDialog.
+    //   props: filterName, exts ("json,txt"), save (bool), defaultName (si save).
+    public void openFilePicker(any node) {
+        let filterName = node.getProp("filterName")
+        if (filterName == null) { filterName = ""; }
+        let exts = node.getProp("exts")
+        if (exts == null) { exts = ""; }
+        let path = ""
+        if (node.getProp("save") == true) {
+            let defName = node.getProp("defaultName")
+            if (defName == null) { defName = ""; }
+            path = Gui.saveFileDialog(filterName, exts, defName)
+        } else {
+            path = Gui.openFileDialog(filterName, exts)
+        }
+        if (path != "") {
+            let oc = node.getProp("onChange")
+            if (oc != null) { oc(path); }
+        }
+    }
+
     // Suma `dir * step` al Slider, lo acota a [min,max] y dispara onChange.
     public void nudgeSlider(any node, int dir) {
         if (node.getProp("disabled") == true) { return; }
@@ -506,6 +528,8 @@ export public class Window {
                             let hb = node.getProp("onClick")
                             if (hb != null) { hb(); }
                         }
+                    } else if (tag == "FileInput") {
+                        if (node.getProp("disabled") != true) { this.openFilePicker(node); }
                     } else if (tag == "ModalClose") {
                         let oc = node.getProp("onClose")
                         if (oc != null) { oc(); }
@@ -600,6 +624,10 @@ export public class Window {
                 if ((key == "Enter" || key == "Space") && !fdis) {
                     let hb = fnode.getProp("onClick")
                     if (hb != null) { hb(); changed = true; }
+                }
+            } else if (ftag == "FileInput") {
+                if ((key == "Enter" || key == "Space") && !fdis) {
+                    this.openFilePicker(fnode); changed = true;
                 }
             } else if (ftag == "Checkbox") {
                 if ((key == "Space" || key == "Enter") && !fdis) {

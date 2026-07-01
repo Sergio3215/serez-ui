@@ -660,6 +660,8 @@ export public class GuiRenderer {
 
         } else if (tag == "Button") {
             this.renderButton(node)
+        } else if (tag == "FileInput") {
+            this.renderFileInput(node)
         } else if (tag == "Input") {
             this.renderInput(node)
         } else if (tag == "Select") {
@@ -769,6 +771,64 @@ export public class GuiRenderer {
         this.regions.push(["Button", bx, by, bw, bh, node])
         this.lastW = bw
         this.cy = this.cy + bh + 10
+    }
+
+    // ── FileInput (botón "Elegir archivo…" + nombre del elegido) ───────────────
+    // El click abre Gui.openFileDialog (lo maneja window.sz::openFilePicker).
+    public void renderFileInput(any node) {
+        let label = node.getProp("label")
+        if (label == null) { label = "Elegir archivo..."; }
+        let value = node.getProp("value")
+        let placeholder = node.getProp("placeholder")
+        if (placeholder == null) { placeholder = "Ningun archivo"; }
+        let disabled = node.getProp("disabled") == true
+
+        let bx = this.cx
+        let by = this.cy
+        let bh = 40
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        // Botón (izquierda) — mismo estilo que Button.
+        let fam   = this.setFam("Button")
+        let m     = Gui.measureText(label, 2)
+        let btnW  = m[0] + 28
+        let hover = this.mouseX >= bx && this.mouseX < bx + btnW && this.mouseY >= by && this.mouseY < by + bh
+        let color = this.colorFor("Button", "background-color", this.colBtn)
+        if (disabled) { color = this.colBorder }
+        else if (hover && this.mouseHeld) { color = this.colBtnDn }
+        else if (hover) { color = this.colBtnHov }
+        this.fillBox("Button", bx, by, btnW, bh, color)
+        Gui.drawText(bx + 14, by + 12, label, 2, this.colorFor("Button", "color", this.colText))
+        if (fam) { Gui.setFont(""); }
+        if (focused) { this.drawFocusRing(bx, by, btnW, bh) }
+
+        // Nombre del archivo elegido (derecha), o el placeholder si no hay.
+        let shown    = placeholder
+        let shownCol = this.colMuted
+        if (value != null && ("" + value) != "") {
+            shown = this.baseName("" + value)
+            shownCol = this.colText
+        }
+        Gui.drawText(bx + btnW + 12, by + 12, shown, 2, shownCol)
+
+        // La región cubre solo el botón (el click abre el diálogo).
+        this.regions.push(["FileInput", bx, by, btnW, bh, node])
+        this.cy = this.cy + bh + 10
+    }
+
+    // Nombre de archivo desde una ruta (última parte tras '/' o '\').
+    public string baseName(string path) {
+        let last = 0
+        let i = 0
+        while (i < path.length()) {
+            let ch = path.charAt(i)
+            if (ch == "/" || ch == "\\") { last = i + 1; }
+            i = i + 1
+        }
+        return path.substring(last, path.length())
     }
 
     // ── Input (una línea, con cursor y recorte horizontal) ─────────────────────

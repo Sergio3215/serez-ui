@@ -89,6 +89,16 @@ export public class Renderer {
             out text
             this.row = this.row + 1
 
+        } else if (tag == "FileInput") {
+            let flabel = node.getProp("label")
+            if (flabel == null) { flabel = "Elegir archivo..."; }
+            let fval = node.getProp("value")
+            let fname = "Ningun archivo"
+            if (fval != null) { if (("" + fval) != "") { fname = "" + fval; } }
+            Terminal.setCursor(this.row, 2)
+            out "[ " + flabel + " ]  " + fname
+            this.row = this.row + 1
+
         } else if (tag == "Input") {
             let placeholder = node.getProp("placeholder")
             let val         = node.getProp("value")
