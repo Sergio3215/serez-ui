@@ -1,6 +1,6 @@
 {
   "name": "serez-ui",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "UI library for Serez-Code (requires >= 7.2.0) — Virtual DOM (event-driven render + frame-skip), JSX translator, Window/State/Effects, TUI + GUI renderers, unified focus + keyboard nav, onFrame() hook for periodic work, clipboard (Ctrl+C/V/X in text fields), hover cursors, 24 built-in components (Button, Input, Textarea, Select, Dropdown, Checkbox, RadioGroup, Slider, ProgressBar, Label, Link, Row/Col, Image, Table, Modal, Tooltip, Toast, Chart, Switch/Toggle, Tabs, FileInput, DropZone, Collapsible/Accordion), OS events (focus-aware caret, IME preedit, file drag-drop + gestures via onFilesDropped/onFilesHovered/onPinch/onTouch), Image from bytes (fetched/in-memory), Chart with core vector primitives, native file dialogs (FileInput), responsive layout (autosize + min/max-width, .szs media queries, breakpoint() in render, Row auto-wrap), word-wrap + mouse-wheel scroll, CSS con lógica (.szs)",
   "main": "index.sz",
   "author": "Sergio3215",
