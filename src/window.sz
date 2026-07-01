@@ -571,6 +571,11 @@ export public class Window {
                                 if (oc != null) { oc(idx); }
                             }
                         }
+                    } else if (tag == "Collapsible") {
+                        if (node.getProp("disabled") != true) {
+                            let ot = node.getProp("onToggle")
+                            if (ot != null) { ot(node.getProp("open") != true); }
+                        }
                     }
                     changed = true
                 }
@@ -656,6 +661,11 @@ export public class Window {
                 let tnoc = fnode.getProp("onChange")
                 if (key == "Left" && tact > 0) { if (tnoc != null) { tnoc(tact - 1); } changed = true; }
                 if (key == "Right" && tact < ttabs.length() - 1) { if (tnoc != null) { tnoc(tact + 1); } changed = true; }
+            } else if (ftag == "Collapsible") {
+                if ((key == "Enter" || key == "Space") && !fdis) {
+                    let ot = fnode.getProp("onToggle")
+                    if (ot != null) { ot(fnode.getProp("open") != true); changed = true; }
+                }
             } else if (ftag == "Dropdown") {
                 if ((key == "Enter" || key == "Space") && !fdis) {
                     if (this.__dropOpen) {

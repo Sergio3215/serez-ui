@@ -347,6 +347,28 @@ export fn any Tabs(any props, any children) {
     return new VNode("Tabs", props, children)
 }
 
+// ── Collapsible / Accordion ─────────────────────────────────────────────────--
+// Sección plegable: un header clickeable (con chevron) que muestra/oculta su
+// CONTENIDO (los children). Controlado: la app guarda el estado `open`. Un
+// "accordion" = apilar varios y mantener uno abierto. `Accordion` es un alias.
+// Enfocable: Enter/Space alterna.
+//
+// Props:
+//   title    : string    — texto del header
+//   open     : bool       — ¿expandido?
+//   onToggle : fn(bool)   — handler con el nuevo estado al hacer click
+//   disabled : bool
+//
+//   <Collapsible title="Details" open={this.open} onToggle={(o) => { this.open = o }}>
+//       <p>Hidden until expanded.</p>
+//   </Collapsible>
+export fn any Collapsible(any props, any children) {
+    return new VNode("Collapsible", props, children)
+}
+export fn any Accordion(any props, any children) {
+    return new VNode("Collapsible", props, children)
+}
+
 // ── Registro de built-ins ───────────────────────────────────────────────────--
 // Permite al runtime saber qué tags son componentes built-in de la librería
 // (en contraposición a los tags HTML primitivos). Mantener en sync con
@@ -360,4 +382,5 @@ export fn bool isBuiltinComponent(string tag) {
         || tag == "Tooltip" || tag == "Toast" || tag == "Chart"
         || tag == "DropZone" || tag == "FileInput"
         || tag == "Switch" || tag == "Toggle" || tag == "Tabs"
+        || tag == "Collapsible" || tag == "Accordion"
 }

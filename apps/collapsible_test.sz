@@ -1,0 +1,65 @@
+// collapsible_test.sz — Test headless del Collapsible/Accordion: el header toggle
+// dispara onToggle(!open) por click o Enter/Space; disabled no togglea. Corre a
+// TOP-LEVEL (gotcha de scope de los closures que mutan `this`).
+import "serez-ui"
+
+class T {
+    public T() { this.pass = 0; this.fail = 0 }
+    public void ok(bool c, string label) {
+        if (c) { this.pass = this.pass + 1 }
+        else   { this.fail = this.fail + 1; out "  FAIL  " + label }
+    }
+    public int done() { out ""; out "Resultado COLLAPSIBLE: " + this.pass + " PASS, " + this.fail + " FAIL"; return this.fail }
+}
+
+class StubR {
+    public StubR(any regs) { this.regs = regs }
+    public any getRegions() { return this.regs }
+    public bool modalActive() { return false }
+    public int getModalRegStart() { return 0 }
+}
+
+class App:Window {
+    public App() { super(); this.open = false; this.calls = 0; this.dcalls = 0 }
+    public render() {
+        return h("div", [], [
+            Collapsible([["title", "A"], ["open", this.open], ["onToggle", (o) => { this.open = o; this.calls = this.calls + 1 }]], [
+                h("p", [], ["content"])
+            ]),
+            Collapsible([["title", "B"], ["open", true], ["disabled", true], ["onToggle", (o) => { this.dcalls = this.dcalls + 1 }]], [])
+        ])
+    }
+}
+
+fn any regionsOf(any app) {
+    let c = app.getVDom().getChildren()
+    return new StubR([
+        ["Collapsible", 0,  0, 300, 32, c[0]],
+        ["Collapsible", 0, 40, 300, 32, c[1]]
+    ])
+}
+
+let t = new T()
+let E = []
+
+let app = new App()
+app.mount()
+
+// 1) Click en el header cerrado → onToggle(true).
+app.handleGuiInput(regionsOf(app), 20, 10, true, "", E, E, false); app.update()
+t.ok(app.open == true, "click en header CERRADO -> open true")
+t.ok(app.calls == 1, "onToggle llamado 1 vez")
+
+// 2) Space (foco en 0) → onToggle(false).
+app.handleGuiInput(regionsOf(app), 0, 0, false, "", ["Space"], E, false); app.update()
+t.ok(app.open == false, "Space en header ABIERTO -> open false")
+
+// 3) Enter → onToggle(true).
+app.handleGuiInput(regionsOf(app), 0, 0, false, "", ["Enter"], E, false); app.update()
+t.ok(app.open == true, "Enter -> open true")
+
+// 4) Click en el header deshabilitado → NO togglea.
+app.handleGuiInput(regionsOf(app), 20, 50, true, "", E, E, false); app.update()
+t.ok(app.dcalls == 0, "disabled: click no dispara onToggle")
+
+t.done()

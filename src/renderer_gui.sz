@@ -672,6 +672,8 @@ export public class GuiRenderer {
             this.renderSwitch(node)
         } else if (tag == "Tabs") {
             this.renderTabs(node)
+        } else if (tag == "Collapsible" || tag == "Accordion") {
+            this.renderCollapsible(node)
         } else if (tag == "Textarea") {
             this.renderTextarea(node)
         } else if (tag == "RadioGroup") {
@@ -1118,6 +1120,65 @@ export public class GuiRenderer {
         this.regions.push(["Tabs", bx, by, x - bx, barH, node, bounds])
         this.lastW = x - bx
         this.cy = this.cy + barH + 10
+    }
+
+    // ── Collapsible / Accordion (sección plegable: header clickeable + children) ─
+    // Controlado: props title, open (bool), onToggle(fn(bool)). Cuando open, dibuja
+    // los children (contenido rico) indentados debajo del header.
+    public void renderCollapsible(any node) {
+        let title = node.getProp("title")
+        if (title == null) { title = ""; }
+        let open  = node.getProp("open") == true
+        let disabled = node.getProp("disabled") == true
+
+        let bx = this.cx
+        let by = this.cy
+        let headH = 32
+        let hw = this.colWidth
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        let hover = this.mouseX >= bx && this.mouseX < bx + hw && this.mouseY >= by && this.mouseY < by + headH
+        let hbg = this.colorFor("Collapsible", "background-color", this.colInput)
+        if (!disabled && hover) { hbg = this.colBtnHov; }
+        this.fillBox("Collapsible", bx, by, hw, headH, hbg)
+
+        // Chevron (triángulo): derecha si cerrado, abajo si abierto.
+        let tcol = this.colorFor("Collapsible", "color", this.colText)
+        let cx0 = bx + 12
+        let cy0 = by + headH / 2
+        if (open) {
+            Gui.fillPolygon([cx0 - 5, cy0 - 3, cx0 + 5, cy0 - 3, cx0, cy0 + 4], tcol)
+        } else {
+            Gui.fillPolygon([cx0 - 3, cy0 - 5, cx0 - 3, cy0 + 5, cx0 + 4, cy0], tcol)
+        }
+
+        let cfam = this.setFam("Collapsible")
+        Gui.drawText(bx + 28, by + 8, "" + title, 2, tcol)
+        if (cfam) { Gui.setFont(""); }
+        if (focused) { this.drawFocusRing(bx, by, hw, headH); }
+
+        this.regions.push(["Collapsible", bx, by, hw, headH, node])
+        this.cy = this.cy + headH + 4
+
+        // Contenido (children) cuando está abierto — indentado.
+        if (open) {
+            let savedCx = this.cx
+            let savedCW = this.colWidth
+            this.cx = this.cx + 14
+            this.colWidth = this.colWidth - 14
+            let children = node.getChildren()
+            let i = 0
+            while (i < children.length()) {
+                this.renderNode(children[i])
+                i = i + 1
+            }
+            this.cx = savedCx
+            this.colWidth = savedCW
+        }
+        this.cy = this.cy + 6
     }
 
     // ── Textarea (multilínea con AJUSTE de línea + recorte a la caja) ──────────
@@ -2138,7 +2199,7 @@ export public class GuiRenderer {
             let rg = this.regions[i]
             if (mx >= rg[1] && mx < rg[1] + rg[3] && my >= rg[2] && my < rg[2] + rg[4]) {
                 let tag = rg[0]
-                if (tag == "Button" || tag == "Link" || tag == "Dropdown" || tag == "Select" || tag == "Checkbox" || tag == "Switch" || tag == "FileInput" || tag == "Tabs") { return "hand"; }
+                if (tag == "Button" || tag == "Link" || tag == "Dropdown" || tag == "Select" || tag == "Checkbox" || tag == "Switch" || tag == "FileInput" || tag == "Tabs" || tag == "Collapsible") { return "hand"; }
                 if (tag == "Textarea") {
                     let totalSegs = rg[7]
                     let visRows = rg[8]

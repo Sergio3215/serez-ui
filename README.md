@@ -1,6 +1,6 @@
 # serez-ui
 
-**v2.0.0** · React-style UI library for [Serez-Code](../Serez-code). 23 built-in components, a
+**v2.0.0** · React-style UI library for [Serez-Code](../Serez-code). 24 built-in components, a
 transparent Virtual DOM, and hooks — the **same component** runs in the terminal (TUI) or in a real
 native window (GUI). Written in pure `.sz`; the JSX layer (`.szx`) compiles away entirely (no web
 runtime). Requires Serez-Code **≥ 7.2.0**.
@@ -100,6 +100,7 @@ width, with a gap — and it **stacks them vertically when they no longer fit**,
 | `Chart`       | `data`, `type` (`line`/`area`/`bar`), `height`, `color`, `min`, `max`, `dots` | Plots a numeric series with the core vector primitives; non-interactive (sparkline in TUI) |
 | `Switch` / `Toggle` | `checked`, `label`, `onChange`, `disabled` | On/off pill switch (same semantics as `Checkbox`); click or Enter/Space toggles |
 | `Tabs`        | `tabs`, `active`, `onChange`, `disabled` | Controlled tab bar — draws the strip; **you** render the content per `active`; click or ←→, active underlined |
+| `Collapsible` / `Accordion` | `title`, `open`, `onToggle`, `disabled` | Collapsible section — a header (with a chevron) that shows/hides its **children**; click or Enter/Space toggles |
 | `FileInput`   | `onChange`, `value`, `label`, `filterName`, `exts`, `save`, `defaultName` | "Choose file…" button → native file dialog; `onChange(path)`, shows the picked file name · Enter/Space opens |
 | `DropZone`    | `onDrop`, `label`, `height` | Drop area for OS file drag-drop; highlights while files hover over the window, `onDrop(paths)` on drop |
 
@@ -122,6 +123,11 @@ width, with a gap — and it **stacks them vertically when they no longer fit**,
 // Tabs draw the strip; you render the panel for the active index:
 <Tabs tabs={["Info", "Config", "Logs"]} active={this.tab} onChange={(i) => { this.tab = i }} />
 { this.tab == 0 ? <Info /> : this.tab == 1 ? <Config /> : <Logs /> }
+
+// Collapsible: a header that shows/hides its children (stack a few for an accordion):
+<Collapsible title="Details" open={this.open} onToggle={(o) => { this.open = o }}>
+    <p>Hidden until the section is expanded.</p>
+</Collapsible>
 
 // Files: a native picker button, and a drag-drop area (both need the File permission to read):
 <FileInput exts="json" filterName="JSON" onChange={(p) => { this.path = p }} />

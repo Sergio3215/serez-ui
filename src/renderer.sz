@@ -187,6 +187,21 @@ export public class Renderer {
             out line
             this.row = this.row + 1
 
+        } else if (tag == "Collapsible" || tag == "Accordion") {
+            let ctitle = node.getProp("title")
+            if (ctitle == null) { ctitle = ""; }
+            let copen = node.getProp("open") == true
+            Terminal.setCursor(this.row, 0)
+            if (copen) { out "[-] " + ctitle; } else { out "[+] " + ctitle; }
+            this.row = this.row + 1
+            if (copen) {
+                let ci = 0
+                while (ci < children.length()) {
+                    this.renderNode(children[ci])
+                    ci = ci + 1
+                }
+            }
+
         } else if (tag == "Textarea") {
             let val = node.getProp("value")
             let disabled = node.getProp("disabled") == true
