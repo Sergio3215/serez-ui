@@ -216,6 +216,39 @@ export public class Renderer {
             else { out "[" + bar + "] " + value + "/" + max; }
             this.row = this.row + 1
 
+        } else if (tag == "Chart") {
+            // TUI: sparkline ASCII compacta de la serie.
+            let data = node.getProp("data")
+            if (data == null) { data = []; }
+            let n = data.length()
+            Terminal.setCursor(this.row, 0)
+            if (n == 0) {
+                out "Chart: sin datos"
+            } else {
+                let lo = data[0]
+                let hi = data[0]
+                let k = 1
+                while (k < n) {
+                    if (data[k] < lo) { lo = data[k]; }
+                    if (data[k] > hi) { hi = data[k]; }
+                    k = k + 1
+                }
+                let sp = hi - lo
+                if (sp <= 0) { sp = 1; }
+                let blocks = ["_", ".", ":", "-", "=", "*", "#", "@"]
+                let spark = ""
+                let i = 0
+                while (i < n) {
+                    let lvl = Math.round((data[i] - lo) * 1.0 * 7 / sp)
+                    if (lvl < 0) { lvl = 0; }
+                    if (lvl > 7) { lvl = 7; }
+                    spark = spark + blocks[lvl]
+                    i = i + 1
+                }
+                out "Chart " + spark + "  (" + lo + ".." + hi + ")"
+            }
+            this.row = this.row + 1
+
         } else if (tag == "Dropdown") {
             let value = node.getProp("value")
             Terminal.setCursor(this.row, 0)

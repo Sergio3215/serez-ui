@@ -251,6 +251,24 @@ export fn any Toast(any props, any children) {
     return new VNode("Toast", props, children)
 }
 
+// ── Chart ───────────────────────────────────────────────────────────────────--
+// Gráfico de una serie numérica, dibujado con las primitivas vectoriales del core
+// (drawPolyline/fillPolygon/fillRect/fillCircle). NO interactivo.
+//
+// Props:
+//   data   : array number — la serie (int o decimal)
+//   type   : string        — "line" (default) | "area" | "bar"
+//   height : int           — alto en px (default 160)
+//   color  : int           — color de línea/barra/área (0xRRGGBB); default acento
+//   min    : number        — extremo inferior del eje Y (default: mín de data)
+//   max    : number        — extremo superior del eje Y (default: máx de data)
+//   dots   : bool          — dibujar un punto en cada dato (line/area)
+//
+//   <Chart data={[3,7,2,9,5]} type="area" height={180} dots={true} />
+export fn any Chart(any props, any children) {
+    return new VNode("Chart", props, children)
+}
+
 // ── Registro de built-ins ───────────────────────────────────────────────────--
 // Permite al runtime saber qué tags son componentes built-in de la librería
 // (en contraposición a los tags HTML primitivos). Mantener en sync con
@@ -261,5 +279,5 @@ export fn bool isBuiltinComponent(string tag) {
         || tag == "Slider" || tag == "ProgressBar" || tag == "Dropdown"
         || tag == "Label" || tag == "Link" || tag == "Row" || tag == "Col"
         || tag == "Image" || tag == "Table" || tag == "Modal"
-        || tag == "Tooltip" || tag == "Toast"
+        || tag == "Tooltip" || tag == "Toast" || tag == "Chart"
 }

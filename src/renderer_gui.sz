@@ -671,6 +671,8 @@ export public class GuiRenderer {
             this.renderSlider(node)
         } else if (tag == "ProgressBar") {
             this.renderProgressBar(node)
+        } else if (tag == "Chart") {
+            this.renderChart(node)
         } else if (tag == "Dropdown") {
             this.renderDropdown(node)
         } else if (tag == "Label") {
@@ -1305,6 +1307,123 @@ export public class GuiRenderer {
         this.fillBox("ProgressBar", bx, by, bw, bh, this.colInput)
         this.fillBox("ProgressBar", bx, by, (v * bw) / span, bh, this.colBtn)
         if (label != null) { Gui.drawText(bx + 8, by + 4, "" + label, 1, this.colText); }
+        this.cy = this.cy + bh + 12
+    }
+
+    // ── Chart (serie numérica dibujada con las primitivas vectoriales del core) ──
+    // No interactivo (no entra en el orden de foco). type: "line"|"area"|"bar".
+    public void renderChart(any node) {
+        let data = node.getProp("data")
+        if (data == null) { data = []; }
+        let ctype = node.getProp("type")
+        if (ctype == null) { ctype = "line"; }
+        let bh = node.getProp("height")
+        if (bh == null) { bh = 160; }
+
+        let col = this.colorFor("Chart", "color", this.colBtn)
+        let ucol = node.getProp("color")
+        if (ucol != null) { col = ucol; }
+
+        let bx = this.cx
+        let by = this.cy
+        let bw = this.colWidth
+
+        // Caja de fondo (respeta CSS de Chart: background/border).
+        this.fillBox("Chart", bx, by, bw, bh, this.colInput)
+
+        let n = data.length()
+        if (n == 0) {
+            Gui.drawText(bx + 10, by + bh / 2 - 6, "sin datos", 1, this.colMuted)
+            this.cy = this.cy + bh + 12
+            return
+        }
+
+        // Rango Y: explícito (min/max) o automático (mín/máx de la serie).
+        let ymin = node.getProp("min")
+        let ymax = node.getProp("max")
+        if (ymin == null || ymax == null) {
+            let lo = data[0]
+            let hi = data[0]
+            let k = 1
+            while (k < n) {
+                if (data[k] < lo) { lo = data[k]; }
+                if (data[k] > hi) { hi = data[k]; }
+                k = k + 1
+            }
+            if (ymin == null) { ymin = lo; }
+            if (ymax == null) { ymax = hi; }
+        }
+        let span = ymax - ymin
+        if (span <= 0) { span = 1; }
+
+        // Área de dibujo con padding interno.
+        let plotX = bx + 6
+        let plotY = by + 8
+        let plotW = bw - 12
+        let plotH = bh - 16
+        if (plotW < 1) { plotW = 1; }
+        if (plotH < 1) { plotH = 1; }
+
+        // Baseline: en el valor 0 si está en rango; si no, en el borde más cercano.
+        // El `* 1.0` fuerza división decimal (mapeo exacto aunque los datos sean int).
+        let baseVal = 0
+        if (ymin > 0) { baseVal = ymin; }
+        if (ymax < 0) { baseVal = ymax; }
+        let baseY = plotY + plotH - Math.round((baseVal - ymin) * 1.0 * plotH / span)
+        Gui.drawLine(plotX, baseY, plotX + plotW, baseY, this.colBorder)
+
+        if (ctype == "bar") {
+            let slot = plotW / n
+            if (slot < 1) { slot = 1; }
+            let gap = slot / 6
+            let i = 0
+            while (i < n) {
+                let vy = plotY + plotH - Math.round((data[i] - ymin) * 1.0 * plotH / span)
+                let barX = plotX + i * slot + gap
+                let barW = slot - gap * 2
+                if (barW < 1) { barW = 1; }
+                let top = vy
+                let hgt = baseY - vy
+                if (hgt < 0) { top = baseY; hgt = vy - baseY; }
+                if (hgt < 1) { hgt = 1; }
+                Gui.fillRect(barX, top, barW, hgt, col)
+                i = i + 1
+            }
+        } else {
+            let denom = n - 1
+            if (denom < 1) { denom = 1; }
+            let pts = []
+            let i = 0
+            while (i < n) {
+                let px = plotX + Math.round(i * 1.0 * plotW / denom)
+                let py = plotY + plotH - Math.round((data[i] - ymin) * 1.0 * plotH / span)
+                pts.push(px)
+                pts.push(py)
+                i = i + 1
+            }
+            // "area": polígono cerrado contra la baseline; "line": solo la polilínea.
+            if (ctype == "area") {
+                let poly = []
+                let j = 0
+                while (j < pts.length()) { poly.push(pts[j]); j = j + 1; }
+                poly.push(plotX + plotW); poly.push(baseY)
+                poly.push(plotX);         poly.push(baseY)
+                Gui.fillPolygon(poly, col)
+            }
+            if (n > 1) {
+                Gui.drawPolyline(pts, 2, col)
+            } else {
+                Gui.fillCircle(pts[0], pts[1], 3, col)
+            }
+            if (node.getProp("dots") == true) {
+                let d = 0
+                while (d < pts.length()) {
+                    Gui.fillCircle(pts[d], pts[d + 1], 3, col)
+                    d = d + 2
+                }
+            }
+        }
+
         this.cy = this.cy + bh + 12
     }
 
