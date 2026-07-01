@@ -42,6 +42,7 @@ export public class GuiRenderer {
         this.drewCaret  = false  // ¿el último render dibujó un caret de texto?
         this.winFocused = true   // ¿la VENTANA tiene foco del SO? (Gui.focused) — sin foco no se anima el caret
         this.imePreedit = ""     // composición IME en curso (Gui.imePreedit), "" si no hay
+        this.filesHovering = false // ¿hay archivos arrastrándose sobre la ventana? (Gui.hoveredFiles) — resalta DropZone
 
         // Scrollbar de la ventana: métricas para hit-test en window.sz.
         this.sbVisible  = false  // ¿la scrollbar se dibujó en el último render?
@@ -151,6 +152,8 @@ export public class GuiRenderer {
     public void setWinFocused(bool b) { this.winFocused = b }
     // Composición IME en curso (Gui.imePreedit). Se pinta subrayada tras el caret.
     public void setImePreedit(string s) { this.imePreedit = s }
+    // ¿Hay archivos arrastrándose sobre la ventana? (Gui.hoveredFiles) — resalta DropZone.
+    public void setFilesHovering(bool b) { this.filesHovering = b }
 
     // ¿El último render dibujó un caret de texto (Input/Textarea enfocado Y ventana
     // enfocada)? El loop lo usa para animar el parpadeo SOLO cuando hace falta.
@@ -673,6 +676,8 @@ export public class GuiRenderer {
             this.renderProgressBar(node)
         } else if (tag == "Chart") {
             this.renderChart(node)
+        } else if (tag == "DropZone") {
+            this.renderDropZone(node)
         } else if (tag == "Dropdown") {
             this.renderDropdown(node)
         } else if (tag == "Label") {
@@ -1425,6 +1430,65 @@ export public class GuiRenderer {
         }
 
         this.cy = this.cy + bh + 12
+    }
+
+    // ── DropZone (zona de arrastre-y-suelta de archivos) ───────────────────────
+    // Se resalta cuando hay archivos arrastrándose sobre la ventana (filesHovering,
+    // que window.sz fija desde Gui.hoveredFiles). El drop lo enruta el loop al onDrop.
+    public void renderDropZone(any node) {
+        let label = node.getProp("label")
+        if (label == null) { label = "Arrastra archivos aqui"; }
+        let bh = node.getProp("height")
+        if (bh == null) { bh = 120; }
+
+        let bx = this.cx
+        let by = this.cy
+        let bw = this.colWidth
+
+        let hi = this.filesHovering
+        let bc = this.colBorder
+        let tc = this.colMuted
+        if (hi) { bc = this.colFocus; tc = this.colText; }
+
+        // Fondo + tinte de acento translúcido cuando hay arrastre encima.
+        Gui.fillRect(bx, by, bw, bh, this.colInput)
+        if (hi) { Gui.fillRectAlpha(bx, by, bw, bh, this.colFocus, 36); }
+        // Borde punteado (más grueso al resaltar).
+        this.dashedRect(bx, by, bw, bh, bc, hi)
+
+        // Etiqueta centrada.
+        let scale = 2
+        let tw = Gui.measureText("" + label, scale)[0]
+        let tx = bx + (bw - tw) / 2
+        let ty = by + (bh - 8 * scale) / 2
+        Gui.drawText(tx, ty, "" + label, scale, tc)
+
+        this.regions.push(["DropZone", bx, by, bw, bh, node])
+        this.cy = this.cy + bh + 12
+    }
+
+    // Borde punteado alrededor de una caja (segmentos de dash con hueco). thick=2px.
+    public void dashedRect(int x, int y, int w, int h, int col, bool thick) {
+        let dash = 8
+        let gap  = 6
+        let t    = 1
+        if (thick) { t = 2; }
+        let px = x
+        while (px < x + w) {
+            let seg = dash
+            if (px + seg > x + w) { seg = x + w - px; }
+            Gui.fillRect(px, y, seg, t, col)
+            Gui.fillRect(px, y + h - t, seg, t, col)
+            px = px + dash + gap
+        }
+        let py = y
+        while (py < y + h) {
+            let seg = dash
+            if (py + seg > y + h) { seg = y + h - py; }
+            Gui.fillRect(x, py, t, seg, col)
+            Gui.fillRect(x + w - t, py, t, seg, col)
+            py = py + dash + gap
+        }
     }
 
     // ── Dropdown (caja + overlay diferido) ─────────────────────────────────────

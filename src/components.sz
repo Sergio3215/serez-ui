@@ -269,6 +269,24 @@ export fn any Chart(any props, any children) {
     return new VNode("Chart", props, children)
 }
 
+// ── DropZone ────────────────────────────────────────────────────────────────--
+// Zona de arrastre-y-suelta de archivos. Se resalta cuando hay archivos siendo
+// arrastrados sobre la ventana y dispara onDrop al soltar. NO interactivo por
+// teclado (no entra en el orden de foco).
+//
+// Props:
+//   onDrop : fn(files) — handler; `files` = arreglo de rutas soltadas
+//   label  : string    — texto centrado (default "Arrastra archivos aqui")
+//   height : int       — alto en px (default 120)
+//
+//   <DropZone label="Suelta un .json" onDrop={(files) => cargar(files)} />
+//
+// Nota: winit no da la posición del drop → con varios DropZone, el drop se enruta
+// al que esté bajo el mouse, o al primero. La app necesita permiso File para leer.
+export fn any DropZone(any props, any children) {
+    return new VNode("DropZone", props, children)
+}
+
 // ── Registro de built-ins ───────────────────────────────────────────────────--
 // Permite al runtime saber qué tags son componentes built-in de la librería
 // (en contraposición a los tags HTML primitivos). Mantener en sync con
@@ -280,4 +298,5 @@ export fn bool isBuiltinComponent(string tag) {
         || tag == "Label" || tag == "Link" || tag == "Row" || tag == "Col"
         || tag == "Image" || tag == "Table" || tag == "Modal"
         || tag == "Tooltip" || tag == "Toast" || tag == "Chart"
+        || tag == "DropZone"
 }

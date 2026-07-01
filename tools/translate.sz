@@ -46,6 +46,7 @@ fn bool is_builtin_tag(string tag) {
         || tag == "Label" || tag == "Link" || tag == "Row" || tag == "Col"
         || tag == "Image" || tag == "Table" || tag == "Modal"
         || tag == "Tooltip" || tag == "Toast" || tag == "Chart"
+        || tag == "DropZone"
 }
 
 // Métodos REALES de un dict (no se reescriben en `.props.X(...)`: quedan como método).

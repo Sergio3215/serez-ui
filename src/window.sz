@@ -117,6 +117,33 @@ export public class Window {
     // render() para resaltar una zona de drop. [] cuando no hay arrastre.
     public any hoveredFiles() { return this.__hoveredFiles }
 
+    // Enruta un drop de archivos al DropZone bajo el mouse; si ninguno lo contiene,
+    // al PRIMER DropZone (caso de una sola zona). winit no da la posición del drop,
+    // así que se usa la última posición del mouse. Devuelve true si despachó un onDrop.
+    public bool dispatchDrop(any r, any files, int mx, int my) {
+        let regions = r.getRegions()
+        let first = -1
+        let i = 0
+        while (i < regions.length()) {
+            let rg = regions[i]
+            if (rg[0] == "DropZone") {
+                if (first < 0) { first = i; }
+                let inside = mx >= rg[1] && mx < rg[1] + rg[3] && my >= rg[2] && my < rg[2] + rg[4]
+                if (inside) {
+                    let od = rg[5].getProp("onDrop")
+                    if (od != null) { od(files); }
+                    return true
+                }
+            }
+            i = i + 1
+        }
+        if (first >= 0) {
+            let od = regions[first][5].getProp("onDrop")
+            if (od != null) { od(files); return true; }
+        }
+        return false
+    }
+
     // Monta el componente: primer render
     public any mount() {
         this.vdom    = this.render()
@@ -1031,10 +1058,12 @@ export public class Window {
                 changed = true
             }
 
-            // Archivos SOLTADOS este frame → hook de la app (puede mutar estado).
+            // Archivos SOLTADOS este frame → hook de la app + enrutado a un DropZone.
             let dropped = Gui.droppedFiles()
             if (dropped.length() > 0) {
-                if (this.onFilesDropped(dropped)) { changed = true; }
+                let hk = this.onFilesDropped(dropped)
+                let dz = this.dispatchDrop(r, dropped, m[0], m[1])
+                if (hk || dz) { changed = true; }
             }
 
             // Gestos: pinch/zoom y toques (pantallas táctiles desktop).
@@ -1080,6 +1109,7 @@ export public class Window {
                 r.setDropHi(this.__dropHi)
                 r.setWinFocused(winFoc)
                 r.setImePreedit(pre)
+                r.setFilesHovering(this.__hoveredFiles.length() > 0)
                 r.setStyles(this.__sheet, this.styleVars())
                 r.setWidthBounds(this.__minW, this.__maxW)
                 // vdom solo se reconstruye (update) en cambio de estado/resize; en scroll/blink

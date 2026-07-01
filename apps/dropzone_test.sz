@@ -1,0 +1,82 @@
+// dropzone_test.sz — Test headless del enrutado de drop de DropZone
+// (Window.dispatchDrop): a la zona bajo el mouse, o a la primera si ninguna lo
+// contiene, y el onDrop recibe las rutas. El resaltado visual se verifica por
+// screenshot (filesHovering), no acá.
+//
+// NOTA: corre a nivel TOP-LEVEL (sin fn main): los closures que mutan `this` de
+// un componente solo propagan al `let app` cuando el driver está en el scope de
+// script (gotcha de scope de serez-code — igual que handleinput_test).
+import "serez-ui"
+
+class T {
+    public T() { this.pass = 0; this.fail = 0 }
+    public void ok(bool c, string label) {
+        if (c) { this.pass = this.pass + 1 }
+        else   { this.fail = this.fail + 1; out "  FAIL  " + label }
+    }
+    public int done() { out ""; out "Resultado DROPZONE: " + this.pass + " PASS, " + this.fail + " FAIL"; return this.fail }
+}
+
+// Renderer-stub: solo expone getRegions() (lo único que consulta dispatchDrop).
+class StubR {
+    public StubR(any regs) { this.regs = regs }
+    public any getRegions() { return this.regs }
+}
+
+class App:Window {
+    public App() {
+        super()
+        this.droppedA = -1
+        this.droppedB = -1
+    }
+    public render() {
+        return h("div", [], [
+            DropZone([["label", "A"], ["onDrop", (files) => { this.droppedA = files.length() }]], []),
+            DropZone([["label", "B"], ["onDrop", (files) => { this.droppedB = files.length() }]], [])
+        ])
+    }
+}
+
+// Dos DropZones apiladas: A en y=0..100, B en y=120..220.
+fn any buildRegions(any app) {
+    let c = app.getVDom().getChildren()
+    return new StubR([
+        ["DropZone", 0,   0, 200, 100, c[0]],
+        ["DropZone", 0, 120, 200, 100, c[1]]
+    ])
+}
+
+let t = new T()
+
+// 1) Drop con el mouse dentro de la zona A → onDrop de A.
+let app = new App()
+app.mount()
+let d1 = app.dispatchDrop(buildRegions(app), ["/tmp/a.txt", "/tmp/b.txt"], 50, 50)
+t.ok(d1, "dispatch true dentro de A")
+t.ok(app.droppedA == 2, "onDrop de A recibio 2 archivos")
+t.ok(app.droppedB == -1, "onDrop de B NO se disparo")
+
+// 2) Drop con el mouse dentro de la zona B → onDrop de B.
+let app2 = new App()
+app2.mount()
+let d2 = app2.dispatchDrop(buildRegions(app2), ["/x"], 50, 160)
+t.ok(d2, "dispatch true dentro de B")
+t.ok(app2.droppedB == 1, "onDrop de B recibio 1 archivo")
+t.ok(app2.droppedA == -1, "onDrop de A NO se disparo")
+
+// 3) Drop fuera de toda zona → cae a la PRIMERA (A).
+let app3 = new App()
+app3.mount()
+let d3 = app3.dispatchDrop(buildRegions(app3), ["/y", "/z", "/w"], 999, 999)
+t.ok(d3, "dispatch true fuera (cae a la primera)")
+t.ok(app3.droppedA == 3, "onDrop de A (fallback) recibio 3")
+
+// 4) Sin DropZones → devuelve false, sin efectos.
+let app4 = new App()
+app4.mount()
+let empty = new StubR([["Button", 0, 0, 80, 40, null]])
+let d4 = app4.dispatchDrop(empty, ["/q"], 10, 10)
+t.ok(!d4, "sin DropZone devuelve false")
+t.ok(app4.droppedA == -1, "sin DropZone no dispara onDrop")
+
+t.done()
