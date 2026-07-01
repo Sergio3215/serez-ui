@@ -1766,11 +1766,40 @@ export public class GuiRenderer {
         return hnd
     }
 
-    // ── Image (tamaño natural; el backend no escala) ───────────────────────────
+    // Caché para imágenes EN MEMORIA (bytes, p.ej. fetcheadas): decodifica una sola
+    // vez con Gui.loadImageBytes, llaveado por `key` (id estable — usar la URL/src).
+    public int imgHandleBytes(string key, any bytes) {
+        let i = 0
+        while (i < this.imgPaths.length()) {
+            if (this.imgPaths[i] == key) { return this.imgHandles[i]; }
+            i = i + 1
+        }
+        let hnd = -1
+        if (bytes != null) {
+            if (bytes.length() > 0) {
+                try { hnd = Gui.loadImageBytes(bytes); } catch (e) { hnd = -1; }
+            }
+        }
+        this.imgPaths.push(key)
+        this.imgHandles.push(hnd)
+        return hnd
+    }
+
+    // ── Image (ruta o bytes; width/height escala; alpha opcional) ──────────────
     public void renderImage(any node) {
-        let src = node.getProp("src")
-        if (src == null) { return; }
-        let hnd = this.imgHandle("" + src)
+        let src   = node.getProp("src")
+        let bytes = node.getProp("bytes")
+        if (src == null && bytes == null) { return; }
+        // `bytes` (imagen en memoria, p.ej. fetcheada) tiene prioridad; se cachea por
+        // `src` como id estable (usar la URL). Sin `bytes`, `src` es una ruta de archivo.
+        let hnd = -1
+        if (bytes != null) {
+            let key = "bytes:"
+            if (src != null) { key = "bytes:" + src; }
+            hnd = this.imgHandleBytes(key, bytes)
+        } else {
+            hnd = this.imgHandle("" + src)
+        }
         if (hnd < 0) {
             let alt = node.getProp("alt")
             if (alt == null) { alt = "[image]"; }

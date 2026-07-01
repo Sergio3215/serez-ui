@@ -183,15 +183,20 @@ export fn any Col(any props, any children) {
 }
 
 // ── Image ─────────────────────────────────────────────────────────────────────
-// Imagen rasterizada (PNG/JPG…) dibujada vía el backend del core (Gui.drawImage).
-// Se dibuja a su TAMAÑO NATURAL (el backend no escala); prepará el archivo al
-// tamaño deseado. No interactivo (no entra en el orden de foco).
+// Imagen rasterizada (PNG/JPG…) dibujada vía el backend del core. Desde un archivo
+// (src) o desde BYTES en memoria (bytes, p.ej. fetcheada con fetch binario o leída
+// con File.read_asBinary → Gui.loadImageBytes). No interactivo.
 //
 // Props:
-//   src : string — ruta al archivo de imagen (relativa al CWD)
-//   alt : string — texto si la imagen no carga (opcional)
+//   src    : string — ruta al archivo (si no hay `bytes`); con `bytes`, es el id de caché
+//   bytes  : [int]  — imagen en memoria (arreglo de bytes); tiene prioridad sobre src
+//   width  : int    — ancho a escalar (aspect-ratio si solo se da uno)
+//   height : int    — alto a escalar
+//   alpha  : int    — opacidad global 0–255 (opcional)
+//   alt    : string — texto si la imagen no carga (opcional)
 //
-//   <Image src="assets/logo.png" />
+//   <Image src="assets/logo.png" width={120} />
+//   let r = fetch(url, [["binary", true]]); <Image src={url} bytes={r} width={200} />
 export fn any Image(any props, any children) {
     return new VNode("Image", props, children)
 }
