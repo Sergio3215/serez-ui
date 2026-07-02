@@ -1,6 +1,6 @@
 # serez-ui
 
-**v2.1.0** · React-style UI library for [Serez-Code](../Serez-code). 24 built-in components, a
+**v2.2.0** · React-style UI library for [Serez-Code](../Serez-code). 24 built-in components, a
 transparent Virtual DOM, and hooks — the **same component** runs in the terminal (TUI) or in a real
 native window (GUI). Written in pure `.sz`; the JSX layer (`.szx`) compiles away entirely (no web
 runtime). Requires Serez-Code **≥ 7.2.0**.
@@ -264,9 +264,13 @@ Sizes are plain integers (pixels) — no `px` unit.
 
 ### Fonts (`:font` + `font-family`)
 
-Declare font files in a `:font` block (loaded lazily by the renderer) and pick families per tag —
-system-installed fonts work by name without any block. Custom families render **proportionally**
-(real glyph advances); `Input`/`Textarea` text stays monospace so the caret math holds.
+By default — with no `font-family` set — the UI uses a modern system stack: **Segoe UI**
+(proportional) for text and controls, and **Cascadia Mono** (falling back to Consolas) for
+`Input`/`Textarea`; if neither is installed it falls back to the core's monospace grid. Override it
+per tag (or on `body` for the whole app). Declare font files in a `:font` block (loaded lazily by
+the renderer) and pick families per tag — system-installed fonts work by name without any block.
+Custom families render **proportionally** (real glyph advances); `Input`/`Textarea` text stays
+monospace so the caret math holds.
 
 ```css
 :font {
