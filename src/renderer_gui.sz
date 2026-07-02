@@ -78,8 +78,9 @@ export public class GuiRenderer {
         // El .szs de la app tiene precedencia (famFor la consulta primero). Fuentes de
         // sistema (no requieren :font); si no existen, Gui.setFont devuelve false y se cae
         // a la rejilla monoespaciada del core (sin romper).
-        this.defaultFam  = "Segoe UI"   // proporcional para texto de bloque y controles
-        this.defaultMono = "Consolas"   // monoespaciada para Input/Textarea (caret uniforme)
+        this.defaultFam  = "Segoe UI"        // proporcional para texto de bloque y controles
+        this.defaultMono = "Cascadia Mono"   // monoespaciada moderna para Input/Textarea (caret uniforme)
+        this.defaultMonoAlt = "Consolas"     // fallback si Cascadia Mono no está instalada
 
         // Caché de resolución de estilos: resolveProp/colorProp son O(selectores×decls)
         // POR llamada, y se invocan por cada propiedad de cada widget POR frame (el cuello
@@ -428,7 +429,11 @@ export public class GuiRenderer {
     // proporcional de body. Devuelve true si quedó una familia custom activa.
     public bool setMonoFam(string tag) {
         let f = this.strProp(tag, "font-family", "")
-        if (f == "") { return Gui.setFont(this.defaultMono); }   // mono moderno por defecto
+        if (f == "") {
+            // Mono moderno por defecto: Cascadia Mono, con fallback a Consolas y a la rejilla.
+            if (Gui.setFont(this.defaultMono)) { return true; }
+            return Gui.setFont(this.defaultMonoAlt)
+        }
         if (f.length() >= 2) {
             let a = f.charAt(0)
             let b = f.charAt(f.length() - 1)
