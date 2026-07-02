@@ -74,6 +74,12 @@ export public class GuiRenderer {
         this.fontsReady     = false  // ¿ya se cargaron las fuentes :font de la hoja?
         this.fontAliasNames = []     // alias declarados en :font
         this.fontRealNames  = []     // nombre real de familia que devolvió Gui.loadFont
+        // Tipografía por defecto (moderna) cuando la app NO define font-family en .szs.
+        // El .szs de la app tiene precedencia (famFor la consulta primero). Fuentes de
+        // sistema (no requieren :font); si no existen, Gui.setFont devuelve false y se cae
+        // a la rejilla monoespaciada del core (sin romper).
+        this.defaultFam  = "Segoe UI"   // proporcional para texto de bloque y controles
+        this.defaultMono = "Consolas"   // monoespaciada para Input/Textarea (caret uniforme)
 
         // Caché de resolución de estilos: resolveProp/colorProp son O(selectores×decls)
         // POR llamada, y se invocan por cada propiedad de cada widget POR frame (el cuello
@@ -392,7 +398,7 @@ export public class GuiRenderer {
     public string famFor(string tag) {
         let f = this.strProp(tag, "font-family", "")
         if (f == "" && tag != "body") { f = this.strProp("body", "font-family", ""); }
-        if (f == "") { return ""; }
+        if (f == "") { return this.defaultFam; }   // default moderno si la app no fija fuente
         // Quita comillas opcionales: font-family: "Segoe UI"
         if (f.length() >= 2) {
             let a = f.charAt(0)
@@ -422,7 +428,7 @@ export public class GuiRenderer {
     // proporcional de body. Devuelve true si quedó una familia custom activa.
     public bool setMonoFam(string tag) {
         let f = this.strProp(tag, "font-family", "")
-        if (f == "") { return false; }
+        if (f == "") { return Gui.setFont(this.defaultMono); }   // mono moderno por defecto
         if (f.length() >= 2) {
             let a = f.charAt(0)
             let b = f.charAt(f.length() - 1)
