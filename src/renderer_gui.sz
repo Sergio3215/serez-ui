@@ -823,13 +823,16 @@ export public class GuiRenderer {
         if (focused) { this.drawFocusRing(bx, by, btnW, bh) }
 
         // Nombre del archivo elegido (derecha), o el placeholder si no hay.
+        // Texto no editable → fuente PROPORCIONAL (si no, caería a la rejilla mono).
         let shown    = placeholder
         let shownCol = this.colMuted
         if (value != null && ("" + value) != "") {
             shown = this.baseName("" + value)
             shownCol = this.colText
         }
+        let sfam = this.setFam("body")
         Gui.drawText(bx + btnW + 12, by + 12, shown, 2, shownCol)
+        if (sfam) { Gui.setFont(""); }
 
         // La región cubre solo el botón (el click abre el diálogo).
         this.regions.push(["FileInput", bx, by, btnW, bh, node])
@@ -923,7 +926,14 @@ export public class GuiRenderer {
 
         let tcol = this.colorFor("Input", "color", this.colText)
         if (display.length() == 0 && placeholder != null) {
+            // Placeholder en fuente PROPORCIONAL (texto no editable → sin caret math):
+            // se ve moderno aunque el campo sea monoespaciado. El caret vacío queda en
+            // textX (posición 0), así que no hay desalineación.
+            if (fam) { Gui.setFont(""); }
+            let pfam = this.setFam("body")
             Gui.drawText(textX, by + 9, "" + placeholder, scale, this.colMuted)
+            if (pfam) { Gui.setFont(""); }
+            if (fam) { this.setMonoFam("Input"); }
         } else {
             let endIdx = start + fit
             if (endIdx > display.length()) { endIdx = display.length(); }
@@ -1345,7 +1355,13 @@ export public class GuiRenderer {
         }
 
         if (val.length() == 0 && placeholder != null) {
+            // Placeholder en fuente PROPORCIONAL (no editable): look moderno aunque el
+            // Textarea sea monoespaciado. El caret vacío queda en el origen, sin desalinear.
+            if (fam) { Gui.setFont(""); }
+            let pfam = this.setFam("body")
             Gui.drawText(bx + 6, by + 6, "" + placeholder, scale, this.colMuted)
+            if (pfam) { Gui.setFont(""); }
+            if (fam) { this.setMonoFam("Textarea"); }
         } else {
             // Caret (offset plano) → línea/columna VISUAL localizando su segmento.
             let car = this.caret
@@ -1692,12 +1708,14 @@ export public class GuiRenderer {
         // Borde punteado (más grueso al resaltar).
         this.dashedRect(bx, by, bw, bh, bc, hi)
 
-        // Etiqueta centrada.
+        // Etiqueta centrada, en fuente PROPORCIONAL (mide y dibuja con la misma → centra bien).
         let scale = 2
+        let dfam = this.setFam("body")
         let tw = Gui.measureText("" + label, scale)[0]
         let tx = bx + (bw - tw) / 2
         let ty = by + (bh - 8 * scale) / 2
         Gui.drawText(tx, ty, "" + label, scale, tc)
+        if (dfam) { Gui.setFont(""); }
 
         this.regions.push(["DropZone", bx, by, bw, bh, node])
         this.cy = this.cy + bh + 12
