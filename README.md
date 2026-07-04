@@ -199,6 +199,49 @@ app.runGui("My App", 560, 460)   // quit with Esc or the close button
 > reaction). Running the loop as a method keeps `this` = your live top-level component.
 > `GuiEventLoop` / `EventLoop` still exist as deprecated shims that point you here.
 
+### Retained-mode rendering (core ≥ 7.3)
+
+The GUI renderer no longer rasterizes in `.sz`: it emits **persistent scene nodes**
+(`Gui.node*`) with positional reuse — a primitive whose type and values didn't change since
+the last frame costs **zero Gui calls**, and the frame is presented with `Gui.renderScene()`,
+which skips rasterizing entirely when nothing changed (dirty-skip) and otherwise redraws in
+Rust. Nothing changes in your components: same `render()`, same `.szs`, same output — idle
+frames and mostly-static frames just got much cheaper. (The heavy lifting lives in the `sw*`
+methods of `GuiRenderer`.)
+
+### Secondary windows (panels)
+
+A running `runGui` app can open extra native windows ("panels") whose content is a method of
+**the same component** — so handlers mutate your app state directly:
+
+```sz
+class App:Window {
+    public bool onFrame() {
+        if (!this.opened) { this.opened = true; this.openPanel("Herramientas", 340, 220) }
+        return false
+    }
+    public any renderPanel(int id) {
+        return h("div", [], [
+            h("h2", [], ["Panel " + id]),
+            h("Button", [["onClick", () => { this.clicks = this.clicks + 1 }]], ["Sumar"])
+        ])
+    }
+}
+```
+
+- `openPanel(title, w, h) -> id` / `closePanel(id)` / `panelCount()` — requires `runGui` running.
+- `renderPanel(id)` returns the panel's vdom (`null` = empty panel). It re-renders every frame
+  with its **own renderer and its own retained scene** (the core keeps one scene per window).
+- v1 input: panels route `Button`/`Link` clicks (per-window, event-accurate edge from the core —
+  a short click between two frames is never lost). Text editing (Input/Textarea focus) lives in
+  the main window for now.
+- Closing a panel with the OS `X` just removes it from the app (the main loop keeps running).
+
+> **Semantics notes (core ≥ 7.3):** two old gotchas are gone — closures now share the captured
+> variable with the enclosing scope at ANY nesting level (cell semantics; counters work), and a
+> parameter named like a function (`h`, …) no longer shadows it in CALLS. Naming params `width`/
+> `height` instead of `w`/`h` remains good hygiene, but it is no longer load-bearing.
+
 ## CSS with logic (`.szs`)
 
 Style with a CSS dialect that supports **reactive conditions**. A selector can carry a condition

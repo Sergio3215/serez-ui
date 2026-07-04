@@ -135,6 +135,162 @@ export public class GuiRenderer {
         this.colBorder = 0x334155
         this.colFocus  = 0x60a5fa
         this.colLink   = 0x60a5fa
+
+        // Retained-mode: el render emite nodos de escena con reuso por
+        // posición (métodos sw* de ESTA clase — un writer-objeto aparte no
+        // funciona: this.obj.metodo() muta una copia por semántica de valor).
+        // window.sz presenta con Gui.renderScene(this.bgColor()).
+        this.swIds  = []    // id de nodo del core por posición
+        this.swSigs = []    // firma (tipo|valores) por posición
+        this.swPos  = 0
+        this.swFont = ""    // familia activa (se estampa en los nodos de texto)
+        this.bgCol  = 0x0f172a
+    }
+
+    // Color de fondo del último render — window.sz lo pasa a Gui.renderScene.
+    public int bgColor() { return this.bgCol }
+
+    // ── Retained-mode: emisión de nodos con reuso por posición ────────────────
+    // El render emite sus primitivas en el mismo orden cada frame; si la
+    // posición k tiene la misma firma (tipo+valores) que el frame anterior, NO
+    // se llama a Gui (0 costo). Si cambió, se borra el nodo viejo y se crea el
+    // nuevo con z = posición (el core dibuja por (z, id) → z posicional = orden
+    // de emisión, exactamente como el modo inmediato). Un frame sin cambios se
+    // reduce a Gui.renderScene(), que además salta el rasterizado (dirty-skip).
+
+    public void swBegin() {
+        this.swPos = 0
+    }
+
+    // Borra los nodos sobrantes de frames anteriores (el árbol se encogió).
+    public void swEnd() {
+        while (this.swIds.length() > this.swPos) {
+            Gui.nodeDelete(this.swIds[this.swIds.length() - 1])
+            this.swIds.pop()
+            this.swSigs.pop()
+        }
+    }
+
+    // Fuente activa: afecta a los nodos de texto que se emitan Y a
+    // Gui.measureText (por eso también se aplica al estado inmediato del core).
+    public bool swSetFont(string family) {
+        let ok = Gui.setFont(family)
+        if (ok) { this.swFont = family }
+        if (family == "") { this.swFont = "" }
+        return ok
+    }
+
+    // ¿La posición actual ya tiene EXACTAMENTE este nodo? (avanza si sí)
+    public bool swHit(string sig) {
+        let k = this.swPos
+        if (k < this.swIds.length()) {
+            if (this.swSigs[k] == sig) {
+                this.swPos = k + 1
+                return true
+            }
+            Gui.nodeDelete(this.swIds[k])   // distinto: fuera el viejo
+        }
+        return false
+    }
+
+    // Registra el nodo recién creado en la posición actual (z = posición).
+    public void swPut(int nid, string sig) {
+        let k = this.swPos
+        Gui.nodeSet(nid, "z", k)
+        if (k < this.swIds.length()) {
+            this.swIds[k] = nid
+            this.swSigs[k] = sig
+        } else {
+            this.swIds.push(nid)
+            this.swSigs.push(sig)
+        }
+        this.swPos = k + 1
+    }
+
+    public void swRect(int x, int y, int w2, int h2, int c) {
+        let sig = "r|" + x + "|" + y + "|" + w2 + "|" + h2 + "|" + c
+        if (this.swHit(sig)) { return; }
+        this.swPut(Gui.nodeRect(x, y, w2, h2, c), sig)
+    }
+
+    public void swRoundRect(int x, int y, int w2, int h2, int rad, int c) {
+        let sig = "rr|" + x + "|" + y + "|" + w2 + "|" + h2 + "|" + rad + "|" + c
+        if (this.swHit(sig)) { return; }
+        this.swPut(Gui.nodeRoundRect(x, y, w2, h2, rad, c), sig)
+    }
+
+    public void swRectAlpha(int x, int y, int w2, int h2, int c, int a) {
+        let sig = "ra|" + x + "|" + y + "|" + w2 + "|" + h2 + "|" + c + "|" + a
+        if (this.swHit(sig)) { return; }
+        this.swPut(Gui.nodeRectAlpha(x, y, w2, h2, c, a), sig)
+    }
+
+    public void swRectOutline(int x, int y, int w2, int h2, int c) {
+        let sig = "ro|" + x + "|" + y + "|" + w2 + "|" + h2 + "|" + c
+        if (this.swHit(sig)) { return; }
+        this.swPut(Gui.nodeRectOutline(x, y, w2, h2, c), sig)
+    }
+
+    public void swCircle(int x, int y, int rad, int c) {
+        let sig = "c|" + x + "|" + y + "|" + rad + "|" + c
+        if (this.swHit(sig)) { return; }
+        this.swPut(Gui.nodeCircle(x, y, rad, c), sig)
+    }
+
+    public void swLine(int x1, int y1, int x2, int y2, int c) {
+        let sig = "l|" + x1 + "|" + y1 + "|" + x2 + "|" + y2 + "|" + c
+        if (this.swHit(sig)) { return; }
+        this.swPut(Gui.nodeLine(x1, y1, x2, y2, c), sig)
+    }
+
+    public void swText(int x, int y, string t, int sc, int c, int style = 0, int spacing = 0) {
+        let sig = "t|" + x + "|" + y + "|" + sc + "|" + c + "|" + style + "|" + spacing + "|" + this.swFont + "|" + t
+        if (this.swHit(sig)) { return; }
+        let nid = Gui.nodeText(x, y, t, sc, c)
+        if (style != 0) { Gui.nodeSet(nid, "style", style) }
+        if (spacing != 0) { Gui.nodeSet(nid, "spacing", spacing) }
+        if (this.swFont != "") { Gui.nodeSet(nid, "font", this.swFont) }
+        this.swPut(nid, sig)
+    }
+
+    public void swImage(int x, int y, int handle) {
+        let sig = "i|" + x + "|" + y + "|" + handle
+        if (this.swHit(sig)) { return; }
+        this.swPut(Gui.nodeImage(x, y, handle), sig)
+    }
+
+    public void swPolygon(any pts, int c) {
+        let sig = "pg|" + c + "|" + this.swPtsSig(pts)
+        if (this.swHit(sig)) { return; }
+        this.swPut(Gui.nodePolygon(pts, c), sig)
+    }
+
+    public void swPolyline(any pts, int wd, int c) {
+        let sig = "pl|" + wd + "|" + c + "|" + this.swPtsSig(pts)
+        if (this.swHit(sig)) { return; }
+        this.swPut(Gui.nodePolyline(pts, wd, c), sig)
+    }
+
+    public void swClipPush(int x, int y, int w2, int h2) {
+        let sig = "cp|" + x + "|" + y + "|" + w2 + "|" + h2
+        if (this.swHit(sig)) { return; }
+        this.swPut(Gui.nodeClipPush(x, y, w2, h2), sig)
+    }
+
+    public void swClipPop() {
+        let sig = "cq"
+        if (this.swHit(sig)) { return; }
+        this.swPut(Gui.nodeClipPop(), sig)
+    }
+
+    public string swPtsSig(any pts) {
+        let s = ""
+        let i = 0
+        while (i < pts.length()) {
+            s = s + pts[i] + ","
+            i = i + 1
+        }
+        return s
     }
 
     public void setMouse(int x, int y, bool held) {
@@ -417,11 +573,11 @@ export public class GuiRenderer {
     }
 
     // Activa la familia del tag. true si quedó una familia custom activa
-    // (el caller debe resetear con Gui.setFont("") al terminar).
+    // (el caller debe resetear con this.swSetFont("") al terminar).
     public bool setFam(string tag) {
         let f = this.famFor(tag)
         if (f == "") { return false; }
-        return Gui.setFont(f)
+        return this.swSetFont(f)
     }
 
     // Como setFam pero SIN heredar la familia de body. Para Input/Textarea: queremos
@@ -431,8 +587,8 @@ export public class GuiRenderer {
         let f = this.strProp(tag, "font-family", "")
         if (f == "") {
             // Mono moderno por defecto: Cascadia Mono, con fallback a Consolas y a la rejilla.
-            if (Gui.setFont(this.defaultMono)) { return true; }
-            return Gui.setFont(this.defaultMonoAlt)
+            if (this.swSetFont(this.defaultMono)) { return true; }
+            return this.swSetFont(this.defaultMonoAlt)
         }
         if (f.length() >= 2) {
             let a = f.charAt(0)
@@ -443,25 +599,25 @@ export public class GuiRenderer {
         }
         let i = 0
         while (i < this.fontAliasNames.length()) {
-            if (this.fontAliasNames[i] == f) { return Gui.setFont(this.fontRealNames[i]); }
+            if (this.fontAliasNames[i] == f) { return this.swSetFont(this.fontRealNames[i]); }
             i = i + 1
         }
-        return Gui.setFont(f)
+        return this.swSetFont(f)
     }
 
     // Ancho de un texto con la fuente del tag (mide y restaura la default).
     public int measureFor(string tag, string text, int scale) {
         let active = this.setFam(tag)
         let w = Gui.measureText(text, scale)[0]
-        if (active) { Gui.setFont(""); }
+        if (active) { this.swSetFont(""); }
         return w
     }
 
     // Fondo de un control honrando border-radius del .szs.
     public void fillBox(string tag, int bx, int by, int bw, int bh, int color) {
         let rad = this.numProp(tag, "border-radius", 0)
-        if (rad > 0) { Gui.fillRoundRect(bx, by, bw, bh, rad, color) }
-        else { Gui.fillRect(bx, by, bw, bh, color) }
+        if (rad > 0) { this.swRoundRect(bx, by, bw, bh, rad, color) }
+        else { this.swRect(bx, by, bw, bh, color) }
     }
 
     // Parte `text` en líneas que entran en `this.colWidth` (texto monoespaciado:
@@ -563,13 +719,13 @@ export public class GuiRenderer {
             let lx = this.cx
             if (align == "center") { lx = this.cx + (this.colWidth - lw) / 2; }
             else if (align == "right") { lx = this.cx + this.colWidth - lw; }
-            Gui.drawText(lx, this.cy + li * lh, lines[li], scale, color, style)
+            this.swText(lx, this.cy + li * lh, lines[li], scale, color, style)
             if (lw > maxW) { maxW = lw; }
             li = li + 1
         }
         this.lastW = maxW
         this.cy = this.cy + lines.length() * lh + (blockGap - 4)
-        if (custom) { Gui.setFont(""); }
+        if (custom) { this.swSetFont(""); }
     }
 
     public any getRegions() { return this.regions }
@@ -602,7 +758,8 @@ export public class GuiRenderer {
         this.hasModal    = false
         this.hasTip      = false
         this.taHoverIdx  = -1     // reset hover de Textarea (se detecta durante el render)
-        Gui.clear(this.colorFor("body", "background-color", this.colBg))
+        this.bgCol = this.colorFor("body", "background-color", this.colBg)
+        this.swBegin()
         this.renderNode(vdom)
         this.contentH = this.cy + this.scrollY - this.pad   // alto total del contenido
         // El overlay del dropdown abierto se pinta al final, sobre todo lo demás.
@@ -613,6 +770,7 @@ export public class GuiRenderer {
         // Modal y Tooltip se dibujan por ENCIMA de todo (incluida la scrollbar).
         if (this.hasModal) { this.drawModalOverlay() }
         if (this.hasTip)   { this.drawTooltipOverlay() }
+        this.swEnd()   // borra los nodos de escena que este frame ya no emitió
     }
 
     // Barra de scroll a la derecha cuando el contenido no entra en la ventana.
@@ -623,7 +781,7 @@ export public class GuiRenderer {
         let tw = this.sbTrackW       // 14px
         let trackX = this.w - tw
         this.sbTrackX = trackX
-        Gui.fillRect(trackX, 0, tw, this.h, this.colBorder)
+        this.swRect(trackX, 0, tw, this.h, this.colBorder)
         let thumbH = (this.h * this.h) / this.contentH
         if (thumbH < 32) { thumbH = 32; }
         let maxS = this.contentH + this.pad - this.h
@@ -636,7 +794,7 @@ export public class GuiRenderer {
         // Track: borde sutil. Thumb: color más visible, redondeado.
         let thumbX = trackX + 2
         let thumbW = tw - 4
-        Gui.fillRoundRect(thumbX, thumbY, thumbW, thumbH, 4, this.colMuted)
+        this.swRoundRect(thumbX, thumbY, thumbW, thumbH, 4, this.colMuted)
     }
 
     public void renderNode(any node) {
@@ -666,7 +824,7 @@ export public class GuiRenderer {
             this.drawWrapped(tag, this.collectText(node), scp, this.colorFor(tag, "color", this.colMuted), 8)
 
         } else if (tag == "hr") {
-            Gui.drawLine(this.cx, this.cy, this.cx + this.colWidth, this.cy, this.colorFor("hr", "color", this.colBorder))
+            this.swLine(this.cx, this.cy, this.cx + this.colWidth, this.cy, this.colorFor("hr", "color", this.colBorder))
             this.cy = this.cy + 14
 
         } else if (tag == "Button") {
@@ -738,10 +896,10 @@ export public class GuiRenderer {
     // ── Anillo de foco (4 barras finas alrededor del rect) ─────────────────────
     public void drawFocusRing(int bx, int by, int bw, int bh) {
         let c = this.colFocus
-        Gui.fillRect(bx - 2, by - 2, bw + 4, 2, c)
-        Gui.fillRect(bx - 2, by + bh, bw + 4, 2, c)
-        Gui.fillRect(bx - 2, by - 2, 2, bh + 4, c)
-        Gui.fillRect(bx + bw, by - 2, 2, bh + 4, c)
+        this.swRect(bx - 2, by - 2, bw + 4, 2, c)
+        this.swRect(bx - 2, by + bh, bw + 4, 2, c)
+        this.swRect(bx - 2, by - 2, 2, bh + 4, c)
+        this.swRect(bx + bw, by - 2, 2, bh + 4, c)
     }
 
     // Triángulo lleno apuntando hacia abajo (▼): base arriba (ancho 2*half+1) que
@@ -750,7 +908,7 @@ export public class GuiRenderer {
         let row = 0
         while (row <= half) {
             let w = (half - row) * 2 + 1
-            Gui.fillRect(cx - (half - row), topY + row, w, 1, color)
+            this.swRect(cx - (half - row), topY + row, w, 1, color)
             row = row + 1
         }
     }
@@ -781,8 +939,8 @@ export public class GuiRenderer {
         }
 
         this.fillBox("Button", bx, by, bw, bh, color)
-        Gui.drawText(bx + 14, by + 12, label, 2, this.colorFor("Button", "color", this.colText))
-        if (fam) { Gui.setFont(""); }
+        this.swText(bx + 14, by + 12, label, 2, this.colorFor("Button", "color", this.colText))
+        if (fam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing(bx, by, bw, bh) }
 
         this.regions.push(["Button", bx, by, bw, bh, node])
@@ -818,8 +976,8 @@ export public class GuiRenderer {
         else if (hover && this.mouseHeld) { color = this.colBtnDn }
         else if (hover) { color = this.colBtnHov }
         this.fillBox("Button", bx, by, btnW, bh, color)
-        Gui.drawText(bx + 14, by + 12, label, 2, this.colorFor("Button", "color", this.colText))
-        if (fam) { Gui.setFont(""); }
+        this.swText(bx + 14, by + 12, label, 2, this.colorFor("Button", "color", this.colText))
+        if (fam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing(bx, by, btnW, bh) }
 
         // Nombre del archivo elegido (derecha), o el placeholder si no hay.
@@ -831,8 +989,8 @@ export public class GuiRenderer {
             shownCol = this.colText
         }
         let sfam = this.setFam("body")
-        Gui.drawText(bx + btnW + 12, by + 12, shown, 2, shownCol)
-        if (sfam) { Gui.setFont(""); }
+        this.swText(bx + btnW + 12, by + 12, shown, 2, shownCol)
+        if (sfam) { this.swSetFont(""); }
 
         // La región cubre solo el botón (el click abre el diálogo).
         this.regions.push(["FileInput", bx, by, btnW, bh, node])
@@ -878,13 +1036,13 @@ export public class GuiRenderer {
         if (focused) { bcol = this.colFocus }
         let irad = this.numProp("Input", "border-radius", 0)
         if (irad > 0) {
-            Gui.fillRoundRect(bx, by, bw, bh, irad, bcol)
+            this.swRoundRect(bx, by, bw, bh, irad, bcol)
             let ir2 = irad - 2
             if (ir2 < 1) { ir2 = 1; }
-            Gui.fillRoundRect(bx + 2, by + 2, bw - 4, bh - 4, ir2, ibg)
+            this.swRoundRect(bx + 2, by + 2, bw - 4, bh - 4, ir2, ibg)
         } else {
-            Gui.fillRect(bx, by, bw, bh, ibg)
-            Gui.drawRect(bx, by, bw, bh, bcol)
+            this.swRect(bx, by, bw, bh, ibg)
+            this.swRectOutline(bx, by, bw, bh, bcol)
         }
 
         // String visible (enmascarado si password)
@@ -920,7 +1078,7 @@ export public class GuiRenderer {
             let vlo = lo - start; if (vlo < 0) { vlo = 0; }
             let vhi = hi - start; if (vhi > fit) { vhi = fit; }
             if (vhi > vlo) {
-                Gui.fillRectAlpha(textX + vlo * charW, by + 7, (vhi - vlo) * charW, bh - 14, this.colFocus, 110)
+                this.swRectAlpha(textX + vlo * charW, by + 7, (vhi - vlo) * charW, bh - 14, this.colFocus, 110)
             }
         }
 
@@ -929,16 +1087,16 @@ export public class GuiRenderer {
             // Placeholder en fuente PROPORCIONAL (texto no editable → sin caret math):
             // se ve moderno aunque el campo sea monoespaciado. El caret vacío queda en
             // textX (posición 0), así que no hay desalineación.
-            if (fam) { Gui.setFont(""); }
+            if (fam) { this.swSetFont(""); }
             let pfam = this.setFam("body")
-            Gui.drawText(textX, by + 9, "" + placeholder, scale, this.colMuted)
-            if (pfam) { Gui.setFont(""); }
+            this.swText(textX, by + 9, "" + placeholder, scale, this.colMuted)
+            if (pfam) { this.swSetFont(""); }
             if (fam) { this.setMonoFam("Input"); }
         } else {
             let endIdx = start + fit
             if (endIdx > display.length()) { endIdx = display.length(); }
             let shown = display.substring(start, endIdx)
-            Gui.drawText(textX, by + 9, shown, scale, tcol)
+            this.swText(textX, by + 9, shown, scale, tcol)
         }
 
         // Caret solo si el campo Y la ventana tienen foco: un Input enfocado de una
@@ -951,17 +1109,17 @@ export public class GuiRenderer {
             // Composición IME en curso (CJK): se pinta subrayada justo en el caret.
             let pre = this.imePreedit
             if (pre != null && pre != "") {
-                Gui.drawText(caretX, by + 9, "" + pre, scale, tcol, 4)
+                this.swText(caretX, by + 9, "" + pre, scale, tcol, 4)
                 caretX = caretX + pre.length() * charW
             }
             // blink: visible 700ms, oculto 300ms
             if (Gui.time() % 1000 < 700) {
-                Gui.fillRect(caretX, by + 7, 2, bh - 14, this.colText)
+                this.swRect(caretX, by + 7, 2, bh - 14, this.colText)
             }
             Gui.setImePosition(caretX, by + 7)
         }
 
-        if (fam) { Gui.setFont(""); }
+        if (fam) { this.swSetFont(""); }
         // Región con metadata extra para el hit-test del caret: charW (avance real,
         // medido para la fuente del campo), textX (inicio del texto) y start (offset
         // de scroll horizontal). caretFromClick los usa para mapear x→carácter.
@@ -996,8 +1154,8 @@ export public class GuiRenderer {
         if (disabled) { display = "  " + display + "  "; }
         else { display = "< " + display + " >"; }
         let sfam = this.setFam("Select")
-        Gui.drawText(bx + 10, by + 9, display, 2, this.colorFor("Select", "color", this.colText))
-        if (sfam) { Gui.setFont(""); }
+        this.swText(bx + 10, by + 9, display, 2, this.colorFor("Select", "color", this.colText))
+        if (sfam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing(bx, by, bw, bh) }
 
         this.regions.push(["Select", bx, by, bw, bh, node])
@@ -1030,12 +1188,12 @@ export public class GuiRenderer {
         } else if (!disabled && hover) {
             color = this.colBtnHov
         }
-        Gui.fillRect(bx, by, boxSize, boxSize, color)
+        this.swRect(bx, by, boxSize, boxSize, color)
         if (checked) {
-            Gui.drawText(bx + 4, by + 4, "X", 2, this.colorFor("Checkbox", "color", this.colText))
+            this.swText(bx + 4, by + 4, "X", 2, this.colorFor("Checkbox", "color", this.colText))
         }
-        Gui.drawText(bx + boxSize + 8, by + 2, "" + label, 2, this.colorFor("Checkbox", "color", this.colText))
-        if (cfam) { Gui.setFont(""); }
+        this.swText(bx + boxSize + 8, by + 2, "" + label, 2, this.colorFor("Checkbox", "color", this.colText))
+        if (cfam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing(bx, by, regW, boxSize); }
 
         this.regions.push(["Checkbox", bx, by, regW, boxSize, node])
@@ -1070,7 +1228,7 @@ export public class GuiRenderer {
         if (checked) { track = this.colorFor("Switch", "background-color", this.colBtn); }
         if (disabled) { track = this.colBorder; }
         else if (checked && hover) { track = this.colBtnHov; }
-        Gui.fillRoundRect(bx, by, trackW, trackH, trackH / 2, track)
+        this.swRoundRect(bx, by, trackW, trackH, trackH / 2, track)
 
         // Knob (círculo): izquierda (OFF) o derecha (ON).
         let knobCx = bx + knobR + 3
@@ -1078,13 +1236,13 @@ export public class GuiRenderer {
         let knobCy  = by + trackH / 2
         let knobCol = this.colText
         if (disabled) { knobCol = this.colMuted; }
-        Gui.fillCircle(knobCx, knobCy, knobR, knobCol)
+        this.swCircle(knobCx, knobCy, knobR, knobCol)
 
         // Etiqueta a la derecha (si hay).
         if (("" + label) != "") {
-            Gui.drawText(bx + trackW + 8, by + 3, "" + label, 2, this.colorFor("Switch", "color", this.colText))
+            this.swText(bx + trackW + 8, by + 3, "" + label, 2, this.colorFor("Switch", "color", this.colText))
         }
-        if (sfam) { Gui.setFont(""); }
+        if (sfam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing(bx, by, regW, trackH); }
 
         this.regions.push(["Switch", bx, by, regW, trackH, node])
@@ -1111,7 +1269,7 @@ export public class GuiRenderer {
         this.focusOrd = this.focusOrd + 1
 
         // Línea inferior a lo ancho (el subrayado del activo se dibuja encima).
-        Gui.fillRect(bx, by + barH - 1, this.colWidth, 1, this.colBorder)
+        this.swRect(bx, by + barH - 1, this.colWidth, 1, this.colBorder)
 
         let tfam = this.setFam("Tabs")
         let accent = this.colorFor("Tabs", "background-color", this.colBtn)
@@ -1124,18 +1282,18 @@ export public class GuiRenderer {
             let tw    = Gui.measureText(label, 2)[0] + padX * 2
             let isAct = (i == active)
             let hover = this.mouseX >= x && this.mouseX < x + tw && this.mouseY >= by && this.mouseY < by + barH
-            if (isAct) { Gui.fillRect(x, by, tw, barH - 1, this.colInput); }
-            else if (!disabled && hover) { Gui.fillRect(x, by, tw, barH - 1, this.colInput); }
+            if (isAct) { this.swRect(x, by, tw, barH - 1, this.colInput); }
+            else if (!disabled && hover) { this.swRect(x, by, tw, barH - 1, this.colInput); }
             let tcol = this.colMuted
             if (isAct) { tcol = this.colorFor("Tabs", "color", this.colText); }
             else if (!disabled && hover) { tcol = this.colText; }
-            Gui.drawText(x + padX, by + 9, label, 2, tcol)
-            if (isAct) { Gui.fillRect(x, by + barH - 3, tw, 3, accent); }   // subrayado del activo
+            this.swText(x + padX, by + 9, label, 2, tcol)
+            if (isAct) { this.swRect(x, by + barH - 3, tw, 3, accent); }   // subrayado del activo
             x = x + tw
             bounds.push(x)
             i = i + 1
         }
-        if (tfam) { Gui.setFont(""); }
+        if (tfam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing(bx, by, x - bx, barH); }
 
         this.regions.push(["Tabs", bx, by, x - bx, barH, node, bounds])
@@ -1171,14 +1329,14 @@ export public class GuiRenderer {
         let cx0 = bx + 12
         let cy0 = by + headH / 2
         if (open) {
-            Gui.fillPolygon([cx0 - 5, cy0 - 3, cx0 + 5, cy0 - 3, cx0, cy0 + 4], tcol)
+            this.swPolygon([cx0 - 5, cy0 - 3, cx0 + 5, cy0 - 3, cx0, cy0 + 4], tcol)
         } else {
-            Gui.fillPolygon([cx0 - 3, cy0 - 5, cx0 - 3, cy0 + 5, cx0 + 4, cy0], tcol)
+            this.swPolygon([cx0 - 3, cy0 - 5, cx0 - 3, cy0 + 5, cx0 + 4, cy0], tcol)
         }
 
         let cfam = this.setFam("Collapsible")
-        Gui.drawText(bx + 28, by + 8, "" + title, 2, tcol)
-        if (cfam) { Gui.setFont(""); }
+        this.swText(bx + 28, by + 8, "" + title, 2, tcol)
+        if (cfam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing(bx, by, hw, headH); }
 
         this.regions.push(["Collapsible", bx, by, hw, headH, node])
@@ -1326,13 +1484,13 @@ export public class GuiRenderer {
         if (focused) { bcol = this.colFocus; }
         let trad = this.numProp("Textarea", "border-radius", 0)
         if (trad > 0) {
-            Gui.fillRoundRect(bx, by, bw, bh, trad, bcol)
+            this.swRoundRect(bx, by, bw, bh, trad, bcol)
             let tr2 = trad - 2
             if (tr2 < 1) { tr2 = 1; }
-            Gui.fillRoundRect(bx + 2, by + 2, bw - 4, bh - 4, tr2, tbg)
+            this.swRoundRect(bx + 2, by + 2, bw - 4, bh - 4, tr2, tbg)
         } else {
-            Gui.fillRect(bx, by, bw, bh, tbg)
-            Gui.drawRect(bx, by, bw, bh, bcol)
+            this.swRect(bx, by, bw, bh, tbg)
+            this.swRectOutline(bx, by, bw, bh, bcol)
         }
 
         // Detectar si el mouse está sobre este Textarea (para scroll por rueda).
@@ -1357,10 +1515,10 @@ export public class GuiRenderer {
         if (val.length() == 0 && placeholder != null) {
             // Placeholder en fuente PROPORCIONAL (no editable): look moderno aunque el
             // Textarea sea monoespaciado. El caret vacío queda en el origen, sin desalinear.
-            if (fam) { Gui.setFont(""); }
+            if (fam) { this.swSetFont(""); }
             let pfam = this.setFam("body")
-            Gui.drawText(bx + 6, by + 6, "" + placeholder, scale, this.colMuted)
-            if (pfam) { Gui.setFont(""); }
+            this.swText(bx + 6, by + 6, "" + placeholder, scale, this.colMuted)
+            if (pfam) { this.swSetFont(""); }
             if (fam) { this.setMonoFam("Textarea"); }
         } else {
             // Caret (offset plano) → línea/columna VISUAL localizando su segmento.
@@ -1408,7 +1566,7 @@ export public class GuiRenderer {
             }
 
             let tcol  = this.colorFor("Textarea", "color", this.colText)
-            Gui.pushClip(bx + 2, by + 2, bw - 4, bh - 4)
+            this.swClipPush(bx + 2, by + 2, bw - 4, bh - 4)
             let li    = startSeg
             let yrow  = by + 6
             let drawn = 0
@@ -1419,10 +1577,10 @@ export public class GuiRenderer {
                     let a = selLo; if (a < s) { a = s; }
                     let bsel = selHi; if (bsel > s + segLen) { bsel = s + segLen; }
                     if (bsel > a) {
-                        Gui.fillRectAlpha(bx + 6 + (a - s) * charW, yrow - 1, (bsel - a) * charW, lineH - 2, this.colFocus, 110)
+                        this.swRectAlpha(bx + 6 + (a - s) * charW, yrow - 1, (bsel - a) * charW, lineH - 2, this.colFocus, 110)
                     }
                 }
-                Gui.drawText(bx + 6, yrow, segText[li], scale, tcol)
+                this.swText(bx + 6, yrow, segText[li], scale, tcol)
                 yrow  = yrow + lineH
                 li    = li + 1
                 drawn = drawn + 1
@@ -1435,11 +1593,11 @@ export public class GuiRenderer {
                 // Composición IME en curso (CJK): subrayada justo en el caret.
                 let pre = this.imePreedit
                 if (pre != null && pre != "") {
-                    Gui.drawText(caretPx, crow, "" + pre, scale, tcol, 4)
+                    this.swText(caretPx, crow, "" + pre, scale, tcol, 4)
                     caretPx = caretPx + pre.length() * charW
                 }
                 if (Gui.time() % 1000 < 700) {
-                    Gui.fillRect(caretPx, crow, 1, lineH - 2, this.colText)
+                    this.swRect(caretPx, crow, 1, lineH - 2, this.colText)
                 }
                 Gui.setImePosition(caretPx, crow)
             }
@@ -1455,13 +1613,13 @@ export public class GuiRenderer {
                 let maxSt = totalSegs - visRows
                 if (maxSt < 1) { maxSt = 1; }
                 let stY   = sbY + (startSeg * (sbH - stH)) / maxSt
-                Gui.fillRectAlpha(sbX, sbY, sbW, sbH, this.colBorder, 50)
-                Gui.fillRoundRect(sbX + 2, stY, sbW - 4, stH, (sbW - 4)/2, this.colMuted)
+                this.swRectAlpha(sbX, sbY, sbW, sbH, this.colBorder, 50)
+                this.swRoundRect(sbX + 2, stY, sbW - 4, stH, (sbW - 4)/2, this.colMuted)
             }
-            Gui.popClip()
+            this.swClipPop()
         }
 
-        if (fam) { Gui.setFont(""); }
+        if (fam) { this.swSetFont(""); }
         // Region extendida: [tag, x, y, w, h, node, taOrd, totalSegs, visRows]
         this.regions.push(["Textarea", bx, by, bw, bh, node, myOrd, totalSegs, visRows])
         this.cy = this.cy + bh + 12
@@ -1488,13 +1646,13 @@ export public class GuiRenderer {
             let oy  = startY + i * lineH
             let opt = options[i]
             let selected = ("" + opt) == ("" + value)
-            Gui.fillCircle(bx + 10, oy + 11, 9, this.colBorder)    // contorno (radio 9)
-            Gui.fillCircle(bx + 10, oy + 11, 7, this.colInput)     // interior (radio 7)
-            if (selected) { Gui.fillCircle(bx + 10, oy + 11, 4, this.colBtn); }   // punto
-            Gui.drawText(bx + 26, oy + 4, "" + opt, 2, this.colText)
+            this.swCircle(bx + 10, oy + 11, 9, this.colBorder)    // contorno (radio 9)
+            this.swCircle(bx + 10, oy + 11, 7, this.colInput)     // interior (radio 7)
+            if (selected) { this.swCircle(bx + 10, oy + 11, 4, this.colBtn); }   // punto
+            this.swText(bx + 26, oy + 4, "" + opt, 2, this.colText)
             i = i + 1
         }
-        if (rfam) { Gui.setFont(""); }
+        if (rfam) { this.swSetFont(""); }
 
         let totalH = options.length() * lineH
         if (totalH == 0) { totalH = lineH; }
@@ -1532,10 +1690,10 @@ export public class GuiRenderer {
         let knobX  = bx + filled
 
         let tyv = by + 13
-        Gui.fillRect(bx, tyv, trackW, 4, this.colBorder)
-        Gui.fillRect(bx, tyv, filled, 4, this.colBtn)
-        Gui.fillRect(knobX - 5, by + 5, 10, 18, this.colBtn)
-        Gui.drawText(bx + trackW + 12, by + 7, "" + value, 2, this.colText)
+        this.swRect(bx, tyv, trackW, 4, this.colBorder)
+        this.swRect(bx, tyv, filled, 4, this.colBtn)
+        this.swRect(knobX - 5, by + 5, 10, 18, this.colBtn)
+        this.swText(bx + trackW + 12, by + 7, "" + value, 2, this.colText)
         if (focused) { this.drawFocusRing(bx, by, this.colWidth, bh); }
 
         this.regions.push(["Slider", bx, by, trackW, bh, node])
@@ -1563,7 +1721,7 @@ export public class GuiRenderer {
 
         this.fillBox("ProgressBar", bx, by, bw, bh, this.colInput)
         this.fillBox("ProgressBar", bx, by, (v * bw) / span, bh, this.colBtn)
-        if (label != null) { Gui.drawText(bx + 8, by + 4, "" + label, 1, this.colText); }
+        if (label != null) { this.swText(bx + 8, by + 4, "" + label, 1, this.colText); }
         this.cy = this.cy + bh + 12
     }
 
@@ -1590,7 +1748,7 @@ export public class GuiRenderer {
 
         let n = data.length()
         if (n == 0) {
-            Gui.drawText(bx + 10, by + bh / 2 - 6, "sin datos", 1, this.colMuted)
+            this.swText(bx + 10, by + bh / 2 - 6, "sin datos", 1, this.colMuted)
             this.cy = this.cy + bh + 12
             return
         }
@@ -1627,7 +1785,7 @@ export public class GuiRenderer {
         if (ymin > 0) { baseVal = ymin; }
         if (ymax < 0) { baseVal = ymax; }
         let baseY = plotY + plotH - Math.round((baseVal - ymin) * 1.0 * plotH / span)
-        Gui.drawLine(plotX, baseY, plotX + plotW, baseY, this.colBorder)
+        this.swLine(plotX, baseY, plotX + plotW, baseY, this.colBorder)
 
         if (ctype == "bar") {
             let slot = plotW / n
@@ -1643,7 +1801,7 @@ export public class GuiRenderer {
                 let hgt = baseY - vy
                 if (hgt < 0) { top = baseY; hgt = vy - baseY; }
                 if (hgt < 1) { hgt = 1; }
-                Gui.fillRect(barX, top, barW, hgt, col)
+                this.swRect(barX, top, barW, hgt, col)
                 i = i + 1
             }
         } else {
@@ -1665,17 +1823,17 @@ export public class GuiRenderer {
                 while (j < pts.length()) { poly.push(pts[j]); j = j + 1; }
                 poly.push(plotX + plotW); poly.push(baseY)
                 poly.push(plotX);         poly.push(baseY)
-                Gui.fillPolygon(poly, col)
+                this.swPolygon(poly, col)
             }
             if (n > 1) {
-                Gui.drawPolyline(pts, 2, col)
+                this.swPolyline(pts, 2, col)
             } else {
-                Gui.fillCircle(pts[0], pts[1], 3, col)
+                this.swCircle(pts[0], pts[1], 3, col)
             }
             if (node.getProp("dots") == true) {
                 let d = 0
                 while (d < pts.length()) {
-                    Gui.fillCircle(pts[d], pts[d + 1], 3, col)
+                    this.swCircle(pts[d], pts[d + 1], 3, col)
                     d = d + 2
                 }
             }
@@ -1703,8 +1861,8 @@ export public class GuiRenderer {
         if (hi) { bc = this.colFocus; tc = this.colText; }
 
         // Fondo + tinte de acento translúcido cuando hay arrastre encima.
-        Gui.fillRect(bx, by, bw, bh, this.colInput)
-        if (hi) { Gui.fillRectAlpha(bx, by, bw, bh, this.colFocus, 36); }
+        this.swRect(bx, by, bw, bh, this.colInput)
+        if (hi) { this.swRectAlpha(bx, by, bw, bh, this.colFocus, 36); }
         // Borde punteado (más grueso al resaltar).
         this.dashedRect(bx, by, bw, bh, bc, hi)
 
@@ -1714,8 +1872,8 @@ export public class GuiRenderer {
         let tw = Gui.measureText("" + label, scale)[0]
         let tx = bx + (bw - tw) / 2
         let ty = by + (bh - 8 * scale) / 2
-        Gui.drawText(tx, ty, "" + label, scale, tc)
-        if (dfam) { Gui.setFont(""); }
+        this.swText(tx, ty, "" + label, scale, tc)
+        if (dfam) { this.swSetFont(""); }
 
         this.regions.push(["DropZone", bx, by, bw, bh, node])
         this.cy = this.cy + bh + 12
@@ -1731,16 +1889,16 @@ export public class GuiRenderer {
         while (px < x + w) {
             let seg = dash
             if (px + seg > x + w) { seg = x + w - px; }
-            Gui.fillRect(px, y, seg, t, col)
-            Gui.fillRect(px, y + h - t, seg, t, col)
+            this.swRect(px, y, seg, t, col)
+            this.swRect(px, y + h - t, seg, t, col)
             px = px + dash + gap
         }
         let py = y
         while (py < y + h) {
             let seg = dash
             if (py + seg > y + h) { seg = y + h - py; }
-            Gui.fillRect(x, py, t, seg, col)
-            Gui.fillRect(x + w - t, py, t, seg, col)
+            this.swRect(x, py, t, seg, col)
+            this.swRect(x + w - t, py, t, seg, col)
             py = py + dash + gap
         }
     }
@@ -1761,8 +1919,8 @@ export public class GuiRenderer {
 
         this.fillBox("Dropdown", bx, by, bw, bh, this.colorFor("Dropdown", "background-color", this.colInput))
         let dfam = this.setFam("Dropdown")
-        Gui.drawText(bx + 10, by + 9, "" + value, 2, this.colorFor("Dropdown", "color", this.colText))
-        if (dfam) { Gui.setFont(""); }
+        this.swText(bx + 10, by + 9, "" + value, 2, this.colorFor("Dropdown", "color", this.colText))
+        if (dfam) { this.swSetFont(""); }
         this.drawTriDown(bx + bw - 16, by + 14, 4, this.colMuted)
         if (focused) { this.drawFocusRing(bx, by, bw, bh); }
 
@@ -1797,13 +1955,13 @@ export public class GuiRenderer {
             let oy = oy0 + i * optH
             let bg = this.colInput
             if (i == this.dropHi) { bg = this.colBtnHov; }
-            Gui.fillRect(dx, oy, dw, optH, bg)
-            Gui.fillRect(dx, oy, dw, 1, this.colBorder)
-            Gui.drawText(dx + 10, oy + 9, "" + opts[i], 2, this.colText)
+            this.swRect(dx, oy, dw, optH, bg)
+            this.swRect(dx, oy, dw, 1, this.colBorder)
+            this.swText(dx + 10, oy + 9, "" + opts[i], 2, this.colText)
             i = i + 1
         }
-        if (ofam) { Gui.setFont(""); }
-        Gui.fillRect(dx, oy0 + opts.length() * optH, dw, 2, this.colBorder)
+        if (ofam) { this.swSetFont(""); }
+        this.swRect(dx, oy0 + opts.length() * optH, dw, 2, this.colBorder)
     }
 
     // ── Label / Link ───────────────────────────────────────────────────────────
@@ -1826,9 +1984,9 @@ export public class GuiRenderer {
         this.focusOrd = this.focusOrd + 1
 
         let col = this.colorFor("Link", "color", this.colLink)
-        Gui.drawText(bx, by, label, scale, col)
-        if (fam) { Gui.setFont(""); }
-        Gui.fillRect(bx, by + 8 * scale + 1, lw, 1, col)
+        this.swText(bx, by, label, scale, col)
+        if (fam) { this.swSetFont(""); }
+        this.swRect(bx, by + 8 * scale + 1, lw, 1, col)
         if (focused) { this.drawFocusRing(bx, by, lw, 8 * scale + 4); }
 
         this.regions.push(["Link", bx, by, lw, 8 * scale + 4, node])
@@ -1942,8 +2100,8 @@ export public class GuiRenderer {
 
     // ── Sombra suave (alpha) ───────────────────────────────────────────────────
     public void softShadow(int x, int y, int w, int h) {
-        Gui.fillRectAlpha(x + 2, y + 4, w, h, 0x000000, 55)
-        Gui.fillRectAlpha(x + 1, y + 2, w, h, 0x000000, 35)
+        this.swRectAlpha(x + 2, y + 4, w, h, 0x000000, 55)
+        this.swRectAlpha(x + 1, y + 2, w, h, 0x000000, 35)
     }
 
     // ── Caché de imágenes (ruta → handle de Gui.loadImage) ─────────────────────
@@ -2012,10 +2170,10 @@ export public class GuiRenderer {
         else if (ph != null && sz[1] > 0) { dh = ph; dw = sz[0] * ph / sz[1] }
         if (dw != sz[0] || dh != sz[1]) {
             let al = node.getProp("alpha")
-            if (al == null) { Gui.drawImage(this.cx, this.cy, hnd, dw, dh) }
-            else { Gui.drawImage(this.cx, this.cy, hnd, dw, dh, al) }
+            if (al == null) { this.swImage(this.cx, this.cy, hnd, dw, dh) }
+            else { this.swImage(this.cx, this.cy, hnd, dw, dh, al) }
         } else {
-            Gui.drawImage(this.cx, this.cy, hnd)
+            this.swImage(this.cx, this.cy, hnd)
         }
         this.lastW = dw
         this.cy = this.cy + dh + 10
@@ -2045,12 +2203,12 @@ export public class GuiRenderer {
 
         let y = by
         if (columns.length() > 0) {
-            Gui.fillRect(bx, y, bw, rowH, this.colBtn)
+            this.swRect(bx, y, bw, rowH, this.colBtn)
             let c = 0
             while (c < ncol) {
                 let label = ""
                 if (c < columns.length()) { label = "" + columns[c]; }
-                Gui.drawText(bx + c * cellW + 8, y + ty, this.fitCell(label, cellW - 16, scale), scale, 0xffffff)
+                this.swText(bx + c * cellW + 8, y + ty, this.fitCell(label, cellW - 16, scale), scale, 0xffffff)
                 c = c + 1
             }
             y = y + rowH
@@ -2060,20 +2218,20 @@ export public class GuiRenderer {
         while (r2 < rows.length()) {
             let bgc = this.colInput
             if (r2 % 2 == 1) { bgc = this.colBg; }
-            Gui.fillRect(bx, y, bw, rowH, bgc)
+            this.swRect(bx, y, bw, rowH, bgc)
             let row = rows[r2]
             let c2 = 0
             while (c2 < ncol) {
                 let cell = ""
                 if (c2 < row.length()) { cell = "" + row[c2]; }
-                Gui.drawText(bx + c2 * cellW + 8, y + ty, this.fitCell(cell, cellW - 16, scale), scale, this.colText)
+                this.swText(bx + c2 * cellW + 8, y + ty, this.fitCell(cell, cellW - 16, scale), scale, this.colText)
                 c2 = c2 + 1
             }
             y = y + rowH
             r2 = r2 + 1
         }
-        if (fam) { Gui.setFont(""); }
-        Gui.drawRect(bx, by, bw, y - by, this.colBorder)
+        if (fam) { this.swSetFont(""); }
+        this.swRectOutline(bx, by, bw, y - by, this.colBorder)
         this.lastW = bw
         this.cy = y + 12
     }
@@ -2104,8 +2262,8 @@ export public class GuiRenderer {
         let bw = this.colWidth
         let bh = 34
         this.softShadow(bx, by, bw, bh)
-        Gui.fillRoundRect(bx, by, bw, bh, 6, col)
-        Gui.drawText(bx + 12, by + 9, "" + msg, 2, 0xffffff)
+        this.swRoundRect(bx, by, bw, bh, 6, col)
+        this.swText(bx + 12, by + 9, "" + msg, 2, 0xffffff)
         this.cy = this.cy + bh + 12
     }
 
@@ -2130,7 +2288,7 @@ export public class GuiRenderer {
     public void drawModalOverlay() {
         let node = this.modalNode
         if (node == null) { return; }
-        Gui.fillRectAlpha(0, 0, this.w, this.h, 0x000000, 150)
+        this.swRectAlpha(0, 0, this.w, this.h, 0x000000, 150)
 
         let mw = this.w * 3 / 4
         if (mw > 520) { mw = 520; }
@@ -2142,17 +2300,17 @@ export public class GuiRenderer {
         let my = (this.h - mh) / 2
         this.modalBoxX = mx; this.modalBoxY = my; this.modalBoxW = mw; this.modalBoxH = mh
         this.softShadow(mx, my, mw, mh)
-        Gui.fillRoundRect(mx, my, mw, mh, 10, this.colInput)
-        Gui.drawRect(mx, my, mw, mh, this.colBorder)
+        this.swRoundRect(mx, my, mw, mh, 10, this.colInput)
+        this.swRectOutline(mx, my, mw, mh, this.colBorder)
 
         let innerX = mx + 18
         let innerW = mw - 36
         let topY   = my + 16
         let title  = node.getProp("title")
         if (title != null) {
-            Gui.drawText(innerX, topY, "" + title, 2, this.colText)
+            this.swText(innerX, topY, "" + title, 2, this.colText)
             topY = topY + 28
-            Gui.fillRect(innerX, topY, innerW, 1, this.colBorder)
+            this.swRect(innerX, topY, innerW, 1, this.colBorder)
             topY = topY + 12
         }
 
@@ -2165,13 +2323,13 @@ export public class GuiRenderer {
             let chov = this.mouseX >= cxb && this.mouseX < cxb + cs && this.mouseY >= cyb && this.mouseY < cyb + cs
             let ccol = this.colMuted
             if (chov) { ccol = this.colText; }
-            Gui.drawText(cxb + 8, cyb + 5, "x", 2, ccol)
+            this.swText(cxb + 8, cyb + 5, "x", 2, ccol)
             this.regions.push(["ModalClose", cxb, cyb, cs, cs, node])
         }
         let savedCx = this.cx
         let savedCy = this.cy
         let savedCW = this.colWidth
-        Gui.pushClip(mx, my, mw, mh)
+        this.swClipPush(mx, my, mw, mh)
         this.cx       = innerX
         this.cy       = topY
         this.colWidth = innerW
@@ -2181,7 +2339,7 @@ export public class GuiRenderer {
             this.renderNode(kids[i])
             i = i + 1
         }
-        Gui.popClip()
+        this.swClipPop()
         this.cx       = savedCx
         this.cy       = savedCy
         this.colWidth = savedCW
@@ -2216,8 +2374,8 @@ export public class GuiRenderer {
         if (tx + tw > this.w) { tx = this.w - tw - 4; }
         if (ty + th > this.h) { ty = this.tipY - th - 4; }
         this.softShadow(tx, ty, tw, th)
-        Gui.fillRoundRect(tx, ty, tw, th, 4, 0x1f2937)
-        Gui.drawText(tx + 6, ty + 5, tip, scale, this.colText)
+        this.swRoundRect(tx, ty, tw, th, 4, 0x1f2937)
+        this.swText(tx + 6, ty + 5, tip, scale, this.colText)
     }
 
     // Nombre de cursor para la posición del mouse (mano sobre interactivos, I-beam

@@ -61,7 +61,47 @@ export public class Window {
         this.__redoStack  = []
         this.__undoFocus  = -1
         this.__hoveredFiles = []  // rutas arrastradas SOBRE la ventana ahora (Gui.hoveredFiles)
+        // Paneles (ventanas secundarias, core multi-ventana): ids paralelos.
+        // El contenido lo produce renderPanel(id) del PROPIO app (los handlers
+        // capturan el this top-level → identidad preservada). v1: clicks en
+        // Button/Link; los campos de texto editables viven en la principal.
+        this.__panelIds  = []   // id de ventana Gui de cada panel abierto
+        this.__panelRs   = []   // renderer propio de cada panel
+        this.__panelPrev = []   // reservado (el flanco lo da Gui.mousePressed por-ventana)
+        this.__panelDirty = false // un click de panel mutó estado → re-render principal
     }
+
+    // Override opcional — vdom de un panel (ventana secundaria) por id.
+    // null = panel vacío (solo fondo).
+    public any renderPanel(int id) {
+        return null
+    }
+
+    // Abre una ventana secundaria manejada por el loop GUI. Devuelve su id.
+    // Requiere runGui en marcha (la ventana principal debe existir).
+    public int openPanel(string title, int panelW, int panelH) {
+        let id = Gui.openWindow(title, panelW, panelH)
+        this.__panelIds.push(id)
+        this.__panelRs.push(new GuiRenderer())
+        this.__panelPrev.push(false)
+        return id
+    }
+
+    public void closePanel(int id) {
+        let i = 0
+        while (i < this.__panelIds.length()) {
+            if (this.__panelIds[i] == id) {
+                Gui.closeWindow(id)
+                this.__panelIds.remove(i)
+                this.__panelRs.remove(i)
+                this.__panelPrev.remove(i)
+                return
+            }
+            i = i + 1
+        }
+    }
+
+    public int panelCount() { return this.__panelIds.length() }
 
     // Override en subclases — produce el árbol VNode
     public any render() {
@@ -960,9 +1000,10 @@ export public class Window {
     }
 
     // Arranca la app en una ventana nativa. Bloquea hasta cerrar (Esc o la X).
-    // OJO: los parámetros NO pueden llamarse `h` ni `w` — serez-code tiene scoping
-    // dinámico y un local llamado `h` shadowearía la función `h()` (hyperscript) que
-    // usa el render() del componente, rompiéndolo con "Attempt to call a non-function".
+    // Nota histórica: estos parámetros se llaman width/height porque un param `h`
+    // shadoweaba la función `h()` (hyperscript). Desde core ≥ 7.3 un binding
+    // no-invocable ya NO oculta una función homónima en llamadas, pero mantener
+    // los nombres largos sigue siendo buena higiene.
     public void runGui(string title, int width, int height) {
         Gui.open(title, width, height)
         let r = new GuiRenderer()
@@ -1005,8 +1046,11 @@ export public class Window {
         let prevMy    = -1
 
         while (Gui.isOpen()) {
-            // Presentar: muestra el último buffer y sondea los eventos (mouse/teclado).
-            Gui.present()
+            // Presentar: dibuja la ESCENA retenida (solo si cambió — dirty-skip
+            // del core) y sondea los eventos (mouse/teclado). El render de arriba
+            // no rasteriza: emite/reusa nodos vía SceneWriter; el rasterizado
+            // pesado ocurre aquí, en Rust.
+            Gui.renderScene(r.bgColor())
             // Esc cierra la ventana, salvo que haya un modal abierto (ahí lo cierra
             // el modal vía onClose en handleGuiInput).
             if (Gui.keyDown("Esc") && !r.modalActive()) { break; }
@@ -1155,6 +1199,9 @@ export public class Window {
             // Re-render si hubo cambios de estado o si la ventana se redimensionó.
             // En resize re-ejecutamos render() (no solo el dibujo) → el componente puede
             // devolver OTRA estructura según viewportWidth()/breakpoint() (responsive Capa 2).
+            // __panelDirty: un onClick disparado desde un PANEL mutó estado del app
+            // (el frame anterior) → la principal debe re-renderizar ahora.
+            if (this.__panelDirty) { changed = true; this.__panelDirty = false; }
             if (changed || resized) { this.update(); }
             if (changed || resized || scrolled || blinking || osRaster) {
                 let m2 = Gui.mouse()
@@ -1179,6 +1226,66 @@ export public class Window {
                 if (__df > this.__frameMsMax) { this.__frameMsMax = __df }
             }
 
+            // ── Paneles (ventanas secundarias, multi-ventana del core) ────────
+            // Cada panel: seleccionar su ventana, renderizar renderPanel(id) con
+            // SU renderer (escena por-ventana del core), rutear clicks de
+            // Button/Link y presentar. El input de un panel también despierta
+            // idleWait (input_epoch cubre todas las ventanas).
+            let pi = 0
+            while (pi < this.__panelIds.length()) {
+                let pid = this.__panelIds[pi]
+                Gui.selectWindow(pid)
+                if (!Gui.isOpen()) {
+                    // La cerró el usuario (X): fuera de la lista.
+                    Gui.selectWindow(0)
+                    this.__panelIds.remove(pi)
+                    this.__panelRs.remove(pi)
+                    this.__panelPrev.remove(pi)
+                    continue
+                }
+                let pvdom = this.renderPanel(pid)
+                if (pvdom != null) {
+                    // Renderer por valor: read-modify-write para conservar su
+                    // estado (swIds/regions) entre frames.
+                    let pr = this.__panelRs[pi]
+                    let pm = Gui.mouse()
+                    pr.setMouse(pm[0], pm[1], Gui.mouseDown())
+                    pr.setStyles(this.__sheet, this.styleVars())
+                    pr.setVdomDirty(true)
+                    let psz = Gui.size()
+                    pr.render(pvdom, psz[0], psz[1])
+                    // El present refresca el snapshot de input del panel; el
+                    // flanco de click se consume JUSTO después (el core lo
+                    // computa POR EVENTO en el acumulador de esa ventana: un
+                    // click corto entre dos presents no se pierde).
+                    Gui.renderScene(pr.bgColor())
+                    if (Gui.mousePressed()) {
+                        let pm2 = Gui.mouse()
+                        let pregs = pr.getRegions()
+                        let ri = 0
+                        while (ri < pregs.length()) {
+                            let rg = pregs[ri]
+                            if (rg[0] == "Button" || rg[0] == "Link") {
+                                let inside = pm2[0] >= rg[1] && pm2[0] < rg[1] + rg[3] && pm2[1] >= rg[2] && pm2[1] < rg[2] + rg[4]
+                                if (inside && rg[5].getProp("disabled") != true) {
+                                    let onC = rg[5].getProp("onClick")
+                                    if (onC != null) {
+                                        onC()   // cero-arg, como handleGuiInput
+                                        this.__panelDirty = true   // re-render de la principal
+                                    }
+                                }
+                            }
+                            ri = ri + 1
+                        }
+                    }
+                    this.__panelRs[pi] = pr
+                } else {
+                    Gui.renderScene(0x0f172a)
+                }
+                pi = pi + 1
+            }
+            if (this.__panelIds.length() > 0) { Gui.selectWindow(0) }
+
             // CPU en reposo ~0: si no hay nada que animar, dormir hasta el próximo
             // evento (o timeout). Cualquier input despierta de inmediato (input_epoch
             // del core). Con foco se usa un timeout corto para mantener el parpadeo del
@@ -1186,7 +1293,7 @@ export public class Window {
             // Reposo: dormir hasta el próximo evento (cualquier input despierta al
             // instante vía input_epoch del core). Sin foco, timeout largo (CPU ~0). Con
             // foco, más corto para animar el parpadeo del caret. wantsFrames() lo desactiva.
-            let busy = changed || resized || scrolled || ticked || osRaster || this.wantsFrames()
+            let busy = changed || resized || scrolled || ticked || osRaster || this.wantsFrames() || this.__panelDirty
             if (!busy) {
                 let idleMs = 800
                 // Solo animar el blink si hay caret Y la ventana tiene foco (sin foco no

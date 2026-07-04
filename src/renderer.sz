@@ -140,9 +140,9 @@ export public class Renderer {
 
             Terminal.setCursor(this.row, 0)
             if (disabled) {
-                out "{·" + value + "·}"
+                out "\{·" + value + "·}"
             } else {
-                out "{ " + value + " ▶ }"
+                out "\{ " + value + " ▶ }"
             }
             this.row = this.row + 1
 
