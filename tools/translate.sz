@@ -334,6 +334,9 @@ fn any parse_element(string src, int i) {
         if (is_user_component(tag)) {
             return ["__renderComponent(new " + tag + "(), __makeProps(" + props_str + "), [])", i]
         }
+        if (is_builtin_tag(tag)) {
+            return [tag + "(" + props_str + ", [])", i]
+        }
         return ["h(" + dq + tag + dq + ", " + props_str + ", [])", i]
     }
 
@@ -395,6 +398,9 @@ fn any parse_element(string src, int i) {
     }
     if (is_user_component(tag)) {
         return ["__renderComponent(new " + tag + "(), __makeProps(" + props_str + "), " + kids + ")", i]
+    }
+    if (is_builtin_tag(tag)) {
+        return [tag + "(" + props_str + ", " + kids + ")", i]
     }
     return ["h(" + dq + tag + dq + ", " + props_str + ", " + kids + ")", i]
 }

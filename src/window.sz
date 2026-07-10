@@ -46,6 +46,7 @@ export public class Window {
         this.__reqTaMy     = 0
         this.__reqTaRg     = null
         this.__sheet    = null   // Stylesheet (.szs) opcional
+        this.__native   = false  // camino de render nativo (Fase 3): layout+CSS+paint en el core
         this.__minW     = 0      // min-width del contenido GUI (0 = sin límite)
         this.__maxW     = 0      // max-width del contenido GUI (0 = sin límite)
         this.__vw       = 0      // ancho de viewport vivo (px) — viewportWidth()/breakpoint()
@@ -254,6 +255,10 @@ export public class Window {
     // Hoja de estilos (.szs) para el render GUI. Llamar antes de runGui().
     public void useStylesheet(any sheet) { this.__sheet = sheet }
 
+    // Fase 3 (experimental): usa el motor de render NATIVO del core (Gui.renderTree)
+    // en vez del walk interpretado. Llamar antes de runGui(). Default off.
+    public void useNativeRenderer(bool b) { this.__native = b }
+
     // Acota el ancho del contenido GUI (px). 0 = sin límite. El contenido se
     // centra cuando el max-width es menor que la ventana. Llamar antes de runGui().
     public void setMaxWidth(int px) { this.__maxW = px }
@@ -332,7 +337,7 @@ export public class Window {
     public int caretEndOfFocus(any regions) {
         if (this.__focus < 0 || this.__focus >= regions.length()) { return 0; }
         let rg = regions[this.__focus]
-        if (rg[0] == "Input" || rg[0] == "Textarea") {
+        if (rg[0] == "Input" || rg[0] == "Textarea" || rg[0] == "textbox") {
             let v = rg[5].getProp("value")
             if (v == null) { return 0; }
             return ("" + v).length()
@@ -548,13 +553,14 @@ export public class Window {
                     this.__focus = j
                     let node = rg[5]
                     let tag  = rg[0]
-                    if (tag == "Input") {
+                    let isMultiline = node.getProp("rows") != null && parseInt("" + node.getProp("rows")) > 1
+                    if (tag == "Input" || (tag == "textbox" && !isMultiline)) {
                         this.__caret = this.caretFromClick(rg, mx)
                         this.__selAnchor = this.__caret   // ancla en el clic; al arrastrar, selecciona
                         this.__dragIdx = j                // este Input queda en arrastre
                         this.__pressX  = mx               // punto de clic (umbral de arrastre)
                         this.__dragSel = false            // aún no se está seleccionando
-                    } else if (tag == "Textarea") {
+                    } else if (tag == "Textarea" || (tag == "textbox" && isMultiline)) {
                         this.__selAnchor = -1
                         // Check if click is on scrollbar (right edge 24px para ser más tolerante)
                         if (mx >= rg[1] + rg[3] - 24) {
@@ -563,7 +569,7 @@ export public class Window {
                             this.__reqTaMy = my
                             this.__reqTaRg = rg
                         }
-                    } else if (tag == "Button" || tag == "Link") {
+                    } else if (tag == "Button" || tag == "Link" || node.getProp("onClick") != null) {
                         if (node.getProp("disabled") != true) {
                             let hb = node.getProp("onClick")
                             if (hb != null) { hb(); }
@@ -629,7 +635,8 @@ export public class Window {
         // fija en el punto de clic → se selecciona el rango. Al soltar, se limpia.
         if (this.__mouseDown && !pressed && this.__dragIdx >= 0 && this.__dragIdx < n) {
             let drg = regions[this.__dragIdx]
-            if (drg[0] == "Input") {
+            let isMultiline = drg[5].getProp("rows") != null && parseInt("" + drg[5].getProp("rows")) > 1
+            if (drg[0] == "Input" || (drg[0] == "textbox" && !isMultiline)) {
                 // Umbral: no seleccionar hasta moverse >4px del clic. El jitter de la
                 // mano al clickear no debe crear una selección de 1 char (que el primer
                 // tipeo reemplazaría = el "primer carácter seleccionado" reportado).
@@ -642,7 +649,7 @@ export public class Window {
                     let nc = this.caretFromClick(drg, mx)
                     if (nc != this.__caret) { this.__caret = nc; changed = true; }
                 }
-            } else if (drg[0] == "Textarea") {
+            } else if (drg[0] == "Textarea" || (drg[0] == "textbox" && isMultiline)) {
                 this.__reqTaScroll = true
                 this.__reqTaMy = my
                 this.__reqTaRg = drg
@@ -755,7 +762,7 @@ export public class Window {
         }
 
         // ── Edición de texto del Input/Textarea enfocado ───────────────────────
-        if ((ftag == "Input" || ftag == "Textarea") && !fdis) {
+        if ((ftag == "Input" || ftag == "Textarea" || ftag == "textbox") && !fdis) {
             let val = fnode.getProp("value")
             if (val == null) { val = ""; }
             val = "" + val
@@ -826,7 +833,8 @@ export public class Window {
                     } else if (ckey == "v") {
                         let paste = Gui.clipboardGet()
                         if (paste.length() > 0) {
-                            if (ftag == "Input") { paste = paste.replaceAll("\r", "").replaceAll("\n", " "); }
+                            let isMultiline = fnode.getProp("rows") != null && parseInt("" + fnode.getProp("rows")) > 1
+                            if (ftag == "Input" || (ftag == "textbox" && !isMultiline)) { paste = paste.replaceAll("\r", "").replaceAll("\n", " "); }
                             if (hasSel) {
                                 newVal = newVal.substring(0, selLo) + paste + newVal.substring(selHi, newVal.length())
                                 newCar = selLo + paste.length()
@@ -901,10 +909,10 @@ export public class Window {
                 } else if (key == "End") {
                     if (shift) { if (newAnchor < 0) { newAnchor = newCar; } } else { newAnchor = -1; }
                     newCar = newVal.length()
-                } else if (key == "Up" && ftag == "Textarea") {
+                } else if (key == "Up" && (ftag == "Textarea" || (ftag == "textbox" && isMultiline))) {
                     if (shift) { if (newAnchor < 0) { newAnchor = newCar; } } else { newAnchor = -1; }
                     newCar = this.caretLineMove(newVal, newCar, -1)
-                } else if (key == "Down" && ftag == "Textarea") {
+                } else if (key == "Down" && (ftag == "Textarea" || (ftag == "textbox" && isMultiline))) {
                     if (shift) { if (newAnchor < 0) { newAnchor = newCar; } } else { newAnchor = -1; }
                     newCar = this.caretLineMove(newVal, newCar, 1)
                 }
@@ -930,7 +938,8 @@ export public class Window {
             let ke = 0
             while (ke < keys.length()) {
                 if (keys[ke] == "Enter") {
-                    if (ftag == "Textarea") {
+                    let isMultiline = fnode.getProp("rows") != null && parseInt("" + fnode.getProp("rows")) > 1
+                    if (ftag == "Textarea" || (ftag == "textbox" && isMultiline)) {
                         if (hasSel) {
                             newVal = newVal.substring(0, selLo) + "\n" + newVal.substring(selHi, newVal.length())
                             newCar = selLo + 1; newAnchor = -1; hasSel = false
@@ -976,7 +985,8 @@ export public class Window {
         let i = 0
         while (i < regions.length()) {
             let rg = regions[i]
-            if (rg[0] == "Textarea") {
+            let isMultiline = rg[5].getProp("rows") != null && parseInt("" + rg[5].getProp("rows")) > 1
+            if (rg[0] == "Textarea" || (rg[0] == "textbox" && isMultiline)) {
                 let inside = mx >= rg[1] && mx < rg[1] + rg[3] && my >= rg[2] && my < rg[2] + rg[4]
                 if (inside) {
                     let total = rg[7]
@@ -1024,6 +1034,7 @@ export public class Window {
         r.setDropHi(this.__dropHi)
         r.setStyles(this.__sheet, this.styleVars())
         r.setWidthBounds(this.__minW, this.__maxW)
+        r.setNative(this.__native)
         let curW = width
         let curH = height
         r.setVdomDirty(true)
@@ -1070,7 +1081,8 @@ export public class Window {
                 let i = 0
                 while (i < regions.length()) {
                     let rg = regions[i]
-                    if (rg[0] == "Textarea") {
+                    let isMultiline = rg[5].getProp("rows") != null && parseInt("" + rg[5].getProp("rows")) > 1
+                    if (rg[0] == "Textarea" || (rg[0] == "textbox" && isMultiline)) {
                         let inside = m[0] >= rg[1] && m[0] < rg[1] + rg[3] && m[1] >= rg[2] && m[1] < rg[2] + rg[4]
                         if (inside) {
                             let total = rg[7]

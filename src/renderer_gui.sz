@@ -44,6 +44,13 @@ export public class GuiRenderer {
         this.imePreedit = ""     // composición IME en curso (Gui.imePreedit), "" si no hay
         this.filesHovering = false // ¿hay archivos arrastrándose sobre la ventana? (Gui.hoveredFiles) — resalta DropZone
 
+        // ── Camino de render NATIVO (Fase 3, detrás de flag) ──
+        // Cuando native=true, render() baja el VDOM a primitivos y delega el
+        // layout+CSS+paint al core (Gui.renderTree) en vez del walk interpretado.
+        // El intérprete queda como referencia de QA. Default off = sin cambios.
+        this.native    = false
+        this.coreSheet = -1      // handle de Gui.loadStylesheet (cacheado, 1-based; -1 = sin cargar)
+
         // Scrollbar de la ventana: métricas para hit-test en window.sz.
         this.sbVisible  = false  // ¿la scrollbar se dibujó en el último render?
         this.sbTrackX   = 0      // borde izquierdo del track (px)
@@ -450,6 +457,9 @@ export public class GuiRenderer {
         this.ctx   = ctx
     }
 
+    // Activa/desactiva el camino de render nativo (Fase 3).
+    public void setNative(bool b) { this.native = b }
+
     // Color de una prop CSS para un tag, o el fallback si no hay hoja/regla.
     // Invalida la caché de estilos si cambió la firma del ctx (width/height/styleVars).
     // Llamado al inicio de cada render(), tras armar fullCtx.
@@ -730,6 +740,1234 @@ export public class GuiRenderer {
 
     public any getRegions() { return this.regions }
 
+    // ── Camino de render NATIVO (Fase 3) ───────────────────────────────────────
+    // Baja un VNode al árbol de primitivos del core: [tag, props, [hijos]]. El
+    // formato de VNode (tag + props [[n,v]] + children) ya casa con el contrato de
+    // Gui.renderTree; solo hay que estringar los hijos primitivos (int/bool → texto)
+    // y recursar. Los props (class/id/onClick/estilo inline) viajan tal cual: el core
+    // lee los que entiende e ignora el resto.
+    // Embebe el VNode ORIGINAL en el attr `onClick` de los props bajados, para que la
+    // region del core lo devuelva y handleGuiInput lea todos sus props (onChange/value/…).
+    // Dropea cualquier onClick previo (el original ya vive dentro de `node`).
+    public any withRef(any baseProps, any node) {
+        let rp = [["onClick", node]]
+        let i = 0
+        while (i < baseProps.length()) {
+            if (baseProps[i][0] != "onClick") { rp.push(baseProps[i]) }
+            i = i + 1
+        }
+        return rp
+    }
+
+    // DISCIPLINA DE ORDINALES (camino nativo): el core emite las regions en PRE-ORDEN
+    // y renderNative filtra solo las que llevan ref (withRef) → índice-de-region ==
+    // ordinal de foco ↔ cada withRef debe consumir exactamente un ordinal
+    // (`this.focusOrd = this.focusOrd + 1`), en el orden en que su nodo aparece en el
+    // árbol (contenedor antes que sus ítems).
+
+    public any lowerVNode(any node) {
+        if (node == null) { return ""; }
+        if (node is string) { return node; }
+        if (node is int || node is decimal || node is bool) { return "" + node; }
+        let tag = node.getTag()
+        // Widgets: bajan a un primitivo con su estilo característico (lowering).
+        if (tag == "Button") { return this.lowerButton(node); }
+        if (tag == "Input") { return this.lowerInput(node); }
+        if (tag == "Textarea") { return this.lowerTextarea(node); }
+        if (tag == "Checkbox") { return this.lowerCheckbox(node); }
+        if (tag == "Switch" || tag == "Toggle") { return this.lowerSwitch(node); }
+        if (tag == "ProgressBar") { return this.lowerProgressBar(node); }
+        if (tag == "Select") { return this.lowerSelect(node); }
+        if (tag == "Slider") { return this.lowerSlider(node); }
+        if (tag == "Tabs") { return this.lowerTabs(node); }
+        if (tag == "RadioGroup") { return this.lowerRadioGroup(node); }
+        if (tag == "Dropdown") { return this.lowerDropdown(node); }
+        if (tag == "Modal") { return this.lowerModal(node); }
+        if (tag == "Collapsible" || tag == "Accordion") { return this.lowerCollapsible(node); }
+        if (tag == "Table") { return this.lowerTable(node); }
+        if (tag == "Toast") { return this.lowerToast(node); }
+        if (tag == "Chart") { return this.lowerChart(node); }
+        if (tag == "DropZone") { return this.lowerDropZone(node); }
+        if (tag == "Tooltip") { return this.lowerTooltip(node); }
+        if (tag == "FileInput") { return this.lowerFileInput(node); }
+        // Mapeo de tags de widget a primitivos del core (contenedor/flex/imagen).
+        // `Row` → `row` (flex); `Image` → `img`. El resto se mantiene: el core trata
+        // los tags desconocidos como contenedores y el `.szs`/UA los estiliza por tag.
+        let outTag = tag
+        if (tag == "Row") { outTag = "row" }
+        else if (tag == "Image") { outTag = "img" }
+        // Genérico: VNode → [tag, props, [hijos bajados]]. El ref (y su ordinal) se
+        // toma ANTES de bajar los hijos: pre-orden, como emite las regions el core.
+        let gprops = node.getProps()
+        if (node.hasProp("onClick") || node.hasProp("onChange") || node.hasProp("onInput") || node.hasProp("onDrop")) {
+            this.focusOrd = this.focusOrd + 1
+            gprops = this.withRef(gprops, node)
+        }
+        let kids     = node.getChildren()
+        let lowered  = []
+        let i = 0
+        while (i < kids.length()) {
+            lowered.push(this.lowerVNode(kids[i]))
+            i = i + 1
+        }
+        return [outTag, gprops, lowered]
+    }
+
+    public any lowerInput(any node) {
+        let myOrd   = this.focusOrd
+        let disabled = node.getProp("disabled") == true
+        let focused  = myOrd == this.focus && !disabled && this.winFocused
+        this.focusOrd = this.focusOrd + 1
+
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        let hasCaret = false
+        let hasFocused = false
+        let hasSelStart = false
+        let hasSelEnd = false
+        while (pi < op.length()) {
+            props.push(op[pi])
+            if (op[pi][0] == "caret") { hasCaret = true; }
+            if (op[pi][0] == "focused") { hasFocused = true; }
+            if (op[pi][0] == "sel-start") { hasSelStart = true; }
+            if (op[pi][0] == "sel-end") { hasSelEnd = true; }
+            pi = pi + 1
+        }
+
+        if (!hasFocused) {
+            if (focused) { props.push(["focused", "true"]); }
+            else         { props.push(["focused", "false"]); }
+        }
+        if (!hasCaret && focused) {
+            props.push(["caret", "" + this.caret])
+        }
+        if (!hasSelStart && focused && this.selAnchor >= 0) {
+            props.push(["sel-start", "" + this.selAnchor])
+            props.push(["sel-end", "" + this.caret])
+        }
+        props.push(["rows", "1"])
+
+        // El texto a renderizar dentro de la caja de texto son sus hijos en el core
+        let val = node.getProp("value")
+        let text = ""
+        if (val != null) { text = "" + val; }
+        return ["textbox", this.withRef(props, node), [text]]
+    }
+
+    public any lowerTextarea(any node) {
+        let myOrd   = this.focusOrd
+        let disabled = node.getProp("disabled") == true
+        let focused  = myOrd == this.focus && !disabled && this.winFocused
+        this.focusOrd = this.focusOrd + 1
+
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        let hasCaret = false
+        let hasFocused = false
+        let hasSelStart = false
+        let hasSelEnd = false
+        let hasRows = false
+        while (pi < op.length()) {
+            props.push(op[pi])
+            if (op[pi][0] == "caret") { hasCaret = true; }
+            if (op[pi][0] == "focused") { hasFocused = true; }
+            if (op[pi][0] == "sel-start") { hasSelStart = true; }
+            if (op[pi][0] == "sel-end") { hasSelEnd = true; }
+            if (op[pi][0] == "rows") { hasRows = true; }
+            pi = pi + 1
+        }
+
+        if (!hasFocused) {
+            if (focused) { props.push(["focused", "true"]); }
+            else         { props.push(["focused", "false"]); }
+        }
+        if (!hasCaret && focused) {
+            props.push(["caret", "" + this.caret])
+        }
+        if (!hasSelStart && focused && this.selAnchor >= 0) {
+            props.push(["sel-start", "" + this.selAnchor])
+            props.push(["sel-end", "" + this.caret])
+        }
+        if (!hasRows) {
+            let r = node.getProp("rows")
+            if (r == null) { r = 6; }
+            props.push(["rows", "" + r])
+        }
+
+        let val = node.getProp("value")
+        let text = ""
+        if (val != null) { text = "" + val; }
+        return ["textbox", this.withRef(props, node), [text]]
+    }
+
+    public any lowerSlider(any node) {
+        let value    = node.getProp("value")
+        let min      = node.getProp("min")
+        let max      = node.getProp("max")
+        let disabled = node.getProp("disabled") == true
+        if (min == null) { min = 0; }
+        if (max == null) { max = 100; }
+        if (value == null) { value = min; }
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        let span = max - min
+        if (span <= 0) { span = 1; }
+        let rel = value - min
+        if (rel < 0) { rel = 0; }
+        if (rel > span) { rel = span; }
+        let fillPct = (rel * 100) / span
+
+        // El REF va en la PISTA (tag "Slider"): handleGuiInput mapea el clic a valor
+        // con rg[1]/rg[3] de la region, que deben ser los de la pista (sin el label).
+        // El contenedor queda como div.Slider sin ref (no genera region filtrada).
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        while (pi < op.length()) {
+            if (op[pi][0] != "onClick") { props.push(op[pi]) }
+            pi = pi + 1
+        }
+        props.push(["height", "30"])
+
+        let trackProps = this.withRef([
+            ["class", "slider-track"],
+            ["position", "relative"],
+            ["height", "30"]
+        ], node)
+
+        let trackBgProps = [
+            ["class", "slider-track-bg"],
+            ["position", "absolute"],
+            ["left", "0"],
+            ["top", "13"],
+            ["width", "100%"],
+            ["height", "4"]
+        ]
+
+        let fillProps = [
+            ["class", "slider-fill"],
+            ["position", "absolute"],
+            ["left", "0"],
+            ["top", "13"],
+            ["width", "" + fillPct + "%"],
+            ["height", "4"]
+        ]
+
+        let knobProps = [
+            ["class", "slider-knob"],
+            ["position", "absolute"],
+            ["left", "" + fillPct + "%"],
+            ["top", "6"],
+            ["width", "10"],
+            ["height", "18"]
+        ]
+
+        let labelProps = [
+            ["class", "slider-label"],
+            ["width", "44"]
+        ]
+
+        let trackKids = [
+            ["div", trackBgProps, []],
+            ["div", fillProps, []],
+            ["div", knobProps, []]
+        ]
+
+        let containerClass = "Slider"
+        if (focused) { containerClass = "Slider focused"; }
+        props.push(["class", containerClass])
+
+        return ["div", props, [
+            ["Slider", trackProps, trackKids],
+            ["span", labelProps, ["" + value]]
+        ]]
+    }
+
+    public any lowerTabs(any node) {
+        let tabs = node.getProp("tabs")
+        if (tabs == null) { tabs = []; }
+        let active = node.getProp("active")
+        if (active == null) { active = 0; }
+        let disabled = node.getProp("disabled") == true
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
+
+        let containerClass = "Tabs"
+        if (focused) { containerClass = "Tabs focused"; }
+        props.push(["class", containerClass])
+        props.push(["height", "34"])
+        props.push(["position", "relative"])
+
+        let kids = []
+        
+        let barLineProps = [
+            ["class", "tabs-bottom-border"],
+            ["position", "absolute"],
+            ["left", "0"],
+            ["bottom", "0"],
+            ["width", "100%"],
+            ["height", "1"]
+        ]
+        kids.push(["div", barLineProps, []])
+
+        let rowProps = [
+            ["class", "tabs-row"],
+            ["width", "100%"],
+            ["height", "33"]
+        ]
+
+        let rowKids = []
+        let i = 0
+        while (i < tabs.length()) {
+            let label = "" + tabs[i]
+            let isAct = (i == active)
+            
+            let tabClass = "tab-item"
+            if (isAct) { tabClass = "tab-item active-tab"; }
+            if (disabled) { tabClass = "tab-item disabled-tab"; }
+            
+            let tabIndex = i
+            // Ancho al contenido (como el intérprete): label + 2·14 de padding horizontal.
+            let tw = Gui.measureText(label, 2)[0] + 28
+            let tabProps = [
+                ["class", tabClass],
+                ["width", "" + tw],
+                ["height", "33"],
+                ["position", "relative"]
+            ]
+            
+            let tabKids = [["span", [], [label]]]
+            if (isAct) {
+                let underlineProps = [
+                    ["class", "tab-underline"],
+                    ["position", "absolute"],
+                    ["left", "0"],
+                    ["bottom", "0"],
+                    ["width", "100%"],
+                    ["height", "3"]
+                ]
+                tabKids.push(["div", underlineProps, []])
+            }
+
+            if (!disabled) {
+                let oc = node.getProp("onChange")
+                let tabNode = new VNode("TabItem", [["onClick", () => { if (oc != null) { oc(tabIndex); } }]], [label])
+                this.focusOrd = this.focusOrd + 1
+                tabProps = this.withRef(tabProps, tabNode)
+            }
+            
+            rowKids.push(["div", tabProps, tabKids])
+            i = i + 1
+        }
+
+        kids.push(["row", rowProps, rowKids])
+
+        return ["Tabs", this.withRef(props, node), kids]
+    }
+
+    public any lowerRadioGroup(any node) {
+        let value    = node.getProp("value")
+        let options  = node.getProp("options")
+        let disabled = node.getProp("disabled") == true
+        if (options == null) { options = []; }
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
+        
+        let containerClass = "RadioGroup"
+        if (focused) { containerClass = "RadioGroup focused"; }
+        props.push(["class", containerClass])
+        
+        let totalH = options.length() * 26
+        if (totalH == 0) { totalH = 26; }
+        props.push(["height", "" + totalH])
+
+        let kids = []
+        let i = 0
+        while (i < options.length()) {
+            let opt = options[i]
+            let selected = ("" + opt) == ("" + value)
+            
+            let indClass = "radio-indicator"
+            if (disabled) { indClass = "radio-indicator disabled-indicator"; }
+            let indProps = [
+                ["class", indClass],
+                ["width", "18"],
+                ["height", "18"],
+                ["position", "relative"]
+            ]
+            
+            let indKids = []
+            if (selected) {
+                let dotClass = "radio-dot"
+                if (disabled) { dotClass = "radio-dot disabled-dot"; }
+                indKids.push(["div", [
+                    ["class", dotClass],
+                    ["position", "absolute"],
+                    ["left", "5"],
+                    ["top", "5"],
+                    ["width", "8"],
+                    ["height", "8"]
+                ], []])
+            }
+            
+            let labelClass = "radio-label"
+            if (disabled) { labelClass = "radio-label disabled-label"; }
+            
+            let rowProps = [
+                ["class", "radio-row"],
+                ["height", "26"]
+            ]
+            
+            kids.push(["row", rowProps, [
+                ["div", indProps, indKids],
+                ["span", [["class", labelClass]], ["" + opt]]
+            ]])
+            i = i + 1
+        }
+
+        return ["RadioGroup", this.withRef(props, node), kids]
+    }
+
+    public any lowerDropdown(any node) {
+        let value    = node.getProp("value")
+        let disabled = node.getProp("disabled") == true
+        let options  = node.getProp("options")
+        if (options == null) { options = []; }
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
+
+        let containerClass = "Dropdown"
+        if (focused) { containerClass = "Dropdown focused"; }
+        props.push(["class", containerClass])
+        props.push(["height", "34"])
+        props.push(["position", "relative"])
+
+        let kids = [
+            ["span", [["class", "dropdown-value"]], ["" + value]],
+            ["span", [["class", "dropdown-arrow"]], ["▼"]]
+        ]
+
+        if (focused && this.dropOpen) {
+            let overlayKids = []
+            let i = 0
+            while (i < options.length()) {
+                let opt = options[i]
+                let optClass = "dropdown-option"
+                if (i == this.dropHi) { optClass = "dropdown-option active-option"; }
+                
+                let optProps = [
+                    ["class", optClass],
+                    ["height", "30"]
+                ]
+                
+                overlayKids.push(["div", optProps, ["" + opt]])
+                i = i + 1
+            }
+            
+            let overlayProps = [
+                ["class", "dropdown-overlay"],
+                ["position", "absolute"],
+                ["left", "0"],
+                ["top", "34"],
+                ["width", "100%"],
+                ["z-index", "1000"]
+            ]
+            
+            kids.push(["div", overlayProps, overlayKids])
+        }
+
+        return ["Dropdown", this.withRef(props, node), kids]
+    }
+
+    public any lowerModal(any node) {
+        if (node.getProp("open") != true) { return ""; }
+        this.hasModal = true
+        this.modalNode = node
+        return ""
+    }
+
+    public any lowerModalOverlay() {
+        let node = this.modalNode
+        if (node == null) { return ""; }
+        
+        let title = node.getProp("title")
+        let onClose = node.getProp("onClose")
+        
+        let boxKids = []
+        
+        if (title != null || onClose != null) {
+            let headerKids = []
+            if (title != null) {
+                headerKids.push(["span", [["class", "modal-title"]], ["" + title]])
+            }
+            if (onClose != null) {
+                let closeNode = new VNode("ModalClose", [["onClick", onClose]], ["x"])
+                this.focusOrd = this.focusOrd + 1
+                let closeProps = [["class", "modal-close"]]
+                closeProps = this.withRef(closeProps, closeNode)
+                headerKids.push(["ModalClose", closeProps, ["x"]])
+            }
+            boxKids.push(["row", [["class", "modal-header"]], headerKids])
+            boxKids.push(["div", [["class", "modal-divider"]], []])
+        }
+        
+        let kids = node.getChildren()
+        let i = 0
+        while (i < kids.length()) {
+            boxKids.push(this.lowerVNode(kids[i]))
+            i = i + 1
+        }
+        
+        let mw = this.w * 3 / 4
+        if (mw > 520) { mw = 520; }
+        if (mw < 240) { mw = 240; }
+        let mh = this.h * 3 / 5
+        if (mh > 360) { mh = 360; }
+        if (mh < 140) { mh = 140; }
+        this.modalBoxW = mw
+        this.modalBoxH = mh
+        this.modalBoxX = (this.w - mw) / 2
+        this.modalBoxY = (this.h - mh) / 2
+        
+        let boxProps = [
+            ["class", "modal-box"],
+            ["width", "" + mw],
+            ["height", "" + mh]
+        ]
+        
+        // El backdrop cubre la VENTANA entera (en px: el 100% se resolvería contra el
+        // ancho de contenido del árbol, que ya descontó el padding).
+        let backdropProps = [
+            ["class", "modal-backdrop"],
+            ["position", "absolute"],
+            ["left", "0"],
+            ["top", "0"],
+            ["width", "" + this.w],
+            ["height", "" + this.h],
+            ["z-index", "990"]
+        ]
+        
+        return ["div", backdropProps, [
+            ["div", boxProps, boxKids]
+        ]]
+    }
+
+    public any lowerCollapsible(any node) {
+        let title = node.getProp("title")
+        if (title == null) { title = ""; }
+        let open  = node.getProp("open") == true
+        let disabled = node.getProp("disabled") == true
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
+        
+        let containerClass = "Collapsible"
+        if (focused) { containerClass = "Collapsible focused"; }
+        props.push(["class", containerClass])
+        props.push(["display", "block"])
+
+        // Chevron ASCII (">"/"v": los glifos ▶/▼ no están en la familia default) con
+        // ancho fijo: en el flex del header, el título toma el resto y queda a la izquierda.
+        let chevron = ">"
+        if (open) { chevron = "v"; }
+
+        let headKids = [
+            ["span", [["class", "collapsible-chevron"], ["width", "18"]], [chevron]],
+            ["span", [["class", "collapsible-title"]], ["" + title]]
+        ]
+
+        let headClass = "collapsible-header"
+        if (disabled) { headClass = "collapsible-header disabled-header"; }
+
+        // El REF va en el HEADER (tag "Collapsible"): como en el intérprete, solo el
+        // header togglea; un clic en el body no debe disparar onToggle.
+        let kids = [
+            ["Collapsible", this.withRef([["class", headClass], ["height", "32"], ["display", "flex"]], node), headKids]
+        ]
+
+        if (open) {
+            let bodyKids = []
+            let cn = node.getChildren()
+            let ci = 0
+            while (ci < cn.length()) {
+                bodyKids.push(this.lowerVNode(cn[ci]))
+                ci = ci + 1
+            }
+            kids.push(["div", [["class", "collapsible-body"]], bodyKids])
+        }
+
+        return ["div", props, kids]
+    }
+
+    public any lowerTable(any node) {
+        let columns = node.getProp("columns")
+        let rows    = node.getProp("rows")
+        if (columns == null) { columns = []; }
+        if (rows == null) { rows = []; }
+        let ncol = columns.length()
+        if (ncol == 0 && rows.length() > 0) { ncol = rows[0].length(); }
+        if (ncol == 0) { return ""; }
+        this.focusOrd = this.focusOrd + 1
+
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
+        props.push(["class", "Table"])
+        props.push(["display", "block"])
+
+        let kids = []
+
+        if (columns.length() > 0) {
+            let headCols = []
+            let c = 0
+            while (c < ncol) {
+                let label = ""
+                if (c < columns.length()) { label = "" + columns[c]; }
+                headCols.push(["div", [["class", "table-cell"], ["flex", "1"]], [label]])
+                c = c + 1
+            }
+            kids.push(["row", [["class", "table-header-row"]], headCols])
+        }
+
+        let r2 = 0
+        while (r2 < rows.length()) {
+            let row = rows[r2]
+            let rowCols = []
+            let c2 = 0
+            while (c2 < ncol) {
+                let cell = ""
+                if (c2 < row.length()) { cell = "" + row[c2]; }
+                rowCols.push(["div", [["class", "table-cell"], ["flex", "1"]], [cell]])
+                c2 = c2 + 1
+            }
+            let rowClass = "table-row"
+            if (r2 % 2 == 1) { rowClass = "table-row table-row-alt"; }
+            kids.push(["row", [["class", rowClass]], rowCols])
+            r2 = r2 + 1
+        }
+
+        return ["Table", this.withRef(props, node), kids]
+    }
+
+    public any lowerToast(any node) {
+        this.focusOrd = this.focusOrd + 1
+        let msg = node.getProp("message")
+        if (msg == null) { msg = this.collectText(node); }
+        let kind = node.getProp("kind")
+        if (kind == null) { kind = "info"; }
+
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
+        
+        let containerClass = "Toast toast-" + kind
+        props.push(["class", containerClass])
+        props.push(["height", "34"])
+
+        return ["Toast", this.withRef(props, node), [
+            ["span", [["class", "toast-message"]], ["" + msg]]
+        ]]
+    }
+
+    public any lowerChart(any node) {
+        this.focusOrd = this.focusOrd + 1
+        let data = node.getProp("data")
+        if (data == null) { data = []; }
+        let ctype = node.getProp("type")
+        if (ctype == null) { ctype = "line"; }
+        let bh = node.getProp("height")
+        if (bh == null) { bh = 160; }
+        let color = node.getProp("color")
+
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
+        
+        let containerClass = "Chart"
+        props.push(["class", containerClass])
+        props.push(["height", "" + bh])
+        props.push(["position", "relative"])
+
+        let kids = []
+
+        // Rango de datos (min/max explícitos o derivados).
+        let ymin = node.getProp("min")
+        let ymax = node.getProp("max")
+        if (data.length() > 0 && (ymin == null || ymax == null)) {
+            let lo = data[0]
+            let hi = data[0]
+            let k = 1
+            while (k < data.length()) {
+                if (data[k] < lo) { lo = data[k]; }
+                if (data[k] > hi) { hi = data[k]; }
+                k = k + 1
+            }
+            if (ymin == null) { ymin = lo; }
+            if (ymax == null) { ymax = hi; }
+        }
+        if (ymin == null) { ymin = 0; }
+        if (ymax == null) { ymax = 1; }
+        let span = ymax - ymin
+        if (span <= 0) { span = 1; }
+        // Altura interna en PX (el core resuelve height:% contra la VENTANA, no el
+        // padre — acá conocemos bh, así que bajamos todo en píxeles).
+        let innerH = bh - 16
+        if (innerH < 10) { innerH = 10; }
+
+        if (ctype == "bar" && data.length() > 0) {
+            let barKids = []
+            let i = 0
+            while (i < data.length()) {
+                let rel = data[i] - ymin
+                if (rel < 0) { rel = 0; }
+                let fh = (rel * innerH) / span
+                if (fh < 1) { fh = 1; }
+
+                let barColProps = [
+                    ["class", "chart-bar-col"],
+                    ["flex", "1"],
+                    ["height", "" + innerH],
+                    ["position", "relative"]
+                ]
+                let barFillProps = [
+                    ["class", "chart-bar-fill"],
+                    ["position", "absolute"],
+                    ["left", "2"],
+                    ["bottom", "0"],
+                    ["width", "80%"],
+                    ["height", "" + fh]
+                ]
+                barKids.push(["div", barColProps, [
+                    ["div", barFillProps, []]
+                ]])
+                i = i + 1
+            }
+            kids.push(["row", [["class", "chart-bars-row"], ["width", "100%"], ["height", "" + innerH]], barKids])
+        } else if (data.length() > 1) {
+            // "line"/"area" → polyline nativo. El ancho del plot se estima con el ancho
+            // de contenido de la ventana (el Chart ocupa el ancho disponible).
+            let plotW = this.w - 2 * this.pad - 20
+            if (plotW < 40) { plotW = 40; }
+            let pts = ""
+            let j = 0
+            while (j < data.length()) {
+                let rel2 = data[j] - ymin
+                if (rel2 < 0) { rel2 = 0; }
+                let px = (j * (plotW - 1)) / (data.length() - 1)
+                let py = innerH - (rel2 * innerH) / span
+                if (j > 0) { pts = pts + " "; }
+                pts = pts + px + "," + py
+                j = j + 1
+            }
+            let lineCol = "#3b82f6"
+            if (color != null) { lineCol = "" + color; }
+            kids.push(["div", [["class", "chart-plot"], ["height", "" + innerH], ["margin", "8"]], [
+                ["polyline", [["points", pts], ["color", lineCol], ["stroke-width", "2"], ["height", "" + innerH]], []]
+            ]])
+        } else {
+            let label = "Gráfico " + ctype
+            kids.push(["span", [["class", "chart-fallback-label"]], [label]])
+        }
+
+        return ["Chart", this.withRef(props, node), kids]
+    }
+
+    public any lowerDropZone(any node) {
+        this.focusOrd = this.focusOrd + 1
+        let label = node.getProp("label")
+        if (label == null) { label = "Arrastra archivos aqui"; }
+        let bh = node.getProp("height")
+        if (bh == null) { bh = 120; }
+
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
+        
+        let containerClass = "DropZone"
+        if (this.filesHovering) { containerClass = "DropZone files-hovering"; }
+        props.push(["class", containerClass])
+        props.push(["height", "" + bh])
+        props.push(["display", "flex"])
+        props.push(["justify-content", "center"])
+        props.push(["align-items", "center"])
+
+        return ["DropZone", this.withRef(props, node), [
+            ["span", [["class", "dropzone-label"]], ["" + label]]
+        ]]
+    }
+
+    public any lowerTooltip(any node) {
+        this.focusOrd = this.focusOrd + 1
+        let tip = node.getProp("tip")
+        
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
+        props.push(["class", "Tooltip"])
+        props.push(["position", "relative"])
+
+        let kids = []
+        let cn = node.getChildren()
+        let i = 0
+        while (i < cn.length()) {
+            kids.push(this.lowerVNode(cn[i]))
+            i = i + 1
+        }
+
+        if (this.hasTip && this.tipText == "" + tip) {
+            let tipBox = [
+                ["class", "tooltip-box"],
+                ["position", "absolute"],
+                ["left", "20"],
+                ["top", "20"],
+                ["z-index", "1010"]
+            ]
+            kids.push(["div", tipBox, ["" + tip]])
+        }
+
+        return ["Tooltip", this.withRef(props, node), kids]
+    }
+
+    public any lowerFileInput(any node) {
+        let label = node.getProp("label")
+        if (label == null) { label = "Elegir archivo..."; }
+        let value = node.getProp("value")
+        let placeholder = node.getProp("placeholder")
+        if (placeholder == null) { placeholder = "Ningun archivo"; }
+        let disabled = node.getProp("disabled") == true
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
+        
+        let containerClass = "FileInput"
+        if (focused) { containerClass = "FileInput focused"; }
+        props.push(["class", containerClass])
+        props.push(["height", "40"])
+
+        let btnClass = "fileinput-button"
+        if (disabled) { btnClass = "fileinput-button fileinput-button-disabled"; }
+
+        let shown = placeholder
+        if (value != null && ("" + value) != "") {
+            shown = this.baseName("" + value)
+        }
+
+        // El REF va en el BOTÓN (tag "FileInput"): como en el intérprete, solo el botón
+        // abre el picker; el texto del archivo elegido no es clickeable.
+        let kids = [
+            ["FileInput", this.withRef([["class", btnClass], ["width", "140"], ["height", "40"]], node), [label]],
+            ["span", [["class", "fileinput-value"]], [shown]]
+        ]
+
+        return ["div", props, kids]
+    }
+
+    // Select → caja bordeada con el valor entre "< … >" (clic cicla vía onChange).
+    // Espeja renderSelect. La lógica de ciclado vive en handleGuiInput (lee el node).
+    public any lowerSelect(any node) {
+        let value    = node.getProp("value")
+        let disabled = node.getProp("disabled") == true
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        let display = "< " + value + " >"
+        if (disabled) { display = "  " + value + "  "; }
+
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
+        let cls = "Select"
+        if (focused) { cls = "Select focused"; }
+        props.push(["class", cls])
+        props.push(["height", "34"])
+        return ["Select", this.withRef(props, node), [display]]
+    }
+
+    // Button → caja COMPACTA (ancho = label + padding) alineada a la izquierda, con
+    // font-scale 2 y separación abajo. Conserva onClick y el tag "Button" para que el
+    // `.szs` (bg/color/border-radius por tag) siga aplicando. Espeja renderButton.
+    public any lowerButton(any node) {
+        this.focusOrd = this.focusOrd + 1
+        let kids  = node.getChildren()
+        let label = ""
+        let i = 0
+        while (i < kids.length()) {
+            let k = kids[i]
+            if (k is string) { label = label + k } else { label = label + ("" + k) }
+            i = i + 1
+        }
+        let w = Gui.measureText(label, 2)[0] + 28   // = renderButton: m[0] + 28
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }   // conserva onClick/disabled/…
+        props.push(["width", "" + w])            // ancho compacto (el resto del look → UA/.szs)
+        return ["Button", this.withRef(props, node), [label]]
+    }
+
+    public any lowerCheckbox(any node) {
+        let checked = node.getProp("checked") == true
+        let label   = node.getProp("label")
+        if (label == null) { label = this.collectText(node); }
+        let disabled = node.getProp("disabled") == true
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
+        
+        let lm = Gui.measureText("" + label, 2)
+        let regW = 28 + lm[0]
+        props.push(["width", "" + regW])
+        props.push(["height", "20"])
+
+        let boxClass = "checkbox-box"
+        if (focused) { boxClass = "checkbox-box focused-box"; }
+        let boxProps = [["class", boxClass], ["width", "20"], ["height", "20"]]
+        let checkChar = ""
+        if (checked) { checkChar = "X"; }
+
+        let labelProps = [["class", "checkbox-label"]]
+
+        let containerClass = "Checkbox"
+        if (focused) { containerClass = "Checkbox focused"; }
+        props.push(["class", containerClass])
+
+        return ["Checkbox", this.withRef(props, node), [
+            ["div", boxProps, [checkChar]],
+            ["span", labelProps, ["" + label]]
+        ]]
+    }
+
+    public any lowerSwitch(any node) {
+        let checked  = node.getProp("checked") == true
+        let label    = node.getProp("label")
+        if (label == null) { label = this.collectText(node); }
+        let disabled = node.getProp("disabled") == true
+
+        let myOrd  = this.focusOrd
+        let focused = myOrd == this.focus && !disabled
+        this.focusOrd = this.focusOrd + 1
+
+        let lm   = Gui.measureText("" + label, 2)
+        let regW = 44 + 8 + lm[0]
+
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
+        props.push(["width", "" + regW])
+        props.push(["height", "22"])
+
+        let trackClass = "switch-track"
+        if (checked) { trackClass = "switch-track checked-track"; }
+        if (disabled) { trackClass = "switch-track disabled-track"; }
+        let trackProps = [["class", trackClass], ["width", "44"], ["height", "22"], ["position", "relative"]]
+
+        let knobClass = "switch-knob"
+        if (disabled) { knobClass = "switch-knob disabled-knob"; }
+        let leftPx = "3"
+        if (checked) { leftPx = "25"; }
+        let knobProps = [
+            ["class", knobClass],
+            ["position", "absolute"],
+            ["left", leftPx],
+            ["top", "3"],
+            ["width", "16"],
+            ["height", "16"]
+        ]
+
+        let labelProps = [["class", "switch-label"]]
+        let labelNode = []
+        if (("" + label) != "") {
+            labelNode = [["span", labelProps, ["" + label]]]
+        }
+
+        let containerClass = "Switch"
+        if (focused) { containerClass = "Switch focused"; }
+        props.push(["class", containerClass])
+
+        let swkids = [["div", trackProps, [["div", knobProps, []]]]]
+        let sli = 0
+        while (sli < labelNode.length()) { swkids.push(labelNode[sli]); sli = sli + 1 }
+        return ["Switch", this.withRef(props, node), swkids]
+    }
+
+    public any lowerProgressBar(any node) {
+        this.focusOrd = this.focusOrd + 1
+        let value = node.getProp("value")
+        let max   = node.getProp("max")
+        let label = node.getProp("label")
+        if (value == null) { value = 0; }
+        if (max == null) { max = 100; }
+
+        let span = max
+        if (span <= 0) { span = 1; }
+        let v = value
+        if (v < 0) { v = 0; }
+        if (v > span) { v = span; }
+
+        let fillPct = (v * 100) / span
+
+        let props = []
+        let op = node.getProps()
+        let pi = 0
+        while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
+        props.push(["class", "ProgressBar"])
+        props.push(["height", "22"])
+
+        let fillProps = [
+            ["class", "progressbar-fill"],
+            ["width", "" + fillPct + "%"],
+            ["height", "22"]
+        ]
+
+        let labelNode = []
+        if (label != null) {
+            labelNode = [["span", [["class", "progressbar-label"]], ["" + label]]]
+        }
+
+        let pbkids = [["div", fillProps, []]]
+        let pli = 0
+        while (pli < labelNode.length()) { pbkids.push(labelNode[pli]); pli = pli + 1 }
+        return ["ProgressBar", this.withRef(props, node), pbkids]
+    }
+
+    // Render nativo: carga el .szs en el core (una vez), baja el VDOM y delega el
+    // layout+CSS+paint a Gui.renderTree. Rearma this.regions con VNodes envoltorio
+    // (onClick) para que handleGuiInput enrute los clics sin cambios.
+    // Hoja "user-agent": defaults por tag que ESPEJAN al intérprete (escalas, color
+    // muted de p/span/li, gaps verticales, look base de widgets). Va ANTES del .szs del
+    // app en la hoja combinada, así el `.szs` la pisa ("última gana" en el core).
+    public string uaStyles() {
+        return "h1 \{ font-scale: 3; color: #e2e8f0; margin-bottom: 8 \}"
+            + " h2 \{ font-scale: 2; color: #e2e8f0; margin-bottom: 6 \}"
+            + " h3 \{ font-scale: 2; color: #e2e8f0; margin-bottom: 4 \}"
+            + " p \{ font-scale: 2; color: #94a3b8; margin-bottom: 4 \}"
+            + " span \{ font-scale: 2; color: #94a3b8 \}"
+            + " li \{ font-scale: 2; color: #94a3b8; margin-bottom: 4 \}"
+            + " hr \{ color: #334155; margin-bottom: 12 \}"
+            + " Button \{ background-color: #3b82f6; color: #e2e8f0; padding: 10; font-scale: 2; margin-bottom: 10 \}"
+            + " Label \{ font-scale: 2; color: #e2e8f0; margin-bottom: 4 \}"
+            + " Link \{ font-scale: 2; color: #60a5fa; margin-bottom: 4 \}"
+            + " Badge \{ background-color: #334155; color: #e2e8f0; padding: 4; font-scale: 1; border-radius: 6 \}"
+            + " Checkbox \{ display: flex; direction: row; align-items: center; gap: 8; margin-bottom: 12 \}"
+            + " .checkbox-box \{ background-color: #111827; border: 1px solid #334155; display: flex; justify-content: center; align-items: center; color: #e2e8f0; font-scale: 2 \}"
+            + " .checkbox-label \{ color: #e2e8f0; font-scale: 2 \}"
+            + " .focused-box \{ border-color: #60a5fa \}"
+            + " Switch \{ display: flex; direction: row; align-items: center; gap: 8; margin-bottom: 12 \}"
+            + " .switch-track \{ background-color: #334155; border-radius: 11; position: relative \}"
+            + " .switch-track.checked-track \{ background-color: #3b82f6 \}"
+            + " .switch-track.disabled-track \{ background-color: #334155 \}"
+            + " .switch-knob \{ background-color: #e2e8f0; border-radius: 8 \}"
+            + " .switch-knob.disabled-knob \{ background-color: #94a3b8 \}"
+            + " .switch-label \{ color: #e2e8f0; font-scale: 2 \}"
+            + " Switch.focused .switch-track \{ border: 1px solid #60a5fa \}"
+            + " Select \{ background-color: #1e293b; border: 1px solid #334155; color: #e2e8f0; padding: 8; font-scale: 2; border-radius: 4; margin-bottom: 12 \}"
+            + " Select.focused \{ border-color: #60a5fa \}"
+            + " ProgressBar \{ background-color: #111827; height: 22; display: block; position: relative; margin-bottom: 12 \}"
+            + " .progressbar-fill \{ background-color: #3b82f6; position: absolute; left: 0; top: 0 \}"
+            + " .progressbar-label \{ color: #e2e8f0; font-scale: 1; position: absolute; left: 8; top: 4 \}"
+            + " .Slider \{ display: flex; direction: row; align-items: center; gap: 12; margin-bottom: 12; height: 30 \}"
+            + " .slider-track \{ flex: 1 \}"
+            + " .slider-track-bg \{ background-color: #334155 \}"
+            + " .slider-fill \{ background-color: #3b82f6 \}"
+            + " .slider-knob \{ background-color: #3b82f6; border-radius: 2 \}"
+            + " .slider-label \{ color: #e2e8f0; font-scale: 2; text-align: right \}"
+            + " Slider.focused .slider-knob \{ background-color: #60a5fa \}"
+            + " Tabs \{ display: block; position: relative; margin-bottom: 12; height: 34 \}"
+            + " .tabs-bottom-border \{ background-color: #334155 \}"
+            + " .tabs-row \{ display: flex; direction: row; align-items: center \}"
+            + " .tab-item \{ padding: 8 14; color: #94a3b8; font-scale: 2; display: flex; justify-content: center; align-items: center; position: relative \}"
+            + " .tab-item.active-tab \{ color: #e2e8f0; background-color: #1e293b \}"
+            + " .tab-item.disabled-tab \{ color: #475569 \}"
+            + " .tab-underline \{ background-color: #3b82f6 \}"
+            + " Tabs.focused .tabs-bottom-border \{ background-color: #60a5fa \}"
+            + " RadioGroup \{ display: block; margin-bottom: 10 \}"
+            + " .radio-row \{ display: flex; direction: row; align-items: center; gap: 8; height: 26 \}"
+            + " .radio-indicator \{ background-color: #111827; border: 1px solid #334155; border-radius: 9 \}"
+            + " .radio-dot \{ background-color: #3b82f6; border-radius: 4 \}"
+            + " .radio-label \{ color: #e2e8f0; font-scale: 2 \}"
+            + " .radio-label.disabled-label \{ color: #475569 \}"
+            + " .radio-indicator.disabled-indicator \{ border-color: #475569 \}"
+            + " .radio-dot.disabled-dot \{ background-color: #475569 \}"
+            + " RadioGroup.focused \{ border: 1px solid #60a5fa \}"
+            + " Dropdown \{ display: flex; direction: row; align-items: center; justify-content: space-between; background-color: #1e293b; border: 1px solid #334155; padding: 0 10; border-radius: 4; margin-bottom: 12; height: 34; position: relative \}"
+            + " .dropdown-value \{ color: #e2e8f0; font-scale: 2 \}"
+            + " .dropdown-arrow \{ color: #94a3b8; font-scale: 1; margin-left: 8 \}"
+            + " Dropdown.focused \{ border-color: #60a5fa \}"
+            + " .dropdown-overlay \{ background-color: #1e293b; border: 1px solid #334155; border-radius: 4; display: block \}"
+            + " .dropdown-option \{ padding: 6 10; color: #e2e8f0; font-scale: 2; display: flex; align-items: center; border-bottom: 1px solid #334155 \}"
+            + " .dropdown-option.active-option \{ background-color: #3b82f6 \}"
+            + " .modal-backdrop \{ display: flex; justify-content: center; align-items: center; background-color: #000000; opacity: 0.6 \}"
+            + " .modal-box \{ background-color: #1e293b; border: 1px solid #334155; border-radius: 10; display: block; padding: 18; position: relative \}"
+            + " .modal-header \{ display: flex; direction: row; align-items: center; justify-content: space-between; margin-bottom: 12 \}"
+            + " .modal-title \{ color: #e2e8f0; font-scale: 2 \}"
+            + " .modal-close \{ color: #94a3b8; font-scale: 2; padding: 4 8 \}"
+            + " .modal-divider \{ background-color: #334155; height: 1; margin-bottom: 12; width: 100% \}"
+            + " .Collapsible \{ display: block; margin-bottom: 12 \}"
+            + " .collapsible-header \{ display: flex; direction: row; align-items: center; gap: 8; background-color: #1e293b; border: 1px solid #334155; padding: 0 10; border-radius: 4 \}"
+            + " .collapsible-header.disabled-header \{ color: #475569 \}"
+            + " .collapsible-chevron \{ color: #94a3b8; font-scale: 1 \}"
+            + " .collapsible-title \{ color: #e2e8f0; font-scale: 2 \}"
+            + " .collapsible-body \{ padding-left: 14; padding-top: 6; display: block \}"
+            + " Table \{ display: block; border: 1px solid #334155; border-radius: 4; margin-bottom: 12 \}"
+            + " .table-header-row \{ display: flex; direction: row; background-color: #3b82f6; height: 28; color: #ffffff \}"
+            + " .table-row \{ display: flex; direction: row; background-color: #1e293b; height: 28; border-bottom: 1px solid #334155 \}"
+            + " .table-row-alt \{ background-color: #111827 \}"
+            + " .table-cell \{ padding: 6 8; color: #e2e8f0; font-scale: 2 \}"
+            + " Toast \{ display: flex; align-items: center; padding: 0 12; border-radius: 6; margin-bottom: 12; background-color: #3b82f6 \}"
+            + " .toast-success \{ background-color: #16a34a \}"
+            + " .toast-warn \{ background-color: #d97706 \}"
+            + " .toast-error \{ background-color: #dc2626 \}"
+            + " .toast-message \{ color: #ffffff; font-scale: 2 \}"
+            + " Chart \{ display: block; background-color: #1e293b; border: 1px solid #334155; border-radius: 4; margin-bottom: 12 \}"
+            + " .chart-bars-row \{ display: flex; direction: row; align-items: flex-end; padding: 8 \}"
+            + " .chart-bar-col \{ display: flex; flex-direction: column; justify-content: flex-end \}"
+            + " .chart-bar-fill \{ background-color: #3b82f6; border-radius: 2 \}"
+            + " .chart-fallback-label \{ color: #94a3b8; font-scale: 2; padding: 12 \}"
+            + " DropZone \{ display: flex; background-color: #1e293b; border: 1px solid #334155; border-radius: 4; margin-bottom: 12 \}"
+            + " DropZone.files-hovering \{ border-color: #60a5fa; background-color: #1e293b \}"
+            + " .dropzone-label \{ color: #94a3b8; font-scale: 2 \}"
+            + " Tooltip \{ display: block \}"
+            + " .tooltip-box \{ background-color: #1f2937; border: 1px solid #334155; color: #e2e8f0; font-scale: 1; padding: 4 6; border-radius: 4 \}"
+            + " .FileInput \{ display: flex; direction: row; align-items: center; gap: 12; margin-bottom: 12 \}"
+            + " .fileinput-button \{ background-color: #3b82f6; color: #e2e8f0; display: flex; justify-content: center; align-items: center; border-radius: 4; font-scale: 2 \}"
+            + " .fileinput-button-disabled \{ background-color: #334155 \}"
+            + " .fileinput-value \{ color: #94a3b8; font-scale: 2 \}"
+    }
+
+    public void renderNative(any vdom) {
+        // 1) Hoja de estilo del core (cache por handle; se carga una sola vez).
+        //    UA (defaults) + `.szs` del app: el app pisa al UA.
+        if (this.coreSheet < 1 && this.sheet != null) {
+            this.coreSheet = Gui.loadStylesheet(this.uaStyles() + " " + this.sheet.rawSource())
+        }
+        // 2) ctx para condiciones reactivas del core: [[nombre, texto]].
+        let ctx = []
+        let i = 0
+        while (i < this.fullCtx.length()) {
+            ctx.push([this.fullCtx[i][0], "" + this.fullCtx[i][1]])
+            i = i + 1
+        }
+        // 3) Fuente proporcional por defecto (el core mide/dibuja con la familia activa;
+        //    por-tag todavía no, eso es un hueco). Segoe UI como el intérprete.
+        Gui.setFont(this.defaultFam)
+        
+        // Reset overlay fields
+        this.hasModal = false
+        this.modalNode = null
+        this.focusOrd = 0
+        this.modalRegStart = 0
+
+        // Tooltip por hover: se detecta contra las regions del frame ANTERIOR (siguen
+        // vigentes hasta este re-layout) y lowerTooltip pinta la cajita si coincide.
+        this.hasTip = false
+        this.tipText = ""
+        let thi = 0
+        while (thi < this.regions.length()) {
+            let hr = this.regions[thi]
+            if (hr[0] == "Tooltip"
+                && this.mouseX >= hr[1] && this.mouseX < hr[1] + hr[3]
+                && this.mouseY >= hr[2] && this.mouseY < hr[2] + hr[4]) {
+                this.hasTip = true
+                this.tipText = "" + hr[5].getProp("tip")
+            }
+            thi = thi + 1
+        }
+
+        // 4) Bajar el árbol y envolverlo en el padding de contenido (= this.pad del
+        //    intérprete), para que el contenido no quede pegado al borde de la ventana.
+        let inner = this.lowerVNode(vdom)
+        let treeKids = [inner]
+
+        if (this.hasModal) {
+            // Las regions del modal son las últimas: su primer índice = ordinales ya
+            // consumidos por el árbol principal (índice-de-region == ordinal).
+            this.modalRegStart = this.focusOrd
+            let overlayNode = this.lowerModalOverlay()
+            treeKids.push(overlayNode)
+        }
+
+        let tree = ["div", [["padding", "" + this.pad]], treeKids]
+        let coreRegs = Gui.renderTree(tree, this.coreSheet, this.w, this.h, ctx)
+        // 4) Regions → formato de handleGuiInput: [tag,x,y,w,h, VNode]. El lowering
+        //    embebe el VNode ORIGINAL en el attr `onClick` (via withRef), así el core lo
+        //    devuelve en cr[5] y handleGuiInput lee TODOS sus props (onClick/onChange/
+        //    value/disabled/…). SOLO se conservan las regions CON ref (interactivas):
+        //    1 region por widget, en pre-orden = mismo orden en que los lowerings
+        //    consumen ordinales (focusOrd) → índice de region == ordinal de foco, el
+        //    mismo contrato que el intérprete. Las regions de nodos decorativos
+        //    (div/span/texto) se descartan.
+        this.regions = []
+        let ri = 0
+        while (ri < coreRegs.length()) {
+            let cr = coreRegs[ri]
+            if (cr[5] != null) {
+                let rnode = null
+                if (cr[5] is VNode) { rnode = cr[5] }
+                else { rnode = new VNode(cr[0], [["onClick", cr[5]]], []) }
+                this.regions.push([cr[0], cr[1], cr[2], cr[3], cr[4], rnode])
+            }
+            ri = ri + 1
+        }
+        // 5) Fondo de ventana desde la regla `body` (el core no la pinta: no es nodo
+        //    del árbol). Reusa el resolvedor de css.sz para la condición reactiva.
+        if (this.sheet != null) {
+            this.bgCol = this.sheet.colorProp("body", "background-color", this.bgCol, this.fullCtx)
+        }
+        this.contentH = 0        // sin scrollbar en el camino nativo (todavía)
+        this.sbVisible = false
+    }
+
     // ── Render completo: limpia y redibuja desde la raíz ───────────────────────
     public void render(any vdom, int width, int height) {
         this.w           = width
@@ -742,6 +1980,10 @@ export public class GuiRenderer {
         this.fullCtx.push(["width", this.w])
         this.fullCtx.push(["height", this.h])
         this.refreshStyleCache()   // invalida la caché de estilos si cambió el ctx
+
+        // Camino NATIVO (Fase 3): delega layout+CSS+paint al core.
+        if (this.native) { this.renderNative(vdom); return; }
+
         // Ancho de contenido acotado por min/max-width; se centra si max lo limita.
         let avail = width - this.pad * 2
         let eff   = avail

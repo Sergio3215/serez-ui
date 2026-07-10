@@ -271,6 +271,10 @@ export public class Stylesheet {
         // Fuentes declaradas en bloques `:font { alias: ruta.ttf; }` (paralelos).
         this.fontAliases = fontAliases
         this.fontPaths   = fontPaths
+        // Texto `.szs` crudo (lo setea parseCss). Lo usa el camino de render NATIVO
+        // para alimentar Gui.loadStylesheet del core (Fase 3), cuyo parser es un port
+        // fiel de este. "" si se construyó sin parseCss.
+        this.raw = ""
 
         // Precompute: rango [start,end) de declaraciones por selector. Las decls se
         // agregan agrupadas por regla al parsear, así que cada regla ocupa un rango
@@ -289,6 +293,10 @@ export public class Stylesheet {
             di = di + 1
         }
     }
+
+    // Texto `.szs` crudo (para el camino de render nativo → Gui.loadStylesheet).
+    public string rawSource()      { return this.raw }
+    public void setRaw(string s)   { this.raw = s }
 
     // Fuentes declaradas con :font — el renderer las carga perezosamente.
     public int fontCount()        { return this.fontAliases.length() }
@@ -482,5 +490,7 @@ export fn any parseCss(string src) {
         }
     }
 
-    return new Stylesheet(selectors, hasConds, condVars, condOps, condVals, declRuleIdx, declProps, declVals, fontAliases, fontPaths)
+    let sheet = new Stylesheet(selectors, hasConds, condVars, condOps, condVals, declRuleIdx, declProps, declVals, fontAliases, fontPaths)
+    sheet.setRaw(src)
+    return sheet
 }
