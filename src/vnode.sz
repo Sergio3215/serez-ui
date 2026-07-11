@@ -40,4 +40,16 @@ export public class VNode {
     public bool hasProp(string name) {
         return this.getProp(name) != null
     }
+
+    public void setProp(string name, any val) {
+        let i = 0
+        while (i < this.props.length()) {
+            if (this.props[i][0] == name) {
+                this.props[i][1] = val
+                return
+            }
+            i = i + 1
+        }
+        this.props.push([name, val])
+    }
 }
