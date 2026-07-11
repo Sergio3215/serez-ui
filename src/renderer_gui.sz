@@ -941,24 +941,49 @@ export public class GuiRenderer {
             props.push(["sel-start", "" + this.selAnchor])
             props.push(["sel-end", "" + this.caret])
         }
+
+        let r = node.getProp("rows")
+        if (r == null) { r = 6; }
+        let visRows = r
+        if (visRows is string) { visRows = parseInt(visRows); }
+
         if (!hasRows) {
-            let r = node.getProp("rows")
-            if (r == null) { r = 6; }
-            props.push(["rows", "" + r])
+            props.push(["rows", "" + visRows])
         }
         if (focused) { props.push(["border-color", "#60a5fa"]) }
 
         let val = node.getProp("value")
         let text = ""
         if (val != null) { text = "" + val; }
-        if (text == "") {
+
+        let lines = text.split("\n")
+        let totalSegs = lines.length()
+        let startSeg = this.getTaScroll(myOrd)
+        if (startSeg > totalSegs - visRows) { startSeg = totalSegs - visRows; }
+        if (startSeg < 0) { startSeg = 0; }
+
+        node.setProp("ta-ord", myOrd)
+        node.setProp("ta-total", totalSegs)
+        node.setProp("ta-vis", visRows)
+
+        let slicedLines = []
+        let li = startSeg
+        let limit = startSeg + visRows
+        if (limit > totalSegs) { limit = totalSegs; }
+        while (li < limit) {
+            slicedLines.push(lines[li])
+            li = li + 1
+        }
+        let slicedText = slicedLines.join("\n")
+
+        if (slicedText == "") {
             let ph = node.getProp("placeholder")
             if (ph != null) {
-                text = "" + ph
+                slicedText = "" + ph
                 props.push(["color", "#64748b"])
             }
         }
-        return ["textbox", this.withRef(props, node), [text]]
+        return ["textbox", this.withRef(props, node), [slicedText]]
     }
 
     public any lowerSlider(any node) {
@@ -2032,7 +2057,8 @@ export public class GuiRenderer {
         // 4) Bajar el árbol y envolverlo en el padding de contenido (= this.pad del
         //    intérprete), para que el contenido no quede pegado al borde de la ventana.
         let inner = this.lowerVNode(vdom)
-        let treeKids = [inner]
+        let contentDiv = ["div", [["margin-top", "" + (0 - this.scrollY)]], [inner]]
+        let treeKids = [contentDiv]
 
         if (this.hasModal) {
             // Las regions del modal son las últimas: su primer índice = ordinales ya
@@ -2062,14 +2088,31 @@ export public class GuiRenderer {
         //    mismo contrato que el intérprete. Las regions de nodos decorativos
         //    (div/span/texto) se descartan.
         this.regions = []
+        let maxBottom = 0
         let ri = 0
         while (ri < coreRegs.length()) {
             let cr = coreRegs[ri]
+            let bottom = cr[2] + cr[4] + this.scrollY
+            if (bottom > maxBottom) { maxBottom = bottom; }
+
             if (cr[5] != null) {
                 let rnode = null
                 if (cr[5] is VNode) { rnode = cr[5] }
                 else { rnode = new VNode(cr[0], [["onClick", cr[5]]], []) }
-                this.regions.push([cr[0], cr[1], cr[2], cr[3], cr[4], rnode])
+                
+                let isTa = (rnode.getTag() == "Textarea")
+                if (isTa) {
+                    let ord = rnode.getProp("ta-ord")
+                    let total = rnode.getProp("ta-total")
+                    let vis = rnode.getProp("ta-vis")
+                    if (ord != null && total != null && vis != null) {
+                        this.regions.push([cr[0], cr[1], cr[2], cr[3], cr[4], rnode, ord, total, vis])
+                    } else {
+                        this.regions.push([cr[0], cr[1], cr[2], cr[3], cr[4], rnode])
+                    }
+                } else {
+                    this.regions.push([cr[0], cr[1], cr[2], cr[3], cr[4], rnode])
+                }
             }
             ri = ri + 1
         }
@@ -2078,8 +2121,8 @@ export public class GuiRenderer {
         if (this.sheet != null) {
             this.bgCol = this.sheet.colorProp("body", "background-color", this.bgCol, this.fullCtx)
         }
-        this.contentH = 0        // sin scrollbar en el camino nativo (todavía)
-        this.sbVisible = false
+        this.contentH = maxBottom
+        this.drawScrollbarNative()
     }
 
     // ── Render completo: limpia y redibuja desde la raíz ───────────────────────
@@ -2151,6 +2194,31 @@ export public class GuiRenderer {
         let thumbX = trackX + 2
         let thumbW = tw - 4
         this.swRoundRect(thumbX, thumbY, thumbW, thumbH, 4, this.colMuted)
+    }
+
+    public void drawScrollbarNative() {
+        if (this.contentH + this.pad <= this.h) { this.sbVisible = false; return; }
+        let tw = this.sbTrackW       // 14px
+        let trackX = this.w - tw
+        this.sbTrackX = trackX
+        
+        let trackId = Gui.nodeRect(trackX, 0, tw, this.h, this.colBorder)
+        Gui.nodeSet(trackId, "z", 100000)
+        
+        let thumbH = (this.h * this.h) / this.contentH
+        if (thumbH < 32) { thumbH = 32; }
+        let maxS = this.contentH + this.pad - this.h
+        if (maxS < 1) { maxS = 1; }
+        this.sbMaxS = maxS
+        let thumbY = (this.scrollY * (this.h - thumbH)) / maxS
+        this.sbThumbY = thumbY
+        this.sbThumbH = thumbH
+        this.sbVisible = true
+        
+        let thumbX = trackX + 2
+        let thumbW = tw - 4
+        let thumbId = Gui.nodeRoundRect(thumbX, thumbY, thumbW, thumbH, 4, this.colMuted)
+        Gui.nodeSet(thumbId, "z", 100001)
     }
 
     public void renderNode(any node) {

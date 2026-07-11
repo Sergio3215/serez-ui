@@ -312,6 +312,18 @@ export public class Window {
         return 0
     }
 
+    // ¿La region es un campo de texto MULTILÍNEA? `rows` solo se interpreta como
+    // NÚMERO en campos de texto (Input/Textarea/textbox); en cualquier otro widget
+    // no se toca: en una Table `rows` es el ARRAY de filas, y stringificarlo
+    // ("" + rows) lanzaba Type mismatch en cuanto había una Table en pantalla
+    // (rueda del mouse, click o arrastre sobre las regions).
+    public bool fieldIsMultiline(string tag, any node) {
+        if (tag != "Input" && tag != "Textarea" && tag != "textbox") { return false }
+        let r = node.getProp("rows")
+        if (r == null) { return false }
+        return parseInt("" + r) > 1
+    }
+
     // Posición de cursor a partir de la x del clic en un Input (monoespaciado).
     public int caretFromClick(any rg, int mx) {
         let node = rg[5]
@@ -572,7 +584,7 @@ export public class Window {
                     this.__focus = j
                     let node = rg[5]
                     let tag  = rg[0]
-                    let isMultiline = node.getProp("rows") != null && parseInt("" + node.getProp("rows")) > 1
+                    let isMultiline = this.fieldIsMultiline(tag, node)
                     if (tag == "Input" || (tag == "textbox" && !isMultiline)) {
                         this.__caret = this.caretFromClick(rg, mx)
                         this.__selAnchor = this.__caret   // ancla en el clic; al arrastrar, selecciona
@@ -654,7 +666,7 @@ export public class Window {
         // fija en el punto de clic → se selecciona el rango. Al soltar, se limpia.
         if (this.__mouseDown && !pressed && this.__dragIdx >= 0 && this.__dragIdx < n) {
             let drg = regions[this.__dragIdx]
-            let isMultiline = drg[5].getProp("rows") != null && parseInt("" + drg[5].getProp("rows")) > 1
+            let isMultiline = this.fieldIsMultiline(drg[0], drg[5])
             if (drg[0] == "Input" || (drg[0] == "textbox" && !isMultiline)) {
                 // Umbral: no seleccionar hasta moverse >4px del clic. El jitter de la
                 // mano al clickear no debe crear una selección de 1 char (que el primer
@@ -852,7 +864,7 @@ export public class Window {
                     } else if (ckey == "v") {
                         let paste = Gui.clipboardGet()
                         if (paste.length() > 0) {
-                            let isMultiline = fnode.getProp("rows") != null && parseInt("" + fnode.getProp("rows")) > 1
+                            let isMultiline = this.fieldIsMultiline(ftag, fnode)
                             if (ftag == "Input" || (ftag == "textbox" && !isMultiline)) { paste = paste.replaceAll("\r", "").replaceAll("\n", " "); }
                             if (hasSel) {
                                 newVal = newVal.substring(0, selLo) + paste + newVal.substring(selHi, newVal.length())
@@ -957,7 +969,7 @@ export public class Window {
             let ke = 0
             while (ke < keys.length()) {
                 if (keys[ke] == "Enter") {
-                    let isMultiline = fnode.getProp("rows") != null && parseInt("" + fnode.getProp("rows")) > 1
+                    let isMultiline = this.fieldIsMultiline(ftag, fnode)
                     if (ftag == "Textarea" || (ftag == "textbox" && isMultiline)) {
                         if (hasSel) {
                             newVal = newVal.substring(0, selLo) + "\n" + newVal.substring(selHi, newVal.length())
@@ -1004,7 +1016,7 @@ export public class Window {
         let i = 0
         while (i < regions.length()) {
             let rg = regions[i]
-            let isMultiline = rg[5].getProp("rows") != null && parseInt("" + rg[5].getProp("rows")) > 1
+            let isMultiline = this.fieldIsMultiline(rg[0], rg[5])
             if (rg[0] == "Textarea" || (rg[0] == "textbox" && isMultiline)) {
                 let inside = mx >= rg[1] && mx < rg[1] + rg[3] && my >= rg[2] && my < rg[2] + rg[4]
                 if (inside) {
@@ -1100,7 +1112,7 @@ export public class Window {
                 let i = 0
                 while (i < regions.length()) {
                     let rg = regions[i]
-                    let isMultiline = rg[5].getProp("rows") != null && parseInt("" + rg[5].getProp("rows")) > 1
+                    let isMultiline = this.fieldIsMultiline(rg[0], rg[5])
                     if (rg[0] == "Textarea" || (rg[0] == "textbox" && isMultiline)) {
                         let inside = m[0] >= rg[1] && m[0] < rg[1] + rg[3] && m[1] >= rg[2] && m[1] < rg[2] + rg[4]
                         if (inside) {
