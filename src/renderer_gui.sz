@@ -765,6 +765,27 @@ export public class GuiRenderer {
     // (`this.focusOrd = this.focusOrd + 1`), en el orden en que su nodo aparece en el
     // árbol (contenedor antes que sus ítems).
 
+    // Estilos del `.szs` del app resueltos para un TAG DE WIDGET, como pares inline
+    // [prop, val]. Necesario cuando el lowering CAMBIA el tag (Input→textbox,
+    // Image→img, Row→row): el selector por tag del app ya no matchea en el core,
+    // así que arrastramos sus decls resueltas (mismo cascade/condiciones que el
+    // intérprete via allPropsForTag+ctx) como estilo inline del nodo bajado.
+    public any sheetTagStyles(string tag) {
+        let sty = []
+        if (this.sheet == null) { return sty }
+        let pv = this.sheet.allPropsForTag(tag, this.fullCtx)
+        let i = 0
+        while (i < pv[0].length()) {
+            let v = "" + pv[1][i]
+            if (v.length() >= 2 && v.substring(0, 1) == "\"" && v.substring(v.length() - 1, v.length()) == "\"") {
+                v = v.substring(1, v.length() - 1)
+            }
+            sty.push([pv[0][i], v])
+            i = i + 1
+        }
+        return sty
+    }
+
     public any lowerVNode(any node) {
         if (node == null) { return ""; }
         if (node is string) { return node; }
@@ -799,6 +820,15 @@ export public class GuiRenderer {
         // Genérico: VNode → [tag, props, [hijos bajados]]. El ref (y su ordinal) se
         // toma ANTES de bajar los hijos: pre-orden, como emite las regions el core.
         let gprops = node.getProps()
+        if (outTag != tag) {
+            // El tag cambia → los selectores del .szs del app por el nombre del
+            // widget no matchean en el core: inyectar sus estilos resueltos inline
+            // (primero, para que los props explícitos del nodo pisen).
+            let merged = this.sheetTagStyles(tag)
+            let gi = 0
+            while (gi < gprops.length()) { merged.push(gprops[gi]); gi = gi + 1 }
+            gprops = merged
+        }
         if (node.hasProp("onClick") || node.hasProp("onChange") || node.hasProp("onInput") || node.hasProp("onDrop")) {
             this.focusOrd = this.focusOrd + 1
             gprops = this.withRef(gprops, node)
@@ -819,7 +849,13 @@ export public class GuiRenderer {
         let focused  = myOrd == this.focus && !disabled && this.winFocused
         this.focusOrd = this.focusOrd + 1
 
-        let props = []
+        // Input baja a `textbox`: defaults del widget (espejo del interpretado:
+        // caja de 34px #111827 con borde 2px #334155, foco #60a5fa) + estilos `.szs`
+        // del app para `Input` (pisan a los defaults) como inline.
+        let props = [["background-color", "#111827"], ["border-width", "2"], ["border-color", "#334155"], ["padding", "7"], ["height", "34"]]
+        let ss = this.sheetTagStyles("Input")
+        let si = 0
+        while (si < ss.length()) { props.push(ss[si]); si = si + 1 }
         let op = node.getProps()
         let pi = 0
         let hasCaret = false
@@ -846,12 +882,22 @@ export public class GuiRenderer {
             props.push(["sel-start", "" + this.selAnchor])
             props.push(["sel-end", "" + this.caret])
         }
+        if (focused) { props.push(["border-color", "#60a5fa"]) }
         props.push(["rows", "1"])
 
         // El texto a renderizar dentro de la caja de texto son sus hijos en el core
         let val = node.getProp("value")
         let text = ""
         if (val != null) { text = "" + val; }
+        // Placeholder (como el interpretado): con el valor vacío se muestra el
+        // placeholder en color muted; el color del texto vuelve al escribir.
+        if (text == "") {
+            let ph = node.getProp("placeholder")
+            if (ph != null) {
+                text = "" + ph
+                props.push(["color", "#64748b"])
+            }
+        }
         return ["textbox", this.withRef(props, node), [text]]
     }
 
@@ -861,7 +907,12 @@ export public class GuiRenderer {
         let focused  = myOrd == this.focus && !disabled && this.winFocused
         this.focusOrd = this.focusOrd + 1
 
-        let props = []
+        // Textarea baja a `textbox`: mismos defaults que Input + estilos `.szs` del
+        // app para `Textarea` (pisan) como inline.
+        let props = [["background-color", "#111827"], ["border-width", "2"], ["border-color", "#334155"], ["padding", "7"]]
+        let ss = this.sheetTagStyles("Textarea")
+        let si = 0
+        while (si < ss.length()) { props.push(ss[si]); si = si + 1 }
         let op = node.getProps()
         let pi = 0
         let hasCaret = false
@@ -895,10 +946,18 @@ export public class GuiRenderer {
             if (r == null) { r = 6; }
             props.push(["rows", "" + r])
         }
+        if (focused) { props.push(["border-color", "#60a5fa"]) }
 
         let val = node.getProp("value")
         let text = ""
         if (val != null) { text = "" + val; }
+        if (text == "") {
+            let ph = node.getProp("placeholder")
+            if (ph != null) {
+                text = "" + ph
+                props.push(["color", "#64748b"])
+            }
+        }
         return ["textbox", this.withRef(props, node), [text]]
     }
 
@@ -1029,6 +1088,7 @@ export public class GuiRenderer {
         ]
 
         let rowKids = []
+        let totW = 0
         let i = 0
         while (i < tabs.length()) {
             let label = "" + tabs[i]
@@ -1069,10 +1129,23 @@ export public class GuiRenderer {
             }
             
             rowKids.push(["div", tabProps, tabKids])
+            totW = totW + tw
             i = i + 1
         }
 
         kids.push(["row", rowProps, rowKids])
+
+        if (focused) {
+            // Anillo de foco = paridad con drawFocusRing del interpretado (marco de
+            // 2px alrededor de la tira). El UA usa un selector descendiente
+            // (`Tabs.focused .tabs-bottom-border`), inerte en el core → el lowering
+            // dibuja el anillo con 4 divs absolutos dentro del contenedor.
+            let rc = "#60a5fa"
+            kids.push(["div", [["position", "absolute"], ["left", "0"], ["top", "0"], ["width", "" + totW], ["height", "2"], ["background-color", rc]], []])
+            kids.push(["div", [["position", "absolute"], ["left", "0"], ["bottom", "0"], ["width", "" + totW], ["height", "2"], ["background-color", rc]], []])
+            kids.push(["div", [["position", "absolute"], ["left", "0"], ["top", "0"], ["width", "2"], ["height", "34"], ["background-color", rc]], []])
+            kids.push(["div", [["position", "absolute"], ["left", "" + (totW - 2)], ["top", "0"], ["width", "2"], ["height", "34"], ["background-color", rc]], []])
+        }
 
         return ["Tabs", this.withRef(props, node), kids]
     }
@@ -1402,6 +1475,24 @@ export public class GuiRenderer {
         ]]
     }
 
+    // Color de prop (int 0xRRGGBB o string "#...") → string "#rrggbb" para el core.
+    public string cssHex(any c) {
+        let s = "" + c
+        if (s.length() > 0 && s.substring(0, 1) == "#") { return s }
+        let v = 0 + c
+        if (v < 0) { v = 0 }
+        let digits = "0123456789abcdef"
+        let hex = ""
+        let i = 0
+        while (i < 6) {
+            let d = v % 16
+            hex = digits.substring(d, d + 1) + hex
+            v = v / 16
+            i = i + 1
+        }
+        return "#" + hex
+    }
+
     public any lowerChart(any node) {
         this.focusOrd = this.focusOrd + 1
         let data = node.getProp("data")
@@ -1471,12 +1562,24 @@ export public class GuiRenderer {
                     ["width", "80%"],
                     ["height", "" + fh]
                 ]
-                barKids.push(["div", barColProps, [
-                    ["div", barFillProps, []]
-                ]])
+                // Prop `color` del Chart (int 0xRRGGBB) → color de barra (como el
+                // interpretado); sin él, el UA da el azul por defecto.
+                if (color != null) { barFillProps.push(["background-color", this.cssHex(color)]) }
+                // Barras muy finas: sin radius (el border-radius del UA infla una
+                // barra de 1-3px a un "guion" visible — con muchos buckets vacíos
+                // el histograma parecía una fila de rayitas).
+                if (fh <= 3) { barFillProps.push(["border-radius", "0"]) }
+                // Bucket sin datos → SIN barra (queda solo la línea base, como se ve
+                // en el interpretado, donde el 1px se funde con la baseline).
+                let colKids = []
+                if (rel > 0) { colKids.push(["div", barFillProps, []]) }
+                barKids.push(["div", barColProps, colKids])
                 i = i + 1
             }
             kids.push(["row", [["class", "chart-bars-row"], ["width", "100%"], ["height", "" + innerH]], barKids])
+            // Línea BASE en y=0 (paridad con el interpretado: swLine en baseY color
+            // #334155) — sin ella los buckets vacíos parecen datos sueltos.
+            kids.push(["div", [["position", "absolute"], ["left", "0"], ["top", "" + (8 + innerH)], ["width", "100%"], ["height", "1"], ["background-color", "#334155"]], []])
         } else if (data.length() > 1) {
             // "line"/"area" → polyline nativo. El ancho del plot se estima con el ancho
             // de contenido de la ventana (el Chart ocupa el ancho disponible).
@@ -1494,7 +1597,9 @@ export public class GuiRenderer {
                 j = j + 1
             }
             let lineCol = "#3b82f6"
-            if (color != null) { lineCol = "" + color; }
+            // `color` llega como INT (0xRRGGBB) desde JSX: "" + color daría el
+            // DECIMAL ("3900150"), que el core no parsea → convertir a "#rrggbb".
+            if (color != null) { lineCol = this.cssHex(color); }
             kids.push(["div", [["class", "chart-plot"], ["height", "" + innerH], ["margin", "8"]], [
                 ["polyline", [["points", pts], ["color", lineCol], ["stroke-width", "2"], ["height", "" + innerH]], []]
             ]])
@@ -1869,7 +1974,7 @@ export public class GuiRenderer {
             + " .toast-warn \{ background-color: #d97706 \}"
             + " .toast-error \{ background-color: #dc2626 \}"
             + " .toast-message \{ color: #ffffff; font-scale: 2 \}"
-            + " Chart \{ display: block; background-color: #1e293b; border: 1px solid #334155; border-radius: 4; margin-bottom: 12 \}"
+            + " Chart \{ display: block; background-color: #111827; margin-bottom: 12 \}"
             + " .chart-bars-row \{ display: flex; direction: row; align-items: flex-end; padding: 8 \}"
             + " .chart-bar-col \{ display: flex; flex-direction: column; justify-content: flex-end \}"
             + " .chart-bar-fill \{ background-color: #3b82f6; border-radius: 2 \}"
@@ -1938,6 +2043,15 @@ export public class GuiRenderer {
         }
 
         let tree = ["div", [["padding", "" + this.pad]], treeKids]
+        // min/max-width del contenido (setMaxWidth/setMinWidth): igual que el camino
+        // interpretado — el contenido se acota a maxW y se CENTRA bajo la ventana.
+        if (this.maxW > 0 && this.maxW < this.w) {
+            // Paridad con el interpretado: la COLUMNA de contenido mide maxW y su
+            // borde izquierdo cae en (w-maxW)/2; el padding queda solo vertical.
+            let side = (this.w - this.maxW) / 2
+            tree = ["div", [["padding-left", "" + side]],
+                [["div", [["width", "" + this.maxW], ["padding-top", "" + this.pad], ["padding-bottom", "" + this.pad]], treeKids]]]
+        }
         let coreRegs = Gui.renderTree(tree, this.coreSheet, this.w, this.h, ctx)
         // 4) Regions → formato de handleGuiInput: [tag,x,y,w,h, VNode]. El lowering
         //    embebe el VNode ORIGINAL en el attr `onClick` (via withRef), así el core lo

@@ -318,6 +318,25 @@ export public class Window {
         let val  = node.getProp("value")
         if (val == null) { val = ""; }
         val = "" + val
+        if (this.__native) {
+            // Camino NATIVO: el core dibuja el textbox con fuente PROPORCIONAL
+            // (16px por defecto) y el texto arranca en x + padding(7) + box_pad(6)
+            // = x+13 (espejo del branch `textbox` del core). Se mapea mx→índice con
+            // los avances reales (Gui.textAdvances), límite de carácter más cercano
+            // al clic → el caret cae bajo el mouse. Clic al final del texto o más
+            // allá → caret = length: el ancla queda al FINAL y arrastrar hacia la
+            // izquierda selecciona del final hacia el principio.
+            let adv = Gui.textAdvances(val, 2)
+            let rel = mx - (rg[1] + 13)
+            if (rel <= 0) { return 0; }
+            let i = 0
+            while (i < val.length()) {
+                let mid = (adv[i] + adv[i + 1]) / 2
+                if (rel < mid) { return i; }
+                i = i + 1
+            }
+            return val.length()
+        }
         // El renderer adjunta charW/textX/start (índices 6/7/8) para el avance real
         // de la fuente; si no están (regiones de test de 6 campos), caemos a 8*2=16.
         let charW = 16

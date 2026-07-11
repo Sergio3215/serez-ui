@@ -242,6 +242,26 @@ class App:Window {
 > parameter named like a function (`h`, …) no longer shadows it in CALLS. Naming params `width`/
 > `height` instead of `w`/`h` remains good hygiene, but it is no longer load-bearing.
 
+### Native renderer (core ≥ 9.2, experimental)
+
+Retained-mode removed the *rasterizing* cost, but layout and CSS matching still ran interpreted.
+The native renderer hands those to the core too: every component is **lowered to HTML-like
+primitives** (`div`/`row`/`p`/`textbox`/…) and `Gui.renderTree` resolves the `.szs`, lays out
+and rebuilds the scene **in Rust** — measured ~1000× faster on that phase for app-sized trees.
+All 24 built-in components work under this path (clicks, focus order, overlays and text editing
+included) and your components and `.szs` don't change:
+
+```sz
+let app = new MyApp()
+app.useNativeRenderer(true)   // opt-in — call before runGui()
+app.runGui("My App", 800, 600)
+```
+
+Off by default while the path matures. Known gaps vs the interpreted renderer: descendant
+`.szs` selectors (`.a .b`, used by some focus rings) are inert, and `Slider` drags by
+click-to-set + keyboard (no continuous drag yet). Both renderers draw the same UI from the
+same source — flip the flag off and you are back on the classic path.
+
 ## CSS with logic (`.szs`)
 
 Style with a CSS dialect that supports **reactive conditions**. A selector can carry a condition
@@ -344,6 +364,9 @@ frame against `styleVars()` plus the built-in `width`/`height`.
 | `app.onFilesDropped(paths)` / `onFilesHovered(paths)` | Window overrides — OS file drag-drop (dropped / hovering) |
 | `app.onPinch(delta)` / `onTouch(touches)` | Window overrides — trackpad pinch / touchscreen points |
 | `app.hoveredFiles()` | Window method — paths being dragged over the window right now (`[]` if none) |
+| `app.openPanel(title, w, h)` / `closePanel(id)` / `panelCount()` | Window methods — secondary native windows (see panels) |
+| `app.renderPanel(id)` | Window override — vdom of panel `id` (`null` = empty) |
+| `app.useNativeRenderer(b)` | Window method — render through the core's primitives engine (experimental, core ≥ 9.2; before `runGui`) |
 | `Renderer` / `GuiRenderer` | TUI / GUI renderers (used internally by the run methods) |
 | `parseCss` | `.szs` stylesheet parser |
 
