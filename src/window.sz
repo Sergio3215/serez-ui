@@ -912,6 +912,7 @@ export public class Window {
             let ri = 0
             while (ri < repeatKeys.length()) {
                 let key = repeatKeys[ri]
+                let isMultiline = this.fieldIsMultiline(ftag, fnode)
                 if (key == "Backspace") {
                     if (hasSel) {
                         newVal = newVal.substring(0, selLo) + newVal.substring(selHi, newVal.length())
