@@ -421,34 +421,83 @@ export public class GuiRenderer {
         return true
     }
 
-    // Scroll de Textarea arrastrando su propia barra interna.
-    public void scrollToTa(any rg, int my) {
+    // Alto del thumb de la barra de un Textarea (proporción visible), con las MISMAS
+    // fórmulas que drawTaScrollbarsNative para que el dibujo y el arrastre coincidan.
+    public int taThumbH(int bh, int total, int vis) {
+        let th = (bh * vis) / total
+        if (th < 24) { th = 24; }
+        if (th > bh) { th = bh; }
+        return th
+    }
+
+    // Offset con el que se agarró el thumb al hacer click: si el click cae SOBRE el
+    // thumb, la distancia desde su borde superior (arrastre relativo, sin salto); si
+    // cae en el track (fuera del thumb), se centra el thumb en el cursor.
+    public int taGrabOffset(any rg, int my) {
+        if (rg.length() < 9) { return 0; }
+        let by = rg[2]; let bh = rg[4]
+        let total = rg[7]; let vis = rg[8]
+        let maxSt = total - vis
+        if (maxSt < 1) { return 0; }
+        let thumbH = this.taThumbH(bh, total, vis)
+        let range = bh - thumbH
+        if (range < 1) { range = 1; }
+        let pos = this.getTaScroll(rg[6])
+        if (pos < 0) { pos = 0; }
+        if (pos > maxSt) { pos = maxSt; }
+        let thumbTop = by + (pos * range) / maxSt
+        if (my >= thumbTop && my < thumbTop + thumbH) { return my - thumbTop; }
+        return thumbH / 2
+    }
+
+    // Scroll de un Textarea arrastrando su barra interna. `grabOffset` = dónde se
+    // agarró el thumb (de taGrabOffset) → el borde superior del thumb sigue a
+    // `my - grabOffset`, así el arrastre es 1:1 con el cursor (sin salto). Usa las
+    // MISMAS métricas que el thumb dibujado, por eso el clic es preciso.
+    public void scrollToTa(any rg, int my, int grabOffset) {
         if (rg.length() < 9) { return; }
-        let by = rg[2]
-        let bh = rg[4]
-        let taOrd = rg[6]
-        let totalSegs = rg[7]
-        let visRows = rg[8]
+        let by = rg[2]; let bh = rg[4]
+        let taOrd = rg[6]; let total = rg[7]; let vis = rg[8]
+        let maxSt = total - vis
+        if (maxSt < 1) { return; }
+        let thumbH = this.taThumbH(bh, total, vis)
+        let range = bh - thumbH
+        if (range < 1) { range = 1; }
+        let rel = my - grabOffset - by
+        if (rel < 0) { rel = 0; }
+        if (rel > range) { rel = range; }
+        this.setTaScroll(taOrd, (rel * maxSt) / range)
+    }
 
-        let sbY = by + 4
-        let sbH = bh - 8
-        if (sbH < 1) { return; }
-
-        let stH = (visRows * sbH) / totalSegs
-        if (stH < 20) { stH = 20; }
-
-        let trackH = sbH - stH
-        if (trackH < 1) { return; }
-
-        let relY = my - sbY - (stH / 2)
-        if (relY < 0) { relY = 0; }
-        if (relY > trackH) { relY = trackH; }
-
-        let maxSt = totalSegs - visRows
+    // Scroll de un Textarea por teclado (flechas/PageUp-Down): mueve `delta` líneas
+    // el textarea de la region `idx`. Devuelve true si cambió.
+    public bool scrollTaByLines(int idx, int delta) {
+        if (idx < 0 || idx >= this.regions.length()) { return false; }
+        let rg = this.regions[idx]
+        if (rg.length() < 9) { return false; }
+        let taOrd = rg[6]; let total = rg[7]; let vis = rg[8]
+        let maxSt = total - vis
         if (maxSt < 0) { maxSt = 0; }
+        let cur = this.getTaScroll(taOrd)
+        let nv = cur + delta
+        if (nv < 0) { nv = 0; }
+        if (nv > maxSt) { nv = maxSt; }
+        if (nv == cur) { return false; }
+        this.setTaScroll(taOrd, nv)
+        return true
+    }
 
-        let cur = (relY * maxSt) / trackH
-        this.setTaScroll(taOrd, cur)
+    // Índice de region del Textarea (con scroll) bajo el punto (mx,my), o -1.
+    public int taRegionAt(int mx, int my) {
+        let i = 0
+        while (i < this.regions.length()) {
+            let rg = this.regions[i]
+            if (rg.length() > 8 && rg[7] > rg[8]) {
+                if (mx >= rg[1] && mx < rg[1] + rg[3] && my >= rg[2] && my < rg[2] + rg[4]) { return i; }
+            }
+            i = i + 1
+        }
+        return -1
     }
 
     // Asigna la hoja de estilos (.szs) y el contexto de estado para condiciones.
@@ -1990,8 +2039,8 @@ export public class GuiRenderer {
             + " .collapsible-title \{ color: #e2e8f0; font-scale: 2 \}"
             + " .collapsible-body \{ padding-left: 14; padding-top: 6; display: block \}"
             + " Table \{ display: block; border: 1px solid #334155; border-radius: 4; margin-bottom: 12 \}"
-            + " .table-header-row \{ display: flex; direction: row; background-color: #3b82f6; height: 28; color: #ffffff \}"
-            + " .table-row \{ display: flex; direction: row; background-color: #1e293b; height: 28; border-bottom: 1px solid #334155 \}"
+            + " .table-header-row \{ display: flex; direction: row; background-color: #3b82f6; color: #ffffff \}"
+            + " .table-row \{ display: flex; direction: row; background-color: #1e293b; border-bottom: 1px solid #334155 \}"
             + " .table-row-alt \{ background-color: #111827 \}"
             + " .table-cell \{ padding: 6 8; color: #e2e8f0; font-scale: 2 \}"
             + " Toast \{ display: flex; align-items: center; padding: 0 12; border-radius: 6; margin-bottom: 12; background-color: #3b82f6 \}"
@@ -2123,6 +2172,7 @@ export public class GuiRenderer {
         }
         this.contentH = maxBottom
         this.drawScrollbarNative()
+        this.drawTaScrollbarsNative()
     }
 
     // ── Render completo: limpia y redibuja desde la raíz ───────────────────────
@@ -2219,6 +2269,45 @@ export public class GuiRenderer {
         let thumbW = tw - 4
         let thumbId = Gui.nodeRoundRect(thumbX, thumbY, thumbW, thumbH, 4, this.colMuted)
         Gui.nodeSet(thumbId, "z", 100001)
+    }
+
+    // Barra de scroll interna de cada Textarea (camino nativo). El textbox del core
+    // solo pinta las `vis` líneas visibles (el slicing lo hace lowerTextarea); acá se
+    // superpone el THUMB — un overlay a la derecha de la caja, con Gui.nodeRect a z alto
+    // (fuera del clip del textbox). Sin él, el textarea scrolleaba (rueda/arrastre del
+    // borde derecho) pero no se veía dónde estaba. Solo thumb (sin track) para no tapar
+    // el texto; cae dentro de los 24px del borde que handleGuiInput usa como área de
+    // arrastre, así clickearlo también arrastra.
+    public void drawTaScrollbarsNative() {
+        let i = 0
+        while (i < this.regions.length()) {
+            let rg = this.regions[i]
+            // rg = [tag,x,y,w,h,node, ord,total,vis]: solo las Textarea llevan esas 3
+            // métricas extra (length > 8). El tag es "textbox" (el primitivo), no
+            // "Textarea", así que se filtra por la presencia de las métricas.
+            if (rg.length() > 8) {
+                let ord   = rg[6]
+                let total = rg[7]
+                let vis   = rg[8]
+                if (total > vis && vis > 0) {
+                    let bx = rg[1]; let by = rg[2]; let bw = rg[3]; let bh = rg[4]
+                    let tw = 6
+                    let thumbX = bx + bw - tw - 3          // 3px del borde derecho
+                    let thumbH = (bh * vis) / total        // proporción visible
+                    if (thumbH < 24) { thumbH = 24; }
+                    if (thumbH > bh) { thumbH = bh; }
+                    let maxSt = total - vis
+                    if (maxSt < 1) { maxSt = 1; }
+                    let pos = this.getTaScroll(ord)
+                    if (pos < 0) { pos = 0; }
+                    if (pos > maxSt) { pos = maxSt; }
+                    let thumbY = by + (pos * (bh - thumbH)) / maxSt
+                    let id = Gui.nodeRoundRect(thumbX, thumbY, tw, thumbH, 3, this.colMuted)
+                    Gui.nodeSet(id, "z", 99000)
+                }
+            }
+            i = i + 1
+        }
     }
 
     public void renderNode(any node) {
