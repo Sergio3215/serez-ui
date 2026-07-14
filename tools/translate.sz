@@ -446,6 +446,19 @@ fn string transform(string src) {
                 let jsx_res = parse_element(src, i)
                 result = result + jsx_res[0]
                 i = parseInt(jsx_res[1])
+                // Dos raíces JSX adyacentes (solo blancos entre medio) = expresión
+                // inválida: emitiría dos h(...) pegadas y el error explotaría después
+                // en el parser, sobre el .sz generado. Abortamos acá con la línea real.
+                let j = skip_ws(src, i)
+                if (j + 1 < n && src.charAt(j) == "<" && (is_alpha(src.charAt(j + 1)) || src.charAt(j + 1) == ">")) {
+                    let line = 1
+                    let k = 0
+                    while (k < j) {
+                        if (src.charAt(k) == "\n") { line = line + 1 }
+                        k = k + 1
+                    }
+                    throw "JSX inválido (línea {line}): dos elementos raíz adyacentes — un return()/expresión admite UNA sola raíz JSX. Envolvé los hermanos en un fragmento <>...</> o en un contenedor <div>...</div>."
+                }
                 continue
             }
         }
