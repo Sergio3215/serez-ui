@@ -2026,7 +2026,10 @@ export public class GuiRenderer {
             + " .dropdown-overlay \{ background-color: #1e293b; border: 1px solid #334155; border-radius: 4; display: block \}"
             + " .dropdown-option \{ padding: 6 10; color: #e2e8f0; font-scale: 2; display: flex; align-items: center; border-bottom: 1px solid #334155 \}"
             + " .dropdown-option.active-option \{ background-color: #3b82f6 \}"
-            + " .modal-backdrop \{ display: flex; justify-content: center; align-items: center; background-color: #000000; opacity: 0.6 \}"
+            // El backdrop es translúcido por el ALPHA del color (rgba), no por
+            // `opacity`: opacity ahora propaga al subárbol como en la web (core
+            // 9.2.6+) y lavaría la caja del modal, que es hija del backdrop.
+            + " .modal-backdrop \{ display: flex; justify-content: center; align-items: center; background-color: rgba(0, 0, 0, 0.6) \}"
             + " .modal-box \{ background-color: #1e293b; border: 1px solid #334155; border-radius: 10; display: block; padding: 18; position: relative \}"
             + " .modal-header \{ display: flex; direction: row; align-items: center; justify-content: space-between; margin-bottom: 12 \}"
             + " .modal-title \{ color: #e2e8f0; font-scale: 2 \}"
