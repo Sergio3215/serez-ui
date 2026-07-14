@@ -478,21 +478,33 @@ export public class Window {
 
     // Fija el Slider según la x del clic en la pista y dispara onChange.
     public void sliderFromClick(any node, any rg, int mx) {
-        if (node.getProp("disabled") == true) { return; }
-        let min = node.getProp("min")
-        let max = node.getProp("max")
+        let fired = this.dragSlider(node, rg, mx)
+    }
+
+    // Fija el Slider según la x del cursor (clic o ARRASTRE) y dispara onChange
+    // solo si el valor cambió (el arrastre llama esto en cada movimiento del
+    // mouse: sin el guard, cada píxel re-dispararía onChange y re-render).
+    // Devuelve true si disparó (para marcar `changed` en el loop).
+    public bool dragSlider(any node, any rg, int mx) {
+        if (node.getProp("disabled") == true) { return false }
+        let min   = node.getProp("min")
+        let max   = node.getProp("max")
+        let value = node.getProp("value")
         if (min == null) { min = 0; }
         if (max == null) { max = 100; }
+        if (value == null) { value = min; }
         let bx     = rg[1]
         let trackW = rg[3]
-        if (trackW <= 0) { return; }
+        if (trackW <= 0) { return false }
         let rel = mx - bx
         if (rel < 0) { rel = 0; }
         if (rel > trackW) { rel = trackW; }
         let span = max - min
         let nv = min + (rel * span) / trackW
+        if (nv == value) { return false }
         let oc = node.getProp("onChange")
-        if (oc != null) { oc(nv); }
+        if (oc != null) { oc(nv); return true }
+        return false
     }
 
     // ── GUI: ventana nativa ─────────────────────────────────────────────────
@@ -641,6 +653,7 @@ export public class Window {
                         }
                     } else if (tag == "Slider") {
                         this.sliderFromClick(node, rg, mx)
+                        this.__dragIdx = j        // queda en arrastre: mover con el botón apretado sigue fijando el valor
                     } else if (tag == "Tabs") {
                         if (node.getProp("disabled") != true && rg.length() > 6) {
                             let bounds = rg[6]
@@ -688,6 +701,11 @@ export public class Window {
                 this.__reqTaScroll = true
                 this.__reqTaMy = my
                 this.__reqTaRg = drg
+            } else if (drg[0] == "Slider") {
+                // Arrastre continuo: el valor sigue al cursor mientras el botón
+                // esté apretado (dragSlider clampa al [min,max] y solo dispara
+                // onChange cuando el valor realmente cambia).
+                if (this.dragSlider(drg[5], drg, mx)) { changed = true }
             }
         }
         if (!this.__mouseDown) { this.__dragIdx = -1 }
