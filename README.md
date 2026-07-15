@@ -257,10 +257,12 @@ app.useNativeRenderer(true)   // opt-in — call before runGui()
 app.runGui("My App", 800, 600)
 ```
 
-Off by default while the path matures. Known gaps vs the interpreted renderer: descendant
-`.szs` selectors (`.a .b`, used by some focus rings) are inert, and `Slider` drags by
-click-to-set + keyboard (no continuous drag yet). Both renderers draw the same UI from the
-same source — flip the flag off and you are back on the classic path.
+Off by default while the path matures. The early gaps are closed: descendant `.szs` selectors,
+focus rings and pseudo-classes work (core ≥ 9.2.5), `Slider` supports continuous drag, `Modal`'s
+translucent backdrop renders correctly (core ≥ 9.2.6), and the built-in UA stylesheet loads even
+if your app never calls `useStylesheet` (≥ 4.3.8). Remaining minor gaps: `transform: scale/rotate`
+and CSS `transition` are not interpreted. Both renderers draw the same UI from the same source —
+flip the flag off and you are back on the classic path.
 
 ## CSS with logic (`.szs`)
 
