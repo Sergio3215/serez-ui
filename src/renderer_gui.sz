@@ -2069,9 +2069,13 @@ export public class GuiRenderer {
 
     public void renderNative(any vdom) {
         // 1) Hoja de estilo del core (cache por handle; se carga una sola vez).
-        //    UA (defaults) + `.szs` del app: el app pisa al UA.
-        if (this.coreSheet < 1 && this.sheet != null) {
-            this.coreSheet = Gui.loadStylesheet(this.uaStyles() + " " + this.sheet.rawSource())
+        //    UA (defaults) + `.szs` del app: el app pisa al UA. La UA se carga
+        //    SIEMPRE, haya o no hoja del app: sin ella los widgets pierden todo
+        //    su look (texto plano) cuando el app no llama a useStylesheet.
+        if (this.coreSheet < 1) {
+            let rawCss = this.uaStyles()
+            if (this.sheet != null) { rawCss = rawCss + " " + this.sheet.rawSource() }
+            this.coreSheet = Gui.loadStylesheet(rawCss)
         }
         // 2) ctx para condiciones reactivas del core: [[nombre, texto]].
         let ctx = []
