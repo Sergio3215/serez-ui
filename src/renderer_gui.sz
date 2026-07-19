@@ -883,6 +883,30 @@ export public class GuiRenderer {
             gprops = this.withRef(gprops, node)
         }
         let kids     = node.getChildren()
+        // Tag de texto con hijos BLOQUE (div/Col/widgets): el core junta solo el
+        // texto y descartaría los elementos. Se baja como contenedor block: cada
+        // tramo de texto conserva el estilo del tag ([h1] propio) y cada hijo
+        // bloque sale a su propia línea — mismo default que el camino interpretado.
+        let isTextTag = outTag == "p" || outTag == "span" || outTag == "label"
+            || outTag == "h1" || outTag == "h2" || outTag == "h3"
+            || outTag == "h4" || outTag == "h5" || outTag == "h6"
+        if (isTextTag && this.hasBlockKids(node)) {
+            let parts = []
+            let run = ""
+            let mi = 0
+            while (mi < kids.length()) {
+                let k = kids[mi]
+                if (this.isInlineKid(k)) {
+                    run = run + this.collectText(k)
+                } else {
+                    if (run != "") { parts.push([outTag, [], [run]]); run = ""; }
+                    parts.push(this.lowerVNode(k))
+                }
+                mi = mi + 1
+            }
+            if (run != "") { parts.push([outTag, [], [run]]) }
+            return ["div", gprops, parts]
+        }
         let lowered  = []
         let i = 0
         while (i < kids.length()) {
@@ -2333,15 +2357,15 @@ export public class GuiRenderer {
 
         if (tag == "h1") {
             let sc1 = this.numProp("h1", "font-scale", 3)
-            this.drawWrapped("h1", this.collectText(node), sc1, this.colorFor("h1", "color", this.colText), 12)
+            this.renderTextTag("h1", node, sc1, this.colorFor("h1", "color", this.colText), 12)
 
         } else if (tag == "h2") {
             let sc2 = this.numProp("h2", "font-scale", 2)
-            this.drawWrapped("h2", this.collectText(node), sc2, this.colorFor("h2", "color", this.colText), 10)
+            this.renderTextTag("h2", node, sc2, this.colorFor("h2", "color", this.colText), 10)
 
         } else if (tag == "p" || tag == "span" || tag == "h3" || tag == "li") {
             let scp = this.numProp(tag, "font-scale", 2)
-            this.drawWrapped(tag, this.collectText(node), scp, this.colorFor(tag, "color", this.colMuted), 8)
+            this.renderTextTag(tag, node, scp, this.colorFor(tag, "color", this.colMuted), 8)
 
         } else if (tag == "hr") {
             this.swLine(this.cx, this.cy, this.cx + this.colWidth, this.cy, this.colorFor("hr", "color", this.colBorder))
@@ -3938,5 +3962,57 @@ export public class GuiRenderer {
             i = i + 1
         }
         return text
+    }
+
+    // ── Contenido mixto en tags de texto (h1/h2/p/...) ──────────────────────────
+    // Un hijo INLINE se funde con el texto del tag (como en la web): primitivos
+    // y los tags de formato puro. Todo lo demás (div, Col, Row, widgets...) es
+    // BLOQUE: corta la línea y se renderiza como bloque propio.
+    public bool isInlineKid(any k) {
+        if (k == null) { return true }
+        if (k is string || k is int || k is decimal || k is bool) { return true }
+        let t = k.getTag()
+        return t == "b" || t == "i" || t == "em" || t == "strong" || t == "u"
+            || t == "small" || t == "code"
+    }
+
+    public bool hasBlockKids(any node) {
+        let ks = node.getChildren()
+        let i = 0
+        while (i < ks.length()) {
+            if (!this.isInlineKid(ks[i])) { return true }
+            i = i + 1
+        }
+        return false
+    }
+
+    // Dibuja un tag de texto respetando el salto de línea de sus hijos bloque:
+    // los tramos de texto/inline van con el estilo del tag; cada hijo bloque
+    // (div, Col, Button...) pasa por renderNode y ocupa sus propias líneas.
+    // Sin hijos bloque = el camino de siempre (collectText), cero cambios.
+    public void renderTextTag(string tag, any node, int scale, int color, int blockGap) {
+        if (!this.hasBlockKids(node)) {
+            this.drawWrapped(tag, this.collectText(node), scale, color, blockGap)
+            return
+        }
+        let children = node.getChildren()
+        let run = ""
+        let i = 0
+        while (i < children.length()) {
+            let k = children[i]
+            if (this.isInlineKid(k)) {
+                run = run + this.collectText(k)
+            } else {
+                if (run != "") {
+                    this.drawWrapped(tag, run, scale, color, blockGap)
+                    run = ""
+                }
+                this.renderNode(k)
+            }
+            i = i + 1
+        }
+        if (run != "") {
+            this.drawWrapped(tag, run, scale, color, blockGap)
+        }
     }
 }
