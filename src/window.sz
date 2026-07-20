@@ -65,8 +65,10 @@ export public class Window {
         this.__hoveredFiles = []  // rutas arrastradas SOBRE la ventana ahora (Gui.hoveredFiles)
         // Paneles (ventanas secundarias, core multi-ventana): ids paralelos.
         // El contenido lo produce renderPanel(id) del PROPIO app (los handlers
-        // capturan el this top-level → identidad preservada). v1: clicks en
-        // Button/Link; los campos de texto editables viven en la principal.
+        // capturan el this top-level → identidad preservada). Clicks: todos los
+        // widgets sin estado de foco propio (ver __panelClick). Input/Textarea/
+        // Dropdown editables siguen viviendo en la principal (pendiente routing
+        // de teclado/foco por-panel).
         this.__panelIds  = []   // id de ventana Gui de cada panel abierto
         this.__panelRs   = []   // renderer propio de cada panel
         this.__panelPrev = []   // reservado (el flanco lo da Gui.mousePressed por-ventana)
@@ -84,9 +86,23 @@ export public class Window {
     public int openPanel(string title, int panelW, int panelH) {
         let id = Gui.openWindow(title, panelW, panelH)
         this.__panelIds.push(id)
-        this.__panelRs.push(new GuiRenderer())
+        let pr = new GuiRenderer()
+        pr.setNative(this.__native)
+        if (this.__sheet != null) { pr.setStyles(this.__sheet, null) }
+        this.__panelRs.push(pr)
         this.__panelPrev.push(false)
         return id
+    }
+
+    // Índice actual de un panel por id (-1 si ya no está). Los callbacks pueden
+    // cerrar paneles EN MEDIO del loop de paneles: nunca asumir índices viejos.
+    public int __panelIndex(int id) {
+        let i = 0
+        while (i < this.__panelIds.length()) {
+            if (this.__panelIds[i] == id) { return i }
+            i = i + 1
+        }
+        return 0 - 1
     }
 
     public void closePanel(int id) {
@@ -104,6 +120,72 @@ export public class Window {
     }
 
     public int panelCount() { return this.__panelIds.length() }
+
+    // Despacho de CLICK para una region de un PANEL. Cubre los widgets cuyo
+    // estado vive en el app (el click computa el valor y dispara el callback):
+    // Button/Link/Checkbox/Switch/Select/RadioGroup/Slider/Tabs/Collapsible/
+    // FileInput/ModalClose, más el genérico onClick (TabItem y nativos). Los
+    // widgets con estado de foco/caret/apertura (Input/Textarea/Dropdown)
+    // siguen viviendo en la ventana principal — pendiente routing de teclado
+    // por-panel. Devuelve true si mutó estado (re-render de la principal).
+    public bool __panelClick(any rg, int mx, int my) {
+        let inside = mx >= rg[1] && mx < rg[1] + rg[3] && my >= rg[2] && my < rg[2] + rg[4]
+        if (!inside) { return false }
+        let tag  = rg[0]
+        let node = rg[5]
+        if (node == null) { return false }
+        if (node.getProp("disabled") == true) { return false }
+        if (tag == "Checkbox" || tag == "Switch") {
+            let occ = node.getProp("onChange")
+            if (occ != null) { occ(node.getProp("checked") != true); return true }
+            return false
+        }
+        if (tag == "Select") { this.cycleSelect(node, 1); return true }
+        if (tag == "RadioGroup") {
+            let opts = node.getProp("options")
+            if (opts != null && opts.length() > 0) {
+                let lineH = 26
+                let idx = 0
+                let yy = rg[2]
+                while (yy + lineH <= my) { idx = idx + 1; yy = yy + lineH }
+                if (idx >= opts.length()) { idx = opts.length() - 1 }
+                let oco = node.getProp("onChange")
+                if (oco != null) { oco(opts[idx]); return true }
+            }
+            return false
+        }
+        if (tag == "Slider") { this.sliderFromClick(node, rg, mx); return true }
+        if (tag == "Tabs") {
+            // Interpretado: la region trae los BOUNDS de cada tab en rg[6].
+            // Nativo: cada tab es una region TabItem con su onClick (genérico).
+            if (rg.length() > 6) {
+                let bounds = rg[6]
+                let idx = 0
+                while (idx < bounds.length() && mx >= bounds[idx]) { idx = idx + 1 }
+                if (idx >= bounds.length()) { idx = bounds.length() - 1 }
+                if (idx >= 0) {
+                    let oct = node.getProp("onChange")
+                    if (oct != null) { oct(idx); return true }
+                }
+            }
+            return false
+        }
+        if (tag == "Collapsible" || tag == "Accordion") {
+            let ot = node.getProp("onToggle")
+            if (ot != null) { ot(node.getProp("open") != true); return true }
+            return false
+        }
+        if (tag == "FileInput") { this.openFilePicker(node); return true }
+        if (tag == "ModalClose") {
+            let ocl = node.getProp("onClose")
+            if (ocl != null) { ocl(); return true }
+            return false
+        }
+        // Genérico: cualquier region con onClick (Button/Link/TabItem/…).
+        let onC = node.getProp("onClick")
+        if (onC != null) { onC(); return true }
+        return false
+    }
 
     // Override en subclases — produce el árbol VNode
     public any render() {
@@ -1340,6 +1422,7 @@ export public class Window {
                     let pm = Gui.mouse()
                     pr.setMouse(pm[0], pm[1], Gui.mouseDown())
                     pr.setStyles(this.__sheet, this.styleVars())
+                    pr.setNative(this.__native)   // mismo backend que la principal
                     pr.setVdomDirty(true)
                     let psz = Gui.size()
                     pr.render(pvdom, psz[0], psz[1])
@@ -1354,24 +1437,28 @@ export public class Window {
                         let ri = 0
                         while (ri < pregs.length()) {
                             let rg = pregs[ri]
-                            if (rg[0] == "Button" || rg[0] == "Link") {
-                                let inside = pm2[0] >= rg[1] && pm2[0] < rg[1] + rg[3] && pm2[1] >= rg[2] && pm2[1] < rg[2] + rg[4]
-                                if (inside && rg[5].getProp("disabled") != true) {
-                                    let onC = rg[5].getProp("onClick")
-                                    if (onC != null) {
-                                        onC()   // cero-arg, como handleGuiInput
-                                        this.__panelDirty = true   // re-render de la principal
-                                    }
-                                }
+                            // Widgets de click completos (ver __panelClick); un
+                            // callback puede cerrar paneles: ver reubicación abajo.
+                            if (this.__panelClick(rg, pm2[0], pm2[1])) {
+                                this.__panelDirty = true   // re-render de la principal
                             }
                             ri = ri + 1
                         }
                     }
-                    this.__panelRs[pi] = pr
+                    // Un callback pudo CERRAR este panel (u otro): reubicar por id
+                    // antes del write-back — asignar por el índice viejo tras un
+                    // remove() explotaba con Index out of bounds.
+                    let nidx = this.__panelIndex(pid)
+                    if (nidx >= 0) {
+                        this.__panelRs[nidx] = pr
+                        pi = nidx + 1
+                    }
+                    // si ya no está, los arrays se corrieron: pi ya apunta al
+                    // siguiente panel — no avanzar.
                 } else {
                     Gui.renderScene(0x0f172a)
+                    pi = pi + 1
                 }
-                pi = pi + 1
             }
             if (this.__panelIds.length() > 0) { Gui.selectWindow(0) }
 

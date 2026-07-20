@@ -134,6 +134,10 @@ export public class GuiRenderer {
         // Tema (oscuro)
         this.colBg     = 0x0f172a
         this.colText   = 0xe2e8f0
+        this.curText   = 0xe2e8f0   // color de texto HEREDADO (body → div → texto suelto)
+        this.curScale  = 2          // font-scale HEREDADA (como font-size en CSS)
+        this.curAlpha  = 255        // opacidad HEREDADA acumulada (255 = opaco)
+        this.boxZ      = 0 - 2      // z para cajas de contenedor (decrece al cerrar cada una)
         this.colMuted  = 0x94a3b8
         this.colBtn    = 0x3b82f6
         this.colBtnHov = 0x60a5fa
@@ -226,6 +230,39 @@ export public class GuiRenderer {
         this.swPut(Gui.nodeRoundRect(x, y, w2, h2, rad, c), sig)
     }
 
+    // Registra el nodo con un z EXPLÍCITO (swPut normal pisa z con la posición).
+    public void swPutZ(int nid, string sig, int z) {
+        let k = this.swPos
+        Gui.nodeSet(nid, "z", z)
+        if (k < this.swIds.length()) {
+            this.swIds[k] = nid
+            this.swSigs[k] = sig
+        } else {
+            this.swIds.push(nid)
+            this.swSigs.push(sig)
+        }
+        this.swPos = k + 1
+    }
+
+    // Caja (rect o round-rect) con z EXPLÍCITO: se usa para los fondos de
+    // contenedores, que se emiten DESPUÉS de los hijos (recién ahí se conoce el
+    // alto) pero deben quedar DETRÁS (z negativo; el contenido va a z >= 0).
+    public void swBoxZ(int x, int y, int w2, int h2, int rad, int c, int z) {
+        let sig = "bz|" + x + "|" + y + "|" + w2 + "|" + h2 + "|" + rad + "|" + c + "|" + z
+        if (this.swHit(sig)) { return; }
+        let nid = 0
+        if (rad > 0) { nid = Gui.nodeRoundRect(x, y, w2, h2, rad, c) }
+        else { nid = Gui.nodeRect(x, y, w2, h2, c) }
+        this.swPutZ(nid, sig, z)
+    }
+
+    public void swRectOutlineZ(int x, int y, int w2, int h2, int c, int z) {
+        let sig = "roz|" + x + "|" + y + "|" + w2 + "|" + h2 + "|" + c + "|" + z
+        if (this.swHit(sig)) { return; }
+        let nid = Gui.nodeRectOutline(x, y, w2, h2, c)
+        this.swPutZ(nid, sig, z)
+    }
+
     public void swRectAlpha(int x, int y, int w2, int h2, int c, int a) {
         let sig = "ra|" + x + "|" + y + "|" + w2 + "|" + h2 + "|" + c + "|" + a
         if (this.swHit(sig)) { return; }
@@ -251,13 +288,22 @@ export public class GuiRenderer {
     }
 
     public void swText(int x, int y, string t, int sc, int c, int style = 0, int spacing = 0) {
-        let sig = "t|" + x + "|" + y + "|" + sc + "|" + c + "|" + style + "|" + spacing + "|" + this.swFont + "|" + t
+        let sig = "t|" + x + "|" + y + "|" + sc + "|" + c + "|" + style + "|" + spacing + "|" + this.curAlpha + "|" + this.swFont + "|" + t
         if (this.swHit(sig)) { return; }
         let nid = Gui.nodeText(x, y, t, sc, c)
         if (style != 0) { Gui.nodeSet(nid, "style", style) }
         if (spacing != 0) { Gui.nodeSet(nid, "spacing", spacing) }
         if (this.swFont != "") { Gui.nodeSet(nid, "font", this.swFont) }
+        // opacity heredada de los contenedores (255 = opaco, no toca el nodo)
+        if (this.curAlpha < 255) { Gui.nodeSet(nid, "alpha", this.curAlpha) }
         this.swPut(nid, sig)
+    }
+
+    // Rect translúcido con z explícito (fondos de contenedor con opacity).
+    public void swRectAlphaZ(int x, int y, int w2, int h2, int c, int a, int z) {
+        let sig = "raz|" + x + "|" + y + "|" + w2 + "|" + h2 + "|" + c + "|" + a + "|" + z
+        if (this.swHit(sig)) { return; }
+        this.swPutZ(Gui.nodeRectAlpha(x, y, w2, h2, c, a), sig, z)
     }
 
     public void swImage(int x, int y, int handle) {
@@ -576,12 +622,140 @@ export public class GuiRenderer {
         return this.sheet.rawToColor(this.styleRaw(tag, prop), fallback)
     }
 
+    // Color del borde de un tag: `border-color`, o el token color del shorthand
+    // `border: 2px solid #f59e0b`. -1 = sin borde declarado.
+    public int borderColorFor(string tag) {
+        if (this.sheet == null) { return -1; }
+        let bc = this.styleRaw(tag, "border-color")
+        if (bc != null) { return this.sheet.rawToColor(bc, -1); }
+        let sh = this.styleRaw(tag, "border")
+        if (sh == null) { return -1; }
+        let toks = ("" + sh).trim().split(" ")
+        let i = 0
+        while (i < toks.length()) {
+            let c = this.sheet.rawToColor(toks[i].trim(), -1)
+            if (c >= 0) { return c; }
+            i = i + 1
+        }
+        return -1
+    }
+
+    // ── Variantes con conciencia de CLASE (`class="card"` → selector `.card`) ──
+    // La infraestructura matchea por string exacto, así que ".card" entra por el
+    // mismo styleRaw (y su caché). La clase GANA al tag; admite varias clases.
+
+    // Valor crudo de una prop para un nodo: tag, luego cada clase (última gana).
+    // node == null → solo el tag (lo usan los caminos sin VNode, p.ej. texto suelto).
+    public any nodeRaw(any node, string tag, string prop) {
+        if (this.sheet == null) { return null; }
+        let v = this.styleRaw(tag, prop)
+        if (node == null) { return v; }
+        let cls = node.getProp("class")
+        if (cls == null) { return v; }
+        let parts = ("" + cls).trim().split(" ")
+        let i = 0
+        while (i < parts.length()) {
+            let c = parts[i].trim()
+            if (c.length() > 0) {
+                let cv = this.styleRaw("." + c, prop)
+                if (cv != null) { v = cv }
+            }
+            i = i + 1
+        }
+        return v
+    }
+
+    public int nodeColor(any node, string tag, string prop, int fallback) {
+        if (this.sheet == null) { return fallback; }
+        return this.sheet.rawToColor(this.nodeRaw(node, tag, prop), fallback)
+    }
+
+    // Primer entero de un valor CSS ("6 20" → 6, "8px" → 8, "-4" → -4);
+    // fallback si no hay ninguno. Defensivo: nunca lanza por valores compuestos.
+    public int firstNum(any raw, int fallback) {
+        if (raw == null) { return fallback; }
+        let s = ("" + raw).trim()
+        let num = ""
+        let i = 0
+        while (i < s.length()) {
+            let ch = s.charAt(i)
+            let isDig = ch == "0" || ch == "1" || ch == "2" || ch == "3" || ch == "4"
+                || ch == "5" || ch == "6" || ch == "7" || ch == "8" || ch == "9"
+            if (isDig) { num = num + ch }
+            else {
+                if (ch == "-" && num == "") { num = "-" }
+                else { if (num != "" && num != "-") { i = s.length() } }
+            }
+            i = i + 1
+        }
+        if (num == "" || num == "-") { return fallback; }
+        return parseInt(num)
+    }
+
+    // opacity CSS ("0.4", "1", "0") → alpha 0-255. Defensivo: basura → 255.
+    public int alpha255(any raw) {
+        if (raw == null) { return 255; }
+        let a = 255
+        try {
+            let d = parseDecimal(("" + raw).trim())
+            a = this.firstNum("" + (d * 255), 255)
+        } catch (e) { a = 255 }
+        if (a < 0) { a = 0; }
+        if (a > 255) { a = 255; }
+        return a
+    }
+
+    public int nodeNum(any node, string tag, string prop, int fallback) {
+        return this.firstNum(this.nodeRaw(node, tag, prop), fallback)
+    }
+
+    // padding con 1/2/3/4 valores (como CSS) → [top, right, bottom, left].
+    public any nodePad(any node, string tag) {
+        let raw = this.nodeRaw(node, tag, "padding")
+        if (raw == null) { return [0, 0, 0, 0]; }
+        let toks = ("" + raw).trim().split(" ")
+        let vals = []
+        let i = 0
+        while (i < toks.length()) {
+            let t = toks[i].trim()
+            if (t.length() > 0) { vals.push(this.firstNum(t, 0)) }
+            i = i + 1
+        }
+        if (vals.length() == 0) { return [0, 0, 0, 0]; }
+        if (vals.length() == 1) { return [vals[0], vals[0], vals[0], vals[0]]; }
+        if (vals.length() == 2) { return [vals[0], vals[1], vals[0], vals[1]]; }
+        if (vals.length() == 3) { return [vals[0], vals[1], vals[2], vals[1]]; }
+        return [vals[0], vals[1], vals[2], vals[3]]
+    }
+
+    public string nodeStr(any node, string tag, string prop, string fallback) {
+        let v = this.nodeRaw(node, tag, prop)
+        if (v == null) { return fallback; }
+        return ("" + v).trim()
+    }
+
+    // Color de borde de un nodo (border-color o shorthand), clase incluida.
+    public int nodeBorderColor(any node, string tag) {
+        if (this.sheet == null) { return -1; }
+        let bc = this.nodeRaw(node, tag, "border-color")
+        if (bc != null) { return this.sheet.rawToColor(bc, -1); }
+        let sh = this.nodeRaw(node, tag, "border")
+        if (sh == null) { return -1; }
+        let toks = ("" + sh).trim().split(" ")
+        let i = 0
+        while (i < toks.length()) {
+            let c = this.sheet.rawToColor(toks[i].trim(), -1)
+            if (c >= 0) { return c; }
+            i = i + 1
+        }
+        return -1
+    }
+
     // Valor numérico de una prop CSS (o fallback). Reactivo por ancho vía fullCtx.
+    // Toma el PRIMER entero del valor (defensivo con shorthands tipo "6 20").
     public int numProp(string tag, string prop, int fallback) {
         if (this.sheet == null) { return fallback; }
-        let v = this.styleRaw(tag, prop)
-        if (v == null) { return fallback; }
-        return parseInt(("" + v).trim())
+        return this.firstNum(this.styleRaw(tag, prop), fallback)
     }
 
     // Valor string de una prop CSS (o fallback).
@@ -747,14 +921,16 @@ export public class GuiRenderer {
 
     // Dibuja texto con wrap al ancho disponible y avanza `cy`. `blockGap` es el
     // espacio tras el bloque (calibrado para que 1 línea = el avance previo).
-    public void drawWrapped(string tag, string text, int scale, int color, int blockGap) {
+    // `node` (opcional) habilita las reglas por CLASE del nodo (`p.centrado`):
+    // white-space/align/estilo/line-height se resuelven con conciencia de clase.
+    public void drawWrapped(string tag, string text, int scale, int color, int blockGap, any node = null) {
         // Fuente del tag (texto suelto hereda la de body).
         let ftag = tag
         if (ftag == "") { ftag = "body"; }
         let custom = this.setFam(ftag)
 
         let lines = []
-        if (tag != "" && this.strProp(tag, "white-space", "normal") == "nowrap") {
+        if (tag != "" && this.nodeStr(node, tag, "white-space", "normal") == "nowrap") {
             lines = [text]                          // opt-out: una sola línea (puede recortarse)
         } else if (custom) {
             lines = this.wrapTextMeasured(text, scale)
@@ -762,15 +938,21 @@ export public class GuiRenderer {
             lines = this.wrapText(text, scale)
         }
         let align = "left"
-        if (tag != "") { align = this.strProp(tag, "text-align", "left"); }
+        if (tag != "") { align = this.nodeStr(node, tag, "text-align", "left"); }
         // Estilo de fuente desde el .szs: font-weight:bold (bit0) + font-style:italic (bit1).
-        // Sin propiedad → 0 → idéntico a antes (texto normal).
+        // b/strong son negrita y i/em itálica POR DEFECTO (UA implícito, como el
+        // nativo); la hoja puede revertirlo con font-weight/font-style: normal.
         let style = 0
         if (tag != "") {
-            if (this.strProp(tag, "font-weight", "normal") == "bold")  { style = style + 1; }
-            if (this.strProp(tag, "font-style", "normal")  == "italic"){ style = style + 2; }
+            let defW = "normal"
+            let defS = "normal"
+            if (tag == "b" || tag == "strong") { defW = "bold"; }
+            if (tag == "i" || tag == "em")     { defS = "italic"; }
+            if (this.nodeStr(node, tag, "font-weight", defW) == "bold")  { style = style + 1; }
+            if (this.nodeStr(node, tag, "font-style", defS)  == "italic"){ style = style + 2; }
         }
         let lh    = 8 * scale + 4
+        if (tag != "") { lh = this.nodeNum(node, tag, "line-height", lh); }
         let maxW  = 0
         let li    = 0
         while (li < lines.length()) {
@@ -879,8 +1061,14 @@ export public class GuiRenderer {
             gprops = merged
         }
         if (node.hasProp("onClick") || node.hasProp("onChange") || node.hasProp("onInput") || node.hasProp("onDrop")) {
+            let gOrd = this.focusOrd
             this.focusOrd = this.focusOrd + 1
             gprops = this.withRef(gprops, node)
+            // Estado :focus para interactivos genéricos (Link, contenedores con
+            // onClick): habilita el opt-in `Tag:focus { … }` del .szs en el core.
+            if (gOrd == this.focus && node.getProp("disabled") != true) {
+                gprops.push(["focused", "true"])
+            }
         }
         let kids     = node.getChildren()
         // Tag de texto con hijos BLOQUE (div/Col/widgets): el core junta solo el
@@ -955,7 +1143,12 @@ export public class GuiRenderer {
             props.push(["sel-start", "" + this.selAnchor])
             props.push(["sel-end", "" + this.caret])
         }
-        if (focused) { props.push(["border-color", "#60a5fa"]) }
+        // Marca de foco OPT-IN (Input:focus / *:focus del .szs): inline porque el
+        // lowering baja a tag `textbox` y el selector del app no matchea en el core.
+        if (focused) {
+            let fc = this.focusColorFor("Input")
+            if (fc >= 0) { props.push(["border-color", this.cssHex(fc)]) }
+        }
         props.push(["rows", "1"])
 
         // El texto a renderizar dentro de la caja de texto son sus hijos en el core
@@ -1014,6 +1207,11 @@ export public class GuiRenderer {
             props.push(["sel-start", "" + this.selAnchor])
             props.push(["sel-end", "" + this.caret])
         }
+        // Marca de foco OPT-IN (Textarea:focus / *:focus): inline, igual que Input.
+        if (focused) {
+            let fc = this.focusColorFor("Textarea")
+            if (fc >= 0) { props.push(["border-color", this.cssHex(fc)]) }
+        }
 
         let r = node.getProp("rows")
         if (r == null) { r = 6; }
@@ -1023,7 +1221,6 @@ export public class GuiRenderer {
         if (!hasRows) {
             props.push(["rows", "" + visRows])
         }
-        if (focused) { props.push(["border-color", "#60a5fa"]) }
 
         let val = node.getProp("value")
         let text = ""
@@ -1057,6 +1254,16 @@ export public class GuiRenderer {
             }
         }
         return ["textbox", this.withRef(props, node), [slicedText]]
+    }
+
+    // Valor CRUDO (string) de una prop del .szs del app para un tag, o null.
+    // Lo usan los lowerings que REMAPEAN semántica del interpretado (p.ej.
+    // `Tabs { background-color }` = acento, no fondo de toda la barra).
+    public any sheetRaw(string tag, string prop) {
+        if (this.sheet == null) { return null; }
+        let v = this.sheet.resolveProp(tag, prop, this.fullCtx)
+        if (v == null) { return null; }
+        return ("" + v).trim()
     }
 
     public any lowerSlider(any node) {
@@ -1129,6 +1336,19 @@ export public class GuiRenderer {
             ["width", "44"]
         ]
 
+        // `Slider { background-color }` (.szs) = ACENTO (fill + knob), como el
+        // interpretado — no el fondo de la pista completa (se neutraliza).
+        let acc = this.sheetRaw("Slider", "background-color")
+        if (acc != null) {
+            trackProps.push(["background-color", "transparent"])
+            fillProps.push(["background-color", acc])
+            knobProps.push(["background-color", acc])
+        }
+        // `Slider { color }` = color del label del valor. Inline: la regla UA
+        // genérica de span le ganaría a la herencia del tag.
+        let sfg = this.sheetRaw("Slider", "color")
+        if (sfg != null) { labelProps.push(["color", sfg]) }
+
         let trackKids = [
             ["div", trackBgProps, []],
             ["div", fillProps, []],
@@ -1136,7 +1356,13 @@ export public class GuiRenderer {
         ]
 
         let containerClass = "Slider"
-        if (focused) { containerClass = "Slider focused"; }
+        // El attr focused va en el contenedor (.Slider:focus) Y en la pista (tag
+        // Slider → Slider:focus), que es el nodo con el nombre del widget.
+        if (focused) {
+            containerClass = "Slider focused"
+            props.push(["focused", "true"])
+            trackProps.push(["focused", "true"])
+        }
         props.push(["class", containerClass])
 
         return ["div", props, [
@@ -1162,10 +1388,18 @@ export public class GuiRenderer {
         while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
 
         let containerClass = "Tabs"
-        if (focused) { containerClass = "Tabs focused"; }
+        if (focused) { containerClass = "Tabs focused"; props.push(["focused", "true"]) }
         props.push(["class", containerClass])
         props.push(["height", "34"])
         props.push(["position", "relative"])
+
+        // `Tabs { background-color }` (.szs) = ACENTO del subrayado del tab activo
+        // (como el interpretado: el fondo del tab activo sigue siendo el del UA) —
+        // pintar la barra o el tab dejaba los labels ilegibles en la auditoría.
+        // `Tabs { color }` = color del LABEL activo (el UA pinta los inactivos).
+        let acc = this.sheetRaw("Tabs", "background-color")
+        if (acc != null) { props.push(["background-color", "transparent"]) }
+        let tfg = this.sheetRaw("Tabs", "color")
 
         let kids = []
         
@@ -1205,8 +1439,9 @@ export public class GuiRenderer {
                 ["height", "33"],
                 ["position", "relative"]
             ]
-            
-            let tabKids = [["span", [], [label]]]
+            let labelProps = []
+            if (isAct && tfg != null) { labelProps.push(["color", tfg]) }
+            let tabKids = [["span", labelProps, [label]]]
             if (isAct) {
                 let underlineProps = [
                     ["class", "tab-underline"],
@@ -1216,6 +1451,7 @@ export public class GuiRenderer {
                     ["width", "100%"],
                     ["height", "3"]
                 ]
+                if (acc != null) { underlineProps.push(["background-color", acc]) }
                 tabKids.push(["div", underlineProps, []])
             }
 
@@ -1232,18 +1468,6 @@ export public class GuiRenderer {
         }
 
         kids.push(["row", rowProps, rowKids])
-
-        if (focused) {
-            // Anillo de foco = paridad con drawFocusRing del interpretado (marco de
-            // 2px alrededor de la tira). El UA usa un selector descendiente
-            // (`Tabs.focused .tabs-bottom-border`), inerte en el core → el lowering
-            // dibuja el anillo con 4 divs absolutos dentro del contenedor.
-            let rc = "#60a5fa"
-            kids.push(["div", [["position", "absolute"], ["left", "0"], ["top", "0"], ["width", "" + totW], ["height", "2"], ["background-color", rc]], []])
-            kids.push(["div", [["position", "absolute"], ["left", "0"], ["bottom", "0"], ["width", "" + totW], ["height", "2"], ["background-color", rc]], []])
-            kids.push(["div", [["position", "absolute"], ["left", "0"], ["top", "0"], ["width", "2"], ["height", "34"], ["background-color", rc]], []])
-            kids.push(["div", [["position", "absolute"], ["left", "" + (totW - 2)], ["top", "0"], ["width", "2"], ["height", "34"], ["background-color", rc]], []])
-        }
 
         return ["Tabs", this.withRef(props, node), kids]
     }
@@ -1264,12 +1488,20 @@ export public class GuiRenderer {
         while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
         
         let containerClass = "RadioGroup"
-        if (focused) { containerClass = "RadioGroup focused"; }
+        if (focused) { containerClass = "RadioGroup focused"; props.push(["focused", "true"]) }
         props.push(["class", containerClass])
-        
+
         let totalH = options.length() * 26
         if (totalH == 0) { totalH = 26; }
         props.push(["height", "" + totalH])
+
+        // `RadioGroup { background-color }` (.szs) = color del PUNTO seleccionado
+        // (como el interpretado), no el fondo del grupo entero.
+        let acc = this.sheetRaw("RadioGroup", "background-color")
+        if (acc != null) { props.push(["background-color", "transparent"]) }
+        // `RadioGroup { color }` = color de los labels (inline; la regla UA
+        // genérica de span le ganaría a la herencia del tag).
+        let rfg = this.sheetRaw("RadioGroup", "color")
 
         let kids = []
         let i = 0
@@ -1290,27 +1522,32 @@ export public class GuiRenderer {
             if (selected) {
                 let dotClass = "radio-dot"
                 if (disabled) { dotClass = "radio-dot disabled-dot"; }
-                indKids.push(["div", [
+                let dotProps = [
                     ["class", dotClass],
                     ["position", "absolute"],
                     ["left", "5"],
                     ["top", "5"],
                     ["width", "8"],
                     ["height", "8"]
-                ], []])
+                ]
+                if (acc != null && !disabled) { dotProps.push(["background-color", acc]) }
+                indKids.push(["div", dotProps, []])
             }
             
             let labelClass = "radio-label"
             if (disabled) { labelClass = "radio-label disabled-label"; }
-            
+            let labelProps = [["class", labelClass]]
+            // Inline solo si no está disabled (el gris de disabled-label manda).
+            if (rfg != null && !disabled) { labelProps.push(["color", rfg]) }
+
             let rowProps = [
                 ["class", "radio-row"],
                 ["height", "26"]
             ]
-            
+
             kids.push(["row", rowProps, [
                 ["div", indProps, indKids],
-                ["span", [["class", labelClass]], ["" + opt]]
+                ["span", labelProps, ["" + opt]]
             ]])
             i = i + 1
         }
@@ -1333,7 +1570,7 @@ export public class GuiRenderer {
         while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
 
         let containerClass = "Dropdown"
-        if (focused) { containerClass = "Dropdown focused"; }
+        if (focused) { containerClass = "Dropdown focused"; props.push(["focused", "true"]) }
         props.push(["class", containerClass])
         props.push(["height", "34"])
         props.push(["position", "relative"])
@@ -1388,13 +1625,24 @@ export public class GuiRenderer {
         
         let title = node.getProp("title")
         let onClose = node.getProp("onClose")
-        
+
+        // `Modal { … }` del .szs del app → estilos INLINE de la caja (el lowering
+        // emite div.modal-box y el tag Modal desaparece del árbol; sin el remap la
+        // hoja del app no lo alcanzaba — paridad con el interpretado).
+        let mbg   = this.sheetRaw("Modal", "background-color")
+        let mfg   = this.sheetRaw("Modal", "color")
+        let mbord = this.sheetRaw("Modal", "border")
+        let mbc   = this.sheetRaw("Modal", "border-color")
+
         let boxKids = []
-        
+
         if (title != null || onClose != null) {
             let headerKids = []
             if (title != null) {
-                headerKids.push(["span", [["class", "modal-title"]], ["" + title]])
+                let titleProps = [["class", "modal-title"]]
+                // El color de `.modal-title` (UA) ganaría a la herencia: inline.
+                if (mfg != null) { titleProps.push(["color", mfg]) }
+                headerKids.push(["span", titleProps, ["" + title]])
             }
             if (onClose != null) {
                 let closeNode = new VNode("ModalClose", [["onClick", onClose]], ["x"])
@@ -1430,6 +1678,10 @@ export public class GuiRenderer {
             ["width", "" + mw],
             ["height", "" + mh]
         ]
+        if (mbg != null)   { boxProps.push(["background-color", mbg]) }
+        if (mfg != null)   { boxProps.push(["color", mfg]) }
+        if (mbord != null) { boxProps.push(["border", mbord]) }
+        if (mbc != null)   { boxProps.push(["border-color", mbc]) }
         
         // El backdrop cubre la VENTANA entera (en px: el 100% se resolvería contra el
         // ancho de contenido del árbol, que ya descontó el padding).
@@ -1464,7 +1716,7 @@ export public class GuiRenderer {
         while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
         
         let containerClass = "Collapsible"
-        if (focused) { containerClass = "Collapsible focused"; }
+        if (focused) { containerClass = "Collapsible focused"; props.push(["focused", "true"]) }
         props.push(["class", containerClass])
         props.push(["display", "block"])
 
@@ -1568,8 +1820,14 @@ export public class GuiRenderer {
         props.push(["class", containerClass])
         props.push(["height", "34"])
 
+        // `Toast { color }` = color del mensaje (inline; la regla UA genérica de
+        // span le ganaría a la herencia del tag).
+        let msgProps = [["class", "toast-message"]]
+        let tfg = this.sheetRaw("Toast", "color")
+        if (tfg != null) { msgProps.push(["color", tfg]) }
+
         return ["Toast", this.withRef(props, node), [
-            ["span", [["class", "toast-message"]], ["" + msg]]
+            ["span", msgProps, ["" + msg]]
         ]]
     }
 
@@ -1599,13 +1857,23 @@ export public class GuiRenderer {
         if (ctype == null) { ctype = "line"; }
         let bh = node.getProp("height")
         if (bh == null) { bh = 160; }
+        // Color de la serie: prop JSX (int) > `Chart { color }` del .szs (paridad
+        // con el interpretado, que consulta colorFor("Chart","color")) > UA azul.
+        let colHex = null
         let color = node.getProp("color")
+        if (color != null) { colHex = this.cssHex(color) }
+        else {
+            if (this.sheet != null) {
+                let sc = this.sheet.resolveProp("Chart", "color", this.fullCtx)
+                if (sc != null) { colHex = ("" + sc).trim() }
+            }
+        }
 
         let props = []
         let op = node.getProps()
         let pi = 0
         while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
-        
+
         let containerClass = "Chart"
         props.push(["class", containerClass])
         props.push(["height", "" + bh])
@@ -1660,9 +1928,9 @@ export public class GuiRenderer {
                     ["width", "80%"],
                     ["height", "" + fh]
                 ]
-                // Prop `color` del Chart (int 0xRRGGBB) → color de barra (como el
-                // interpretado); sin él, el UA da el azul por defecto.
-                if (color != null) { barFillProps.push(["background-color", this.cssHex(color)]) }
+                // Prop `color` del Chart o `Chart { color }` del .szs → color de
+                // barra (como el interpretado); sin ellos, el UA da el azul.
+                if (colHex != null) { barFillProps.push(["background-color", colHex]) }
                 // Barras muy finas: sin radius (el border-radius del UA infla una
                 // barra de 1-3px a un "guion" visible — con muchos buckets vacíos
                 // el histograma parecía una fila de rayitas).
@@ -1695,9 +1963,7 @@ export public class GuiRenderer {
                 j = j + 1
             }
             let lineCol = "#3b82f6"
-            // `color` llega como INT (0xRRGGBB) desde JSX: "" + color daría el
-            // DECIMAL ("3900150"), que el core no parsea → convertir a "#rrggbb".
-            if (color != null) { lineCol = this.cssHex(color); }
+            if (colHex != null) { lineCol = colHex; }
             kids.push(["div", [["class", "chart-plot"], ["height", "" + innerH], ["margin", "8"]], [
                 ["polyline", [["points", pts], ["color", lineCol], ["stroke-width", "2"], ["height", "" + innerH]], []]
             ]])
@@ -1785,7 +2051,7 @@ export public class GuiRenderer {
         while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
         
         let containerClass = "FileInput"
-        if (focused) { containerClass = "FileInput focused"; }
+        if (focused) { containerClass = "FileInput focused"; props.push(["focused", "true"]) }
         props.push(["class", containerClass])
         props.push(["height", "40"])
 
@@ -1824,7 +2090,7 @@ export public class GuiRenderer {
         let pi = 0
         while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }
         let cls = "Select"
-        if (focused) { cls = "Select focused"; }
+        if (focused) { cls = "Select focused"; props.push(["focused", "true"]) }
         props.push(["class", cls])
         props.push(["height", "34"])
         return ["Select", this.withRef(props, node), [display]]
@@ -1834,7 +2100,9 @@ export public class GuiRenderer {
     // font-scale 2 y separación abajo. Conserva onClick y el tag "Button" para que el
     // `.szs` (bg/color/border-radius por tag) siga aplicando. Espeja renderButton.
     public any lowerButton(any node) {
+        let myOrd = this.focusOrd
         this.focusOrd = this.focusOrd + 1
+        let focused = myOrd == this.focus && node.getProp("disabled") != true
         let kids  = node.getChildren()
         let label = ""
         let i = 0
@@ -1843,12 +2111,23 @@ export public class GuiRenderer {
             if (k is string) { label = label + k } else { label = label + ("" + k) }
             i = i + 1
         }
-        let w = Gui.measureText(label, 2)[0] + 28   // = renderButton: m[0] + 28
+        // Ancho compacto con MARGEN: el core dibuja con la familia/peso efectivos
+        // (p.ej. font-weight: bold del .szs), que miden más que Gui.measureText
+        // acá — sin el 12% el label envolvía en dos líneas. La UA además marca
+        // Button con white-space: nowrap (el core lo respeta en texto suelto).
+        let w = (Gui.measureText(label, 2)[0] * 112) / 100 + 28
         let props = []
         let op = node.getProps()
         let pi = 0
         while (pi < op.length()) { props.push(op[pi]); pi = pi + 1 }   // conserva onClick/disabled/…
         props.push(["width", "" + w])            // ancho compacto (el resto del look → UA/.szs)
+        // Disabled: gris INLINE (pisa la hoja) — paridad con el interpretado, que
+        // agrisa siempre; sin esto un Button estilado se veía igual deshabilitado.
+        if (node.getProp("disabled") == true) {
+            props.push(["background-color", "#334155"])
+            props.push(["color", "#94a3b8"])
+        }
+        if (focused) { props.push(["focused", "true"]) }
         return ["Button", this.withRef(props, node), [label]]
     }
 
@@ -1875,14 +2154,23 @@ export public class GuiRenderer {
         let boxClass = "checkbox-box"
         if (focused) { boxClass = "checkbox-box focused-box"; }
         let boxProps = [["class", boxClass], ["width", "20"], ["height", "20"]]
+        // `Checkbox { background-color }` (.szs) = color de la CAJITA (como el
+        // interpretado), no el fondo de toda la fila (label incluido).
+        let acc = this.sheetRaw("Checkbox", "background-color")
+        if (acc != null) { boxProps.push(["background-color", acc]) }
         let checkChar = ""
         if (checked) { checkChar = "X"; }
 
         let labelProps = [["class", "checkbox-label"]]
+        // `Checkbox { color }` = color del label. Inline: la regla UA genérica de
+        // span le ganaría a la herencia del tag.
+        let cfg = this.sheetRaw("Checkbox", "color")
+        if (cfg != null) { labelProps.push(["color", cfg]) }
 
         let containerClass = "Checkbox"
-        if (focused) { containerClass = "Checkbox focused"; }
+        if (focused) { containerClass = "Checkbox focused"; props.push(["focused", "true"]) }
         props.push(["class", containerClass])
+        if (acc != null) { props.push(["background-color", "transparent"]) }
 
         return ["Checkbox", this.withRef(props, node), [
             ["div", boxProps, [checkChar]],
@@ -1914,6 +2202,12 @@ export public class GuiRenderer {
         if (checked) { trackClass = "switch-track checked-track"; }
         if (disabled) { trackClass = "switch-track disabled-track"; }
         let trackProps = [["class", trackClass], ["width", "44"], ["height", "22"], ["position", "relative"]]
+        // `Switch { background-color }` (.szs) = color de la PISTA encendida (como
+        // el interpretado), no el fondo del widget entero (label incluido).
+        let acc = this.sheetRaw("Switch", "background-color")
+        if (acc != null) {
+            if (checked && !disabled) { trackProps.push(["background-color", acc]) }
+        }
 
         let knobClass = "switch-knob"
         if (disabled) { knobClass = "switch-knob disabled-knob"; }
@@ -1929,14 +2223,18 @@ export public class GuiRenderer {
         ]
 
         let labelProps = [["class", "switch-label"]]
+        // `Switch { color }` = color del label (inline, como en Checkbox).
+        let wfg = this.sheetRaw("Switch", "color")
+        if (wfg != null) { labelProps.push(["color", wfg]) }
         let labelNode = []
         if (("" + label) != "") {
             labelNode = [["span", labelProps, ["" + label]]]
         }
 
         let containerClass = "Switch"
-        if (focused) { containerClass = "Switch focused"; }
+        if (focused) { containerClass = "Switch focused"; props.push(["focused", "true"]) }
         props.push(["class", containerClass])
+        if (acc != null) { props.push(["background-color", "transparent"]) }
 
         let swkids = [["div", trackProps, [["div", knobProps, []]]]]
         let sli = 0
@@ -1994,38 +2292,40 @@ export public class GuiRenderer {
         return "h1 \{ font-scale: 3; color: #e2e8f0; margin-bottom: 8 \}"
             + " h2 \{ font-scale: 2; color: #e2e8f0; margin-bottom: 6 \}"
             + " h3 \{ font-scale: 2; color: #e2e8f0; margin-bottom: 4 \}"
-            + " p \{ font-scale: 2; color: #94a3b8; margin-bottom: 4 \}"
-            + " span \{ font-scale: 2; color: #94a3b8 \}"
-            + " li \{ font-scale: 2; color: #94a3b8; margin-bottom: 4 \}"
+            + " p \{ color: #94a3b8; margin-bottom: 4 \}"
+            + " span \{ color: #94a3b8 \}"
+            + " li \{ color: #94a3b8; margin-bottom: 4 \}"
             + " hr \{ color: #334155; margin-bottom: 12 \}"
-            + " Button \{ background-color: #3b82f6; color: #e2e8f0; padding: 10; font-scale: 2; margin-bottom: 10 \}"
+            + " Button \{ background-color: #3b82f6; color: #e2e8f0; padding: 10; font-scale: 2; margin-bottom: 10; white-space: nowrap \}"
             + " Label \{ font-scale: 2; color: #e2e8f0; margin-bottom: 4 \}"
             + " Link \{ font-scale: 2; color: #60a5fa; margin-bottom: 4 \}"
             + " Badge \{ background-color: #334155; color: #e2e8f0; padding: 4; font-scale: 1; border-radius: 6 \}"
-            + " Checkbox \{ display: flex; direction: row; align-items: center; gap: 8; margin-bottom: 12 \}"
-            + " .checkbox-box \{ background-color: #111827; border: 1px solid #334155; display: flex; justify-content: center; align-items: center; color: #e2e8f0; font-scale: 2 \}"
-            + " .checkbox-label \{ color: #e2e8f0; font-scale: 2 \}"
-            + " .focused-box \{ border-color: #60a5fa \}"
-            + " Switch \{ display: flex; direction: row; align-items: center; gap: 8; margin-bottom: 12 \}"
+            // El color del label vive en el TAG contenedor (no en la clase): así
+            // `Checkbox { color }` del app fluye al label por herencia del core.
+            + " Checkbox \{ display: flex; direction: row; align-items: center; gap: 8; margin-bottom: 12; color: #e2e8f0 \}"
+            + " .checkbox-box \{ background-color: #111827; border: 1px solid #334155; display: flex; justify-content: center; align-items: center; font-scale: 2 \}"
+            + " .checkbox-label \{ font-scale: 2; color: #e2e8f0 \}"
+           
+            + " Switch \{ display: flex; direction: row; align-items: center; gap: 8; margin-bottom: 12; color: #e2e8f0 \}"
             + " .switch-track \{ background-color: #334155; border-radius: 11; position: relative \}"
             + " .switch-track.checked-track \{ background-color: #3b82f6 \}"
             + " .switch-track.disabled-track \{ background-color: #334155 \}"
             + " .switch-knob \{ background-color: #e2e8f0; border-radius: 8 \}"
             + " .switch-knob.disabled-knob \{ background-color: #94a3b8 \}"
-            + " .switch-label \{ color: #e2e8f0; font-scale: 2 \}"
-            + " Switch.focused .switch-track \{ border: 1px solid #60a5fa \}"
+            + " .switch-label \{ font-scale: 2; color: #e2e8f0 \}"
+           
             + " Select \{ background-color: #1e293b; border: 1px solid #334155; color: #e2e8f0; padding: 8; font-scale: 2; border-radius: 4; margin-bottom: 12 \}"
-            + " Select.focused \{ border-color: #60a5fa \}"
+           
             + " ProgressBar \{ background-color: #111827; height: 22; display: block; position: relative; margin-bottom: 12 \}"
             + " .progressbar-fill \{ background-color: #3b82f6; position: absolute; left: 0; top: 0 \}"
             + " .progressbar-label \{ color: #e2e8f0; font-scale: 1; position: absolute; left: 8; top: 4 \}"
-            + " .Slider \{ display: flex; direction: row; align-items: center; gap: 12; margin-bottom: 12; height: 30 \}"
+            + " .Slider \{ display: flex; direction: row; align-items: center; gap: 12; margin-bottom: 12; height: 30; color: #e2e8f0 \}"
             + " .slider-track \{ flex: 1 \}"
             + " .slider-track-bg \{ background-color: #334155 \}"
             + " .slider-fill \{ background-color: #3b82f6 \}"
             + " .slider-knob \{ background-color: #3b82f6; border-radius: 2 \}"
-            + " .slider-label \{ color: #e2e8f0; font-scale: 2; text-align: right \}"
-            + " Slider.focused .slider-knob \{ background-color: #60a5fa \}"
+            + " .slider-label \{ font-scale: 2; text-align: right; color: #e2e8f0 \}"
+           
             + " Tabs \{ display: block; position: relative; margin-bottom: 12; height: 34 \}"
             + " .tabs-bottom-border \{ background-color: #334155 \}"
             + " .tabs-row \{ display: flex; direction: row; align-items: center \}"
@@ -2033,20 +2333,20 @@ export public class GuiRenderer {
             + " .tab-item.active-tab \{ color: #e2e8f0; background-color: #1e293b \}"
             + " .tab-item.disabled-tab \{ color: #475569 \}"
             + " .tab-underline \{ background-color: #3b82f6 \}"
-            + " Tabs.focused .tabs-bottom-border \{ background-color: #60a5fa \}"
-            + " RadioGroup \{ display: block; margin-bottom: 10 \}"
+           
+            + " RadioGroup \{ display: block; margin-bottom: 10; color: #e2e8f0 \}"
             + " .radio-row \{ display: flex; direction: row; align-items: center; gap: 8; height: 26 \}"
             + " .radio-indicator \{ background-color: #111827; border: 1px solid #334155; border-radius: 9 \}"
             + " .radio-dot \{ background-color: #3b82f6; border-radius: 4 \}"
-            + " .radio-label \{ color: #e2e8f0; font-scale: 2 \}"
+            + " .radio-label \{ font-scale: 2; color: #e2e8f0 \}"
             + " .radio-label.disabled-label \{ color: #475569 \}"
             + " .radio-indicator.disabled-indicator \{ border-color: #475569 \}"
             + " .radio-dot.disabled-dot \{ background-color: #475569 \}"
-            + " RadioGroup.focused \{ border: 1px solid #60a5fa \}"
+           
             + " Dropdown \{ display: flex; direction: row; align-items: center; justify-content: space-between; background-color: #1e293b; border: 1px solid #334155; padding: 0 10; border-radius: 4; margin-bottom: 12; height: 34; position: relative \}"
             + " .dropdown-value \{ color: #e2e8f0; font-scale: 2 \}"
             + " .dropdown-arrow \{ color: #94a3b8; font-scale: 1; margin-left: 8 \}"
-            + " Dropdown.focused \{ border-color: #60a5fa \}"
+           
             + " .dropdown-overlay \{ background-color: #1e293b; border: 1px solid #334155; border-radius: 4; display: block \}"
             + " .dropdown-option \{ padding: 6 10; color: #e2e8f0; font-scale: 2; display: flex; align-items: center; border-bottom: 1px solid #334155 \}"
             + " .dropdown-option.active-option \{ background-color: #3b82f6 \}"
@@ -2065,16 +2365,16 @@ export public class GuiRenderer {
             + " .collapsible-chevron \{ color: #94a3b8; font-scale: 1 \}"
             + " .collapsible-title \{ color: #e2e8f0; font-scale: 2 \}"
             + " .collapsible-body \{ padding-left: 14; padding-top: 6; display: block \}"
-            + " Table \{ display: block; border: 1px solid #334155; border-radius: 4; margin-bottom: 12 \}"
+            + " Table \{ display: block; border: 1px solid #334155; border-radius: 4; margin-bottom: 12; color: #e2e8f0 \}"
             + " .table-header-row \{ display: flex; direction: row; background-color: #3b82f6; color: #ffffff \}"
             + " .table-row \{ display: flex; direction: row; background-color: #1e293b; border-bottom: 1px solid #334155 \}"
             + " .table-row-alt \{ background-color: #111827 \}"
-            + " .table-cell \{ padding: 6 8; color: #e2e8f0; font-scale: 2 \}"
-            + " Toast \{ display: flex; align-items: center; padding: 0 12; border-radius: 6; margin-bottom: 12; background-color: #3b82f6 \}"
+            + " .table-cell \{ padding: 6 8; font-scale: 2 \}"
+            + " Toast \{ display: flex; align-items: center; padding: 0 12; border-radius: 6; margin-bottom: 12; background-color: #3b82f6; color: #ffffff \}"
             + " .toast-success \{ background-color: #16a34a \}"
             + " .toast-warn \{ background-color: #d97706 \}"
             + " .toast-error \{ background-color: #dc2626 \}"
-            + " .toast-message \{ color: #ffffff; font-scale: 2 \}"
+            + " .toast-message \{ font-scale: 2; color: #ffffff \}"
             + " Chart \{ display: block; background-color: #111827; margin-bottom: 12 \}"
             + " .chart-bars-row \{ display: flex; direction: row; align-items: flex-end; padding: 8 \}"
             + " .chart-bar-col \{ display: flex; flex-direction: column; justify-content: flex-end \}"
@@ -2151,12 +2451,19 @@ export public class GuiRenderer {
         let tree = ["div", [["padding", "" + this.pad]], treeKids]
         // min/max-width del contenido (setMaxWidth/setMinWidth): igual que el camino
         // interpretado — el contenido se acota a maxW y se CENTRA bajo la ventana.
-        if (this.maxW > 0 && this.maxW < this.w) {
-            // Paridad con el interpretado: la COLUMNA de contenido mide maxW y su
-            // borde izquierdo cae en (w-maxW)/2; el padding queda solo vertical.
-            let side = (this.w - this.maxW) / 2
+        // Paridad con el interpretado: eff = avail acotado por maxW (y centrado),
+        // y minW fuerza el ancho mínimo (min le gana a max). En nativo el core
+        // acota width al disponible, así que minW no puede exceder la ventana
+        // (el interpretado en ese caso desborda por la derecha).
+        let availW = this.w - this.pad * 2
+        let effW = availW
+        if (this.maxW > 0 && effW > this.maxW) { effW = this.maxW }
+        if (effW < this.minW) { effW = this.minW }
+        if (effW != availW) {
+            let side = (this.w - effW) / 2
+            if (side < 0) { side = 0; }
             tree = ["div", [["padding-left", "" + side]],
-                [["div", [["width", "" + this.maxW], ["padding-top", "" + this.pad], ["padding-bottom", "" + this.pad]], treeKids]]]
+                [["div", [["width", "" + effW], ["padding-top", "" + this.pad], ["padding-bottom", "" + this.pad]], treeKids]]]
         }
         let coreRegs = Gui.renderTree(tree, this.coreSheet, this.w, this.h, ctx)
         // 4) Regions → formato de handleGuiInput: [tag,x,y,w,h, VNode]. El lowering
@@ -2168,13 +2475,19 @@ export public class GuiRenderer {
         //    mismo contrato que el intérprete. Las regions de nodos decorativos
         //    (div/span/texto) se descartan.
         this.regions = []
+        // Alto de contenido = alto de FLUJO de la raíz (region 0, pre-orden). Los
+        // overlays absolute (backdrop de Modal, dropdown) devuelven 0 al flujo en
+        // el core, así que no cuentan — tomando el máximo de TODAS las regions el
+        // backdrop (alto = ventana) inflaba contentH y aparecía un scrollbar
+        // fantasma con el Modal abierto (app06).
         let maxBottom = 0
+        if (coreRegs.length() > 0) {
+            let r0 = coreRegs[0]
+            maxBottom = r0[2] + r0[4] + this.scrollY
+        }
         let ri = 0
         while (ri < coreRegs.length()) {
             let cr = coreRegs[ri]
-            let bottom = cr[2] + cr[4] + this.scrollY
-            if (bottom > maxBottom) { maxBottom = bottom; }
-
             if (cr[5] != null) {
                 let rnode = null
                 if (cr[5] is VNode) { rnode = cr[5] }
@@ -2239,6 +2552,16 @@ export public class GuiRenderer {
         this.hasTip      = false
         this.taHoverIdx  = -1     // reset hover de Textarea (se detecta durante el render)
         this.bgCol = this.colorFor("body", "background-color", this.colBg)
+        // Color de texto heredado (como en CSS): arranca en el `color` de body y
+        // los contenedores lo van refinando; el texto suelto lo consume.
+        this.curText = this.colorFor("body", "color", this.colText)
+        // Escala heredada (como font-size): arranca en la de body (o 2).
+        this.curScale = this.numProp("body", "font-scale", 2)
+        this.curAlpha = 255
+        // z de cajas de contenedor: cada contenedor que CIERRA toma el siguiente
+        // valor (decreciendo) → el interno (cierra primero) queda por ENCIMA del
+        // externo, y todos por debajo del contenido (z >= 0).
+        this.boxZ = 0 - 2
         this.swBegin()
         this.renderNode(vdom)
         this.contentH = this.cy + this.scrollY - this.pad   // alto total del contenido
@@ -2346,7 +2669,9 @@ export public class GuiRenderer {
 
         let isPrim = node is string || node is int || node is decimal || node is bool
         if (isPrim) {
-            this.drawWrapped("", "" + node, 2, this.colText, 6)
+            // El texto suelto usa color Y escala HEREDADOS del contenedor
+            // (div { color; font-scale }) — como el motor nativo.
+            this.drawWrapped("", "" + node, this.curScale, this.curText, 6)
             return
         }
 
@@ -2356,16 +2681,26 @@ export public class GuiRenderer {
         let children = node.getChildren()
 
         if (tag == "h1") {
-            let sc1 = this.numProp("h1", "font-scale", 3)
-            this.renderTextTag("h1", node, sc1, this.colorFor("h1", "color", this.colText), 12)
+            let sc1 = this.nodeNum(node, "h1", "font-scale", 3)
+            this.renderTextTag("h1", node, sc1, this.nodeColor(node, "h1", "color", this.colText), 12)
 
         } else if (tag == "h2") {
-            let sc2 = this.numProp("h2", "font-scale", 2)
-            this.renderTextTag("h2", node, sc2, this.colorFor("h2", "color", this.colText), 10)
+            let sc2 = this.nodeNum(node, "h2", "font-scale", 2)
+            this.renderTextTag("h2", node, sc2, this.nodeColor(node, "h2", "color", this.colText), 10)
 
-        } else if (tag == "p" || tag == "span" || tag == "h3" || tag == "li") {
-            let scp = this.numProp(tag, "font-scale", 2)
-            this.renderTextTag(tag, node, scp, this.colorFor(tag, "color", this.colMuted), 8)
+        } else if (tag == "p" || tag == "span" || tag == "h3" || tag == "li"
+                || tag == "h4" || tag == "h5" || tag == "h6"
+                || tag == "b" || tag == "i" || tag == "strong" || tag == "em") {
+            // p/span/li sin font-scale propia HEREDAN la del contenedor (como el
+            // nativo); h3-h6 conservan su default de título (2). Escala/color con
+            // conciencia de clase (`p.centrado`). b/i/strong/em heredan color
+            // (curText) y llevan negrita/itálica implícitas (ver drawWrapped).
+            let defSc = this.curScale
+            if (tag == "h3" || tag == "h4" || tag == "h5" || tag == "h6") { defSc = 2; }
+            let defCol = this.colMuted
+            if (tag == "b" || tag == "i" || tag == "strong" || tag == "em") { defCol = this.curText; }
+            let scp = this.nodeNum(node, tag, "font-scale", defSc)
+            this.renderTextTag(tag, node, scp, this.nodeColor(node, tag, "color", defCol), 8)
 
         } else if (tag == "hr") {
             this.swLine(this.cx, this.cy, this.cx + this.colWidth, this.cy, this.colorFor("hr", "color", this.colBorder))
@@ -2418,28 +2753,169 @@ export public class GuiRenderer {
         } else if (tag == "Row") {
             this.renderRow(node)
         } else {
-            // div, Col, section, form, ul, __fragment__ — contenedores verticales (con padding)
-            let pad = this.numProp(tag, "padding", 0)
+            // div, Col, section, form, ul, __fragment__ — contenedores verticales.
+            // Props con conciencia de clase (`<div class="card">` toma `.card`);
+            // padding 1/2/3/4 valores, margin-left/right y width (px o %).
+            let pads = this.nodePad(node, tag)   // [top, right, bottom, left]
+            let ml   = this.nodeNum(node, tag, "margin-left", 0)
+            let mr   = this.nodeNum(node, tag, "margin-right", 0)
             let savedCx = this.cx
             let savedCW = this.colWidth
-            this.cx       = this.cx + pad
-            this.cy       = this.cy + pad
-            this.colWidth = this.colWidth - pad * 2
+            let savedCT = this.curText
+            let savedCS = this.curScale
+            let boxX    = this.cx + ml
+            let boxY    = this.cy
+            let boxW    = savedCW - ml - mr
+            // width explícito: px, o % del ancho disponible (acotado).
+            let wRaw = this.nodeRaw(node, tag, "width")
+            if (wRaw != null) {
+                let ws = ("" + wRaw).trim()
+                let wv = 0
+                if (ws.length() > 1 && ws.substring(ws.length() - 1, ws.length()) == "%") {
+                    wv = (boxW * this.firstNum(ws, 100)) / 100
+                } else {
+                    wv = this.firstNum(ws, boxW)
+                }
+                if (wv > 0 && wv < boxW) { boxW = wv }
+            }
+            // height fija + overflow scroll/hidden → los hijos se RECORTAN a la
+            // caja y el flujo continúa justo debajo (como prim_layout_scroll).
+            let fixH = this.nodeNum(node, tag, "height", 0 - 1)
+            let ovf  = this.nodeStr(node, tag, "overflow", "visible")
+            let clipped = fixH > 0 && (ovf == "scroll" || ovf == "hidden")
+            if (clipped) { this.swClipPush(boxX, boxY, boxW, fixH) }
+            // Herencia de color, escala y opacidad (como en CSS): el texto suelto
+            // y los p/span/li sin regla propia de los hijos usan esto.
+            let savedCA = this.curAlpha
+            this.curText  = this.nodeColor(node, tag, "color", this.curText)
+            this.curScale = this.nodeNum(node, tag, "font-scale", this.curScale)
+            let opRaw = this.nodeRaw(node, tag, "opacity")
+            if (opRaw != null) { this.curAlpha = (this.curAlpha * this.alpha255(opRaw)) / 255 }
+            let ownAlpha  = this.curAlpha   // alpha efectiva de ESTA caja (su fondo)
+            this.cx       = boxX + pads[3]
+            this.cy       = this.cy + pads[0]
+            this.colWidth = boxW - pads[3] - pads[1]
             let i = 0
             while (i < children.length()) {
-                this.renderNode(children[i])
+                let k = children[i]
+                // position:absolute mínimo (badge de texto): fuera del flujo,
+                // anclado a la caja de ESTE contenedor por left/right + top.
+                let isAbsKid = false
+                let kIsPrim = k is string || k is int || k is decimal || k is bool
+                if (!kIsPrim) {
+                    isAbsKid = this.nodeStr(k, k.getTag(), "position", "static") == "absolute"
+                }
+                if (isAbsKid) { this.drawAbsBadge(k, boxX, boxY, boxW) }
+                else { this.renderNode(k) }
                 i = i + 1
             }
             this.cx       = savedCx
             this.colWidth = savedCW
-            this.cy       = this.cy + pad
+            this.curText  = savedCT
+            this.curScale = savedCS
+            this.curAlpha = savedCA
+            this.cy       = this.cy + pads[2]
+            if (clipped) {
+                this.swClipPop()
+                this.cy = boxY + fixH   // el panel ocupa SU alto; el resto sigue debajo
+            }
+            // Caja del contenedor (.szs): fondo y/o borde. Se emiten al FINAL
+            // (recién acá se conoce el alto) pero con z negativo → quedan detrás
+            // del contenido (los nodos hijos van a z 0).
+            let boxH = this.cy - boxY
+            if (boxH > 0) {
+                let bgc = this.nodeColor(node, tag, "background-color", -1)
+                let rad = this.nodeNum(node, tag, "border-radius", 0)
+                let brc = this.nodeBorderColor(node, tag)
+                if (bgc >= 0 || brc >= 0) {
+                    // z por contenedor cerrado: fondo debajo del borde, ambos
+                    // debajo del contenido y de las cajas de contenedores internos.
+                    let zb = this.boxZ
+                    this.boxZ = zb - 2
+                    if (bgc >= 0) {
+                        // Con opacity el fondo va translúcido (rect sin radius).
+                        if (ownAlpha < 255) { this.swRectAlphaZ(boxX, boxY, boxW, boxH, bgc, ownAlpha, zb - 1); }
+                        else { this.swBoxZ(boxX, boxY, boxW, boxH, rad, bgc, zb - 1); }
+                    }
+                    if (brc >= 0) { this.swRectOutlineZ(boxX, boxY, boxW, boxH, brc, zb); }
+                }
+            }
+            // El contenedor ocupa TODO su ancho de columna: sin esto, Row avanzaba
+            // con el lastW del último texto anidado y las columnas se superponían.
+            this.lastW = savedCW
         }
         this.cy = this.cy + this.numProp(tag, "margin-bottom", 0)   // .szs: espacio extra abajo
     }
 
+    // Hijo `position:absolute` de un contenedor (soporte mínimo del interpretado:
+    // contenido de TEXTO, anclas left/right + top, shrink-wrap al texto). Se
+    // dibuja contra la caja del contenedor sin afectar el flujo — el caso badge.
+    public void drawAbsBadge(any node, int boxX, int boxY, int boxW) {
+        let tag = node.getTag()
+        let pads = this.nodePad(node, tag)
+        let scale = this.nodeNum(node, tag, "font-scale", this.curScale)
+        let text = this.collectText(node)
+        let fam = this.setFam(tag)
+        let tw = Gui.measureText(text, scale)[0]
+        let kw = tw + pads[1] + pads[3]
+        let kh = 8 * scale + 4 + pads[0] + pads[2]
+        let kx = boxX
+        let lRaw = this.nodeRaw(node, tag, "left")
+        let rRaw = this.nodeRaw(node, tag, "right")
+        if (lRaw != null) { kx = boxX + this.firstNum(lRaw, 0) }
+        else { if (rRaw != null) { kx = boxX + boxW - this.firstNum(rRaw, 0) - kw } }
+        let ky = boxY + this.nodeNum(node, tag, "top", 0)
+        let bgc = this.nodeColor(node, tag, "background-color", -1)
+        let rad = this.nodeNum(node, tag, "border-radius", 0)
+        if (bgc >= 0) {
+            if (rad > 0) { this.swRoundRect(kx, ky, kw, kh, rad, bgc) }
+            else { this.swRect(kx, ky, kw, kh, bgc) }
+        }
+        this.swText(kx + pads[3], ky + pads[0], text, scale, this.nodeColor(node, tag, "color", this.curText))
+        if (fam) { this.swSetFont(""); }
+    }
+
+    // ── Marca de foco OPT-IN ───────────────────────────────────────────────────
+    // Por DEFECTO no se dibuja ninguna marca de foco (clickear no deja anillo).
+    // El app la habilita declarando en su .szs una regla `:focus` (o su alias
+    // `:active-focus`) para el widget (`Button:focus { border-color: #f00 }`) o
+    // global (`*:focus { … }`). El color sale de border-color/color de esa regla;
+    // si la regla existe pero no trae color, se usa el azul clásico.
+    // Devuelve el color de la marca, o -1 si no hay opt-in.
+    public int focusColorFor(string tag) {
+        if (this.sheet == null) { return 0 - 1; }
+        let sels = [tag + ":focus", tag + ":active-focus", "*:focus", "*:active-focus"]
+        let i = 0
+        while (i < sels.length()) {
+            let s = sels[i]
+            if (this.sheet.hasSelector(s)) {
+                let v = this.sheet.resolveProp(s, "border-color", this.fullCtx)
+                if (v == null) {
+                    // shorthand `border: 2px solid #f00` → primer token color
+                    let sh = this.sheet.resolveProp(s, "border", this.fullCtx)
+                    if (sh != null) {
+                        let toks = ("" + sh).trim().split(" ")
+                        let t = 0
+                        while (t < toks.length()) {
+                            let c = this.sheet.rawToColor(toks[t].trim(), 0 - 1)
+                            if (c >= 0) { return c; }
+                            t = t + 1
+                        }
+                    }
+                }
+                if (v == null) { v = this.sheet.resolveProp(s, "color", this.fullCtx) }
+                return this.sheet.rawToColor(v, this.colFocus)
+            }
+            i = i + 1
+        }
+        return 0 - 1
+    }
+
     // ── Anillo de foco (4 barras finas alrededor del rect) ─────────────────────
-    public void drawFocusRing(int bx, int by, int bw, int bh) {
-        let c = this.colFocus
+    // Solo se dibuja si el app optó por marcar el foco (ver focusColorFor).
+    public void drawFocusRing(string tag, int bx, int by, int bw, int bh) {
+        let c = this.focusColorFor(tag)
+        if (c < 0) { return; }
         this.swRect(bx - 2, by - 2, bw + 4, 2, c)
         this.swRect(bx - 2, by + bh, bw + 4, 2, c)
         this.swRect(bx - 2, by - 2, 2, bh + 4, c)
@@ -2485,7 +2961,7 @@ export public class GuiRenderer {
         this.fillBox("Button", bx, by, bw, bh, color)
         this.swText(bx + 14, by + 12, label, 2, this.colorFor("Button", "color", this.colText))
         if (fam) { this.swSetFont(""); }
-        if (focused) { this.drawFocusRing(bx, by, bw, bh) }
+        if (focused) { this.drawFocusRing("Button", bx, by, bw, bh) }
 
         this.regions.push(["Button", bx, by, bw, bh, node])
         this.lastW = bw
@@ -2522,7 +2998,7 @@ export public class GuiRenderer {
         this.fillBox("Button", bx, by, btnW, bh, color)
         this.swText(bx + 14, by + 12, label, 2, this.colorFor("Button", "color", this.colText))
         if (fam) { this.swSetFont(""); }
-        if (focused) { this.drawFocusRing(bx, by, btnW, bh) }
+        if (focused) { this.drawFocusRing("FileInput", bx, by, btnW, bh) }
 
         // Nombre del archivo elegido (derecha), o el placeholder si no hay.
         // Texto no editable → fuente PROPORCIONAL (si no, caería a la rejilla mono).
@@ -2577,7 +3053,11 @@ export public class GuiRenderer {
 
         let ibg  = this.colorFor("Input", "background-color", this.colInput)
         let bcol = this.colBorder
-        if (focused) { bcol = this.colFocus }
+        // Borde de foco solo si el app optó con Input:focus / *:focus (.szs).
+        if (focused) {
+            let fc = this.focusColorFor("Input")
+            if (fc >= 0) { bcol = fc }
+        }
         let irad = this.numProp("Input", "border-radius", 0)
         if (irad > 0) {
             this.swRoundRect(bx, by, bw, bh, irad, bcol)
@@ -2700,7 +3180,7 @@ export public class GuiRenderer {
         let sfam = this.setFam("Select")
         this.swText(bx + 10, by + 9, display, 2, this.colorFor("Select", "color", this.colText))
         if (sfam) { this.swSetFont(""); }
-        if (focused) { this.drawFocusRing(bx, by, bw, bh) }
+        if (focused) { this.drawFocusRing("Select", bx, by, bw, bh) }
 
         this.regions.push(["Select", bx, by, bw, bh, node])
         this.cy = this.cy + bh + 12
@@ -2738,7 +3218,7 @@ export public class GuiRenderer {
         }
         this.swText(bx + boxSize + 8, by + 2, "" + label, 2, this.colorFor("Checkbox", "color", this.colText))
         if (cfam) { this.swSetFont(""); }
-        if (focused) { this.drawFocusRing(bx, by, regW, boxSize); }
+        if (focused) { this.drawFocusRing("Checkbox", bx, by, regW, boxSize); }
 
         this.regions.push(["Checkbox", bx, by, regW, boxSize, node])
         this.lastW = regW
@@ -2787,7 +3267,7 @@ export public class GuiRenderer {
             this.swText(bx + trackW + 8, by + 3, "" + label, 2, this.colorFor("Switch", "color", this.colText))
         }
         if (sfam) { this.swSetFont(""); }
-        if (focused) { this.drawFocusRing(bx, by, regW, trackH); }
+        if (focused) { this.drawFocusRing("Switch", bx, by, regW, trackH); }
 
         this.regions.push(["Switch", bx, by, regW, trackH, node])
         this.lastW = regW
@@ -2838,7 +3318,7 @@ export public class GuiRenderer {
             i = i + 1
         }
         if (tfam) { this.swSetFont(""); }
-        if (focused) { this.drawFocusRing(bx, by, x - bx, barH); }
+        if (focused) { this.drawFocusRing("Tabs", bx, by, x - bx, barH); }
 
         this.regions.push(["Tabs", bx, by, x - bx, barH, node, bounds])
         this.lastW = x - bx
@@ -2881,7 +3361,7 @@ export public class GuiRenderer {
         let cfam = this.setFam("Collapsible")
         this.swText(bx + 28, by + 8, "" + title, 2, tcol)
         if (cfam) { this.swSetFont(""); }
-        if (focused) { this.drawFocusRing(bx, by, hw, headH); }
+        if (focused) { this.drawFocusRing("Collapsible", bx, by, hw, headH); }
 
         this.regions.push(["Collapsible", bx, by, hw, headH, node])
         this.cy = this.cy + headH + 4
@@ -3025,7 +3505,11 @@ export public class GuiRenderer {
 
         let tbg  = this.colorFor("Textarea", "background-color", this.colInput)
         let bcol = this.colBorder
-        if (focused) { bcol = this.colFocus; }
+        // Borde de foco solo si el app optó con Textarea:focus / *:focus (.szs).
+        if (focused) {
+            let fc = this.focusColorFor("Textarea")
+            if (fc >= 0) { bcol = fc }
+        }
         let trad = this.numProp("Textarea", "border-radius", 0)
         if (trad > 0) {
             this.swRoundRect(bx, by, bw, bh, trad, bcol)
@@ -3185,6 +3669,8 @@ export public class GuiRenderer {
         this.focusOrd = this.focusOrd + 1
 
         let rfam = this.setFam("RadioGroup")
+        let rgText = this.colorFor("RadioGroup", "color", this.colText)
+        let rgDot  = this.colorFor("RadioGroup", "background-color", this.colBtn)
         let i = 0
         while (i < options.length()) {
             let oy  = startY + i * lineH
@@ -3192,15 +3678,15 @@ export public class GuiRenderer {
             let selected = ("" + opt) == ("" + value)
             this.swCircle(bx + 10, oy + 11, 9, this.colBorder)    // contorno (radio 9)
             this.swCircle(bx + 10, oy + 11, 7, this.colInput)     // interior (radio 7)
-            if (selected) { this.swCircle(bx + 10, oy + 11, 4, this.colBtn); }   // punto
-            this.swText(bx + 26, oy + 4, "" + opt, 2, this.colText)
+            if (selected) { this.swCircle(bx + 10, oy + 11, 4, rgDot); }   // punto
+            this.swText(bx + 26, oy + 4, "" + opt, 2, rgText)
             i = i + 1
         }
         if (rfam) { this.swSetFont(""); }
 
         let totalH = options.length() * lineH
         if (totalH == 0) { totalH = lineH; }
-        if (focused) { this.drawFocusRing(bx, startY, this.colWidth, totalH); }
+        if (focused) { this.drawFocusRing("RadioGroup", bx, startY, this.colWidth, totalH); }
 
         this.regions.push(["RadioGroup", bx, startY, this.colWidth, totalH, node])
         this.cy = startY + totalH + 10
@@ -3234,11 +3720,12 @@ export public class GuiRenderer {
         let knobX  = bx + filled
 
         let tyv = by + 13
+        let acc = this.colorFor("Slider", "background-color", this.colBtn)   // acento (fill+knob)
         this.swRect(bx, tyv, trackW, 4, this.colBorder)
-        this.swRect(bx, tyv, filled, 4, this.colBtn)
-        this.swRect(knobX - 5, by + 5, 10, 18, this.colBtn)
-        this.swText(bx + trackW + 12, by + 7, "" + value, 2, this.colText)
-        if (focused) { this.drawFocusRing(bx, by, this.colWidth, bh); }
+        this.swRect(bx, tyv, filled, 4, acc)
+        this.swRect(knobX - 5, by + 5, 10, 18, acc)
+        this.swText(bx + trackW + 12, by + 7, "" + value, 2, this.colorFor("Slider", "color", this.colText))
+        if (focused) { this.drawFocusRing("Slider", bx, by, this.colWidth, bh); }
 
         this.regions.push(["Slider", bx, by, trackW, bh, node])
         this.cy = this.cy + bh + 12
@@ -3263,9 +3750,9 @@ export public class GuiRenderer {
         if (v < 0) { v = 0; }
         if (v > span) { v = span; }
 
-        this.fillBox("ProgressBar", bx, by, bw, bh, this.colInput)
+        this.fillBox("ProgressBar", bx, by, bw, bh, this.colorFor("ProgressBar", "background-color", this.colInput))
         this.fillBox("ProgressBar", bx, by, (v * bw) / span, bh, this.colBtn)
-        if (label != null) { this.swText(bx + 8, by + 4, "" + label, 1, this.colText); }
+        if (label != null) { this.swText(bx + 8, by + 4, "" + label, 1, this.colorFor("ProgressBar", "color", this.colText)); }
         this.cy = this.cy + bh + 12
     }
 
@@ -3466,7 +3953,7 @@ export public class GuiRenderer {
         this.swText(bx + 10, by + 9, "" + value, 2, this.colorFor("Dropdown", "color", this.colText))
         if (dfam) { this.swSetFont(""); }
         this.drawTriDown(bx + bw - 16, by + 14, 4, this.colMuted)
-        if (focused) { this.drawFocusRing(bx, by, bw, bh); }
+        if (focused) { this.drawFocusRing("Dropdown", bx, by, bw, bh); }
 
         this.regions.push(["Dropdown", bx, by, bw, bh, node])
 
@@ -3531,7 +4018,7 @@ export public class GuiRenderer {
         this.swText(bx, by, label, scale, col)
         if (fam) { this.swSetFont(""); }
         this.swRect(bx, by + 8 * scale + 1, lw, 1, col)
-        if (focused) { this.drawFocusRing(bx, by, lw, 8 * scale + 4); }
+        if (focused) { this.drawFocusRing("Link", bx, by, lw, 8 * scale + 4); }
 
         this.regions.push(["Link", bx, by, lw, 8 * scale + 4, node])
         this.lastW = lw
@@ -3640,6 +4127,7 @@ export public class GuiRenderer {
         this.colWidth = savedColW
         this.cx       = startX
         this.cy       = startY + maxH
+        this.lastW    = savedColW   // la Row ocupa su columna completa (para Rows anidadas)
     }
 
     // ── Sombra suave (alpha) ───────────────────────────────────────────────────
@@ -3745,9 +4233,11 @@ export public class GuiRenderer {
         let ty    = (rowH - 8 * scale) / 2
         if (ty < 2) { ty = 2; }
 
+        let tblText = this.colorFor("Table", "color", this.colText)
+        let tblHead = this.colorFor("Table", "background-color", this.colBtn)
         let y = by
         if (columns.length() > 0) {
-            this.swRect(bx, y, bw, rowH, this.colBtn)
+            this.swRect(bx, y, bw, rowH, tblHead)
             let c = 0
             while (c < ncol) {
                 let label = ""
@@ -3768,7 +4258,7 @@ export public class GuiRenderer {
             while (c2 < ncol) {
                 let cell = ""
                 if (c2 < row.length()) { cell = "" + row[c2]; }
-                this.swText(bx + c2 * cellW + 8, y + ty, this.fitCell(cell, cellW - 16, scale), scale, this.colText)
+                this.swText(bx + c2 * cellW + 8, y + ty, this.fitCell(cell, cellW - 16, scale), scale, tblText)
                 c2 = c2 + 1
             }
             y = y + rowH
@@ -3800,6 +4290,9 @@ export public class GuiRenderer {
         if (kind == "success") { col = 0x16a34a; }
         else if (kind == "warn") { col = 0xd97706; }
         else if (kind == "error") { col = 0xdc2626; }
+        // El .szs pisa el color del `kind` (paridad con el nativo: UA por kind,
+        // la hoja del app gana): Toast { background-color / color }.
+        col = this.colorFor("Toast", "background-color", col)
 
         let bx = this.cx
         let by = this.cy
@@ -3807,7 +4300,9 @@ export public class GuiRenderer {
         let bh = 34
         this.softShadow(bx, by, bw, bh)
         this.swRoundRect(bx, by, bw, bh, 6, col)
-        this.swText(bx + 12, by + 9, "" + msg, 2, 0xffffff)
+        let tfam = this.setFam("Toast")
+        this.swText(bx + 12, by + 9, "" + msg, 2, this.colorFor("Toast", "color", 0xffffff))
+        if (tfam) { this.swSetFont(""); }
         this.cy = this.cy + bh + 12
     }
 
@@ -3844,15 +4339,21 @@ export public class GuiRenderer {
         let my = (this.h - mh) / 2
         this.modalBoxX = mx; this.modalBoxY = my; this.modalBoxW = mw; this.modalBoxH = mh
         this.softShadow(mx, my, mw, mh)
-        this.swRoundRect(mx, my, mw, mh, 10, this.colInput)
-        this.swRectOutline(mx, my, mw, mh, this.colBorder)
+        // Caja y borde estilables con `Modal { background-color / border }` (.szs).
+        this.swRoundRect(mx, my, mw, mh, 10, this.colorFor("Modal", "background-color", this.colInput))
+        let mbord = this.borderColorFor("Modal")
+        if (mbord < 0) { mbord = this.colBorder; }
+        this.swRectOutline(mx, my, mw, mh, mbord)
 
         let innerX = mx + 18
         let innerW = mw - 36
         let topY   = my + 16
         let title  = node.getProp("title")
         if (title != null) {
-            this.swText(innerX, topY, "" + title, 2, this.colText)
+            // Fuente real para el título (sin esto salía con la rejilla monoespaciada).
+            let mfam = this.setFam("Modal")
+            this.swText(innerX, topY, "" + title, 2, this.colorFor("Modal", "color", this.colText))
+            if (mfam) { this.swSetFont(""); }
             topY = topY + 28
             this.swRect(innerX, topY, innerW, 1, this.colBorder)
             topY = topY + 12
@@ -3992,7 +4493,7 @@ export public class GuiRenderer {
     // Sin hijos bloque = el camino de siempre (collectText), cero cambios.
     public void renderTextTag(string tag, any node, int scale, int color, int blockGap) {
         if (!this.hasBlockKids(node)) {
-            this.drawWrapped(tag, this.collectText(node), scale, color, blockGap)
+            this.drawWrapped(tag, this.collectText(node), scale, color, blockGap, node)
             return
         }
         let children = node.getChildren()
@@ -4004,7 +4505,7 @@ export public class GuiRenderer {
                 run = run + this.collectText(k)
             } else {
                 if (run != "") {
-                    this.drawWrapped(tag, run, scale, color, blockGap)
+                    this.drawWrapped(tag, run, scale, color, blockGap, node)
                     run = ""
                 }
                 this.renderNode(k)
@@ -4012,7 +4513,7 @@ export public class GuiRenderer {
             i = i + 1
         }
         if (run != "") {
-            this.drawWrapped(tag, run, scale, color, blockGap)
+            this.drawWrapped(tag, run, scale, color, blockGap, node)
         }
     }
 }

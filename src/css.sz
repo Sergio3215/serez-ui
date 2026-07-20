@@ -109,6 +109,14 @@ export fn bool cssCondEval(string cvar, string op, string valStr, any ctx) {
     let lv = cssLookup(ctx, cvar)
     if (lv == null) { return false; }
 
+    // Condición sin operador: `body (flag) { … }` — truthy del valor del ctx
+    // ("false", "0", "" y "null" son falsos; cualquier otro valor pasa).
+    // Espejo de css_cond_eval del core (css.rs).
+    if (op == "") {
+        let t = ("" + lv).trim()
+        return !(t == "" || t == "false" || t == "0" || t == "null")
+    }
+
     let bothNum = (lv is int || lv is decimal) && cssIsNum(valStr)
     if (bothNum) {
         let r = cssToNum(valStr)
@@ -303,6 +311,17 @@ export public class Stylesheet {
     public string fontAlias(int i) { return this.fontAliases[i] }
     public string fontPath(int i)  { return this.fontPaths[i] }
 
+    // ¿Hay alguna regla con EXACTAMENTE este selector? (p.ej. "Button:focus").
+    // Lo usa el renderer para saber si el app OPTÓ por marcar el foco.
+    public bool hasSelector(string sel) {
+        let i = 0
+        while (i < this.selectors.length()) {
+            if (this.selectors[i] == sel) { return true }
+            i = i + 1
+        }
+        return false
+    }
+
     // Valor (string) de una prop para un tag dado el ctx, o null. Última gana.
     public any resolveProp(string tag, string prop, any ctx) {
         let found = null
@@ -441,13 +460,19 @@ export fn any parseCss(string src) {
             continue
         }
 
-        // Selector
-        let selRes   = cssReadName(src, i)
-        let selector = selRes[0]
-        i = parseInt(selRes[1])
-        if (selector.length() == 0) { i = i + 1; continue; }
-
-        i = cssSkip(src, i)
+        // Selector COMPLETO hasta `(` (condición) o `{` (decls): admite grupos
+        // `h1, h2` (una regla por parte) y compuestos `div span` / `.card` /
+        // `Button:hover`. El matching del camino interpretado es por TAG exacto
+        // (o `*`), así que una parte compuesta simplemente nunca matchea — antes
+        // el parser la degradaba al último nombre y CONTAMINABA (p.ej.
+        // `section span` estilaba TODOS los span).
+        let selRaw = ""
+        while (i < n && src.charAt(i) != "(" && src.charAt(i) != "\{" && src.charAt(i) != "}") {
+            selRaw = selRaw + src.charAt(i)
+            i = i + 1
+        }
+        selRaw = selRaw.trim()
+        if (selRaw.length() == 0) { i = i + 1; continue; }
 
         // Condición opcional: (var OP literal)
         let hasCond = false
@@ -466,27 +491,38 @@ export fn any parseCss(string src) {
 
         i = cssSkip(src, i)
 
-        // Registrar la regla (arrays planos paralelos)
-        let ruleIndex = selectors.length()
-        selectors.push(selector)
-        hasConds.push(hasCond)
-        condVars.push(cvar)
-        condOps.push(cop)
-        condVals.push(cval)
-
-        // Declaraciones → arrays planos globales enlazados por ruleIndex
+        // Declaraciones (se leen UNA vez y se duplican por cada parte del grupo,
+        // manteniendo el rango contiguo por regla que precomputa Stylesheet).
+        let dprops = []
+        let dvals  = []
         if (i < n && src.charAt(i) == "\{") {
-            let res   = cssReadDecls(src, i + 1)
-            let props = res[0]
-            let vals  = res[1]
+            let res = cssReadDecls(src, i + 1)
+            dprops = res[0]
+            dvals  = res[1]
             i = parseInt(res[2])
-            let k = 0
-            while (k < props.length()) {
-                declProps.push(props[k])
-                declVals.push(vals[k])
-                declRuleIdx.push(ruleIndex)
-                k = k + 1
+        }
+
+        // Registrar una regla por parte del grupo (arrays planos paralelos)
+        let parts = selRaw.split(",")
+        let pi = 0
+        while (pi < parts.length()) {
+            let part = parts[pi].trim()
+            if (part.length() > 0) {
+                let ruleIndex = selectors.length()
+                selectors.push(part)
+                hasConds.push(hasCond)
+                condVars.push(cvar)
+                condOps.push(cop)
+                condVals.push(cval)
+                let k = 0
+                while (k < dprops.length()) {
+                    declProps.push(dprops[k])
+                    declVals.push(dvals[k])
+                    declRuleIdx.push(ruleIndex)
+                    k = k + 1
+                }
             }
+            pi = pi + 1
         }
     }
 
