@@ -65,14 +65,32 @@ export public class Window {
         this.__hoveredFiles = []  // rutas arrastradas SOBRE la ventana ahora (Gui.hoveredFiles)
         // Paneles (ventanas secundarias, core multi-ventana): ids paralelos.
         // El contenido lo produce renderPanel(id) del PROPIO app (los handlers
-        // capturan el this top-level → identidad preservada). Clicks: todos los
-        // widgets sin estado de foco propio (ver __panelClick). Input/Textarea/
-        // Dropdown editables siguen viviendo en la principal (pendiente routing
-        // de teclado/foco por-panel).
+        // capturan el this top-level → identidad preservada). Input COMPLETO por
+        // panel: cada panel tiene su propio estado de foco/caret/selección/undo/
+        // dropdown (arrays __p*) que el loop swapea sobre los campos __ y corre
+        // handleGuiInput contra su renderer — teclado, mouse y drag como en la
+        // principal (el core acumula los eventos por ventana).
         this.__panelIds  = []   // id de ventana Gui de cada panel abierto
         this.__panelRs   = []   // renderer propio de cada panel
         this.__panelPrev = []   // reservado (el flanco lo da Gui.mousePressed por-ventana)
         this.__panelDirty = false // un click de panel mutó estado → re-render principal
+        // Estado de INPUT por panel (arrays paralelos a __panelIds). El loop lo
+        // SWAPEA sobre los campos __focus/__caret/… antes de correr handleGuiInput
+        // contra el panel (el core ya acumula teclado/mouse POR VENTANA) y lo
+        // guarda de vuelta después — así los campos de texto, dropdowns y el foco
+        // de cada panel viven aislados de la principal y entre sí.
+        this.__pFocus     = []
+        this.__pCaret     = []
+        this.__pSel       = []
+        this.__pDropOpen  = []
+        this.__pDropHi    = []
+        this.__pDragIdx   = []
+        this.__pDragSel   = []
+        this.__pPressX    = []
+        this.__pTaDragOff = []
+        this.__pUndo      = []
+        this.__pRedo      = []
+        this.__pUndoFocus = []
     }
 
     // Override opcional — vdom de un panel (ventana secundaria) por id.
@@ -91,7 +109,91 @@ export public class Window {
         if (this.__sheet != null) { pr.setStyles(this.__sheet, null) }
         this.__panelRs.push(pr)
         this.__panelPrev.push(false)
+        // Estado de input propio del panel (mismos defaults que la principal).
+        this.__pFocus.push(0)
+        this.__pCaret.push(0)
+        this.__pSel.push(0 - 1)
+        this.__pDropOpen.push(false)
+        this.__pDropHi.push(0)
+        this.__pDragIdx.push(0 - 1)
+        this.__pDragSel.push(false)
+        this.__pPressX.push(0 - 1)
+        this.__pTaDragOff.push(0)
+        this.__pUndo.push([])
+        this.__pRedo.push([])
+        this.__pUndoFocus.push(0 - 1)
         return id
+    }
+
+    // Saca el estado de input del panel `i` de todos los arrays (al cerrarlo).
+    public void __panelStateRemove(int i) {
+        this.__pFocus.remove(i)
+        this.__pCaret.remove(i)
+        this.__pSel.remove(i)
+        this.__pDropOpen.remove(i)
+        this.__pDropHi.remove(i)
+        this.__pDragIdx.remove(i)
+        this.__pDragSel.remove(i)
+        this.__pPressX.remove(i)
+        this.__pTaDragOff.remove(i)
+        this.__pUndo.remove(i)
+        this.__pRedo.remove(i)
+        this.__pUndoFocus.remove(i)
+    }
+
+    // Carga el estado de input del panel `i` sobre los campos __ que consume
+    // handleGuiInput y devuelve el snapshot de la PRINCIPAL para restaurar.
+    public any __swapInInput(int i) {
+        let saved = [this.__focus, this.__caret, this.__selAnchor, this.__dropOpen,
+                     this.__dropHi, this.__dragIdx, this.__dragSel, this.__pressX,
+                     this.__taDragOff, this.__undoStack, this.__redoStack,
+                     this.__undoFocus, this.__mouseDown]
+        this.__focus     = this.__pFocus[i]
+        this.__caret     = this.__pCaret[i]
+        this.__selAnchor = this.__pSel[i]
+        this.__dropOpen  = this.__pDropOpen[i]
+        this.__dropHi    = this.__pDropHi[i]
+        this.__dragIdx   = this.__pDragIdx[i]
+        this.__dragSel   = this.__pDragSel[i]
+        this.__pressX    = this.__pPressX[i]
+        this.__taDragOff = this.__pTaDragOff[i]
+        this.__undoStack = this.__pUndo[i]
+        this.__redoStack = this.__pRedo[i]
+        this.__undoFocus = this.__pUndoFocus[i]
+        return saved
+    }
+
+    // Guarda los campos __ (mutados por handleGuiInput) en el panel `i`.
+    public void __storePanelInput(int i) {
+        this.__pFocus[i]     = this.__focus
+        this.__pCaret[i]     = this.__caret
+        this.__pSel[i]       = this.__selAnchor
+        this.__pDropOpen[i]  = this.__dropOpen
+        this.__pDropHi[i]    = this.__dropHi
+        this.__pDragIdx[i]   = this.__dragIdx
+        this.__pDragSel[i]   = this.__dragSel
+        this.__pPressX[i]    = this.__pressX
+        this.__pTaDragOff[i] = this.__taDragOff
+        this.__pUndo[i]      = this.__undoStack
+        this.__pRedo[i]      = this.__redoStack
+        this.__pUndoFocus[i] = this.__undoFocus
+    }
+
+    // Restaura el snapshot de la principal (par de __swapInInput).
+    public void __restoreMainInput(any saved) {
+        this.__focus     = saved[0]
+        this.__caret     = saved[1]
+        this.__selAnchor = saved[2]
+        this.__dropOpen  = saved[3]
+        this.__dropHi    = saved[4]
+        this.__dragIdx   = saved[5]
+        this.__dragSel   = saved[6]
+        this.__pressX    = saved[7]
+        this.__taDragOff = saved[8]
+        this.__undoStack = saved[9]
+        this.__redoStack = saved[10]
+        this.__undoFocus = saved[11]
+        this.__mouseDown = saved[12]
     }
 
     // Índice actual de un panel por id (-1 si ya no está). Los callbacks pueden
@@ -113,6 +215,7 @@ export public class Window {
                 this.__panelIds.remove(i)
                 this.__panelRs.remove(i)
                 this.__panelPrev.remove(i)
+                this.__panelStateRemove(i)
                 return
             }
             i = i + 1
@@ -120,72 +223,6 @@ export public class Window {
     }
 
     public int panelCount() { return this.__panelIds.length() }
-
-    // Despacho de CLICK para una region de un PANEL. Cubre los widgets cuyo
-    // estado vive en el app (el click computa el valor y dispara el callback):
-    // Button/Link/Checkbox/Switch/Select/RadioGroup/Slider/Tabs/Collapsible/
-    // FileInput/ModalClose, más el genérico onClick (TabItem y nativos). Los
-    // widgets con estado de foco/caret/apertura (Input/Textarea/Dropdown)
-    // siguen viviendo en la ventana principal — pendiente routing de teclado
-    // por-panel. Devuelve true si mutó estado (re-render de la principal).
-    public bool __panelClick(any rg, int mx, int my) {
-        let inside = mx >= rg[1] && mx < rg[1] + rg[3] && my >= rg[2] && my < rg[2] + rg[4]
-        if (!inside) { return false }
-        let tag  = rg[0]
-        let node = rg[5]
-        if (node == null) { return false }
-        if (node.getProp("disabled") == true) { return false }
-        if (tag == "Checkbox" || tag == "Switch") {
-            let occ = node.getProp("onChange")
-            if (occ != null) { occ(node.getProp("checked") != true); return true }
-            return false
-        }
-        if (tag == "Select") { this.cycleSelect(node, 1); return true }
-        if (tag == "RadioGroup") {
-            let opts = node.getProp("options")
-            if (opts != null && opts.length() > 0) {
-                let lineH = 26
-                let idx = 0
-                let yy = rg[2]
-                while (yy + lineH <= my) { idx = idx + 1; yy = yy + lineH }
-                if (idx >= opts.length()) { idx = opts.length() - 1 }
-                let oco = node.getProp("onChange")
-                if (oco != null) { oco(opts[idx]); return true }
-            }
-            return false
-        }
-        if (tag == "Slider") { this.sliderFromClick(node, rg, mx); return true }
-        if (tag == "Tabs") {
-            // Interpretado: la region trae los BOUNDS de cada tab en rg[6].
-            // Nativo: cada tab es una region TabItem con su onClick (genérico).
-            if (rg.length() > 6) {
-                let bounds = rg[6]
-                let idx = 0
-                while (idx < bounds.length() && mx >= bounds[idx]) { idx = idx + 1 }
-                if (idx >= bounds.length()) { idx = bounds.length() - 1 }
-                if (idx >= 0) {
-                    let oct = node.getProp("onChange")
-                    if (oct != null) { oct(idx); return true }
-                }
-            }
-            return false
-        }
-        if (tag == "Collapsible" || tag == "Accordion") {
-            let ot = node.getProp("onToggle")
-            if (ot != null) { ot(node.getProp("open") != true); return true }
-            return false
-        }
-        if (tag == "FileInput") { this.openFilePicker(node); return true }
-        if (tag == "ModalClose") {
-            let ocl = node.getProp("onClose")
-            if (ocl != null) { ocl(); return true }
-            return false
-        }
-        // Genérico: cualquier region con onClick (Button/Link/TabItem/…).
-        let onC = node.getProp("onClick")
-        if (onC != null) { onC(); return true }
-        return false
-    }
 
     // Override en subclases — produce el árbol VNode
     public any render() {
@@ -1399,9 +1436,10 @@ export public class Window {
 
             // ── Paneles (ventanas secundarias, multi-ventana del core) ────────
             // Cada panel: seleccionar su ventana, renderizar renderPanel(id) con
-            // SU renderer (escena por-ventana del core), rutear clicks de
-            // Button/Link y presentar. El input de un panel también despierta
-            // idleWait (input_epoch cubre todas las ventanas).
+            // SU renderer y SU estado de input (swap sobre los campos __ +
+            // handleGuiInput completo: teclado, clicks, drag, undo), y presentar.
+            // El input de un panel también despierta idleWait (input_epoch cubre
+            // todas las ventanas).
             let pi = 0
             while (pi < this.__panelIds.length()) {
                 let pid = this.__panelIds[pi]
@@ -1412,6 +1450,7 @@ export public class Window {
                     this.__panelIds.remove(pi)
                     this.__panelRs.remove(pi)
                     this.__panelPrev.remove(pi)
+                    this.__panelStateRemove(pi)
                     continue
                 }
                 let pvdom = this.renderPanel(pid)
@@ -1423,32 +1462,46 @@ export public class Window {
                     pr.setMouse(pm[0], pm[1], Gui.mouseDown())
                     pr.setStyles(this.__sheet, this.styleVars())
                     pr.setNative(this.__native)   // mismo backend que la principal
+                    // Estado de input PROPIO del panel → renderer: los widgets
+                    // editables del panel se dibujan con SU foco/caret/selección/
+                    // dropdown, no con los de la principal.
+                    pr.setFocus(this.__pFocus[pi])
+                    pr.setCaret(this.__pCaret[pi])
+                    pr.setSel(this.__pSel[pi])
+                    pr.setDropOpen(this.__pDropOpen[pi])
+                    pr.setDropHi(this.__pDropHi[pi])
+                    pr.setWinFocused(Gui.focused())
+                    pr.setImePreedit(Gui.imePreedit())
                     pr.setVdomDirty(true)
                     let psz = Gui.size()
                     pr.render(pvdom, psz[0], psz[1])
-                    // El present refresca el snapshot de input del panel; el
-                    // flanco de click se consume JUSTO después (el core lo
-                    // computa POR EVENTO en el acumulador de esa ventana: un
-                    // click corto entre dos presents no se pierde).
+                    // El present refresca el snapshot de input del panel; los
+                    // eventos se consumen JUSTO después (el core acumula POR
+                    // VENTANA: un click o tecla entre dos presents no se pierde).
                     Gui.renderScene(pr.bgColor())
-                    if (Gui.mousePressed()) {
-                        let pm2 = Gui.mouse()
-                        let pregs = pr.getRegions()
-                        let ri = 0
-                        while (ri < pregs.length()) {
-                            let rg = pregs[ri]
-                            // Widgets de click completos (ver __panelClick); un
-                            // callback puede cerrar paneles: ver reubicación abajo.
-                            if (this.__panelClick(rg, pm2[0], pm2[1])) {
-                                this.__panelDirty = true   // re-render de la principal
-                            }
-                            ri = ri + 1
-                        }
+                    // INPUT COMPLETO del panel (teclado + mouse + drag): el estado
+                    // del panel se SWAPEA sobre los campos __ que handleGuiInput
+                    // consume y se corre la MISMA función que usa la principal.
+                    // El teclado solo llega al acumulador de la ventana con foco
+                    // del SO, así que esto no duplica eventos entre ventanas.
+                    let saved = this.__swapInInput(pi)
+                    this.__mouseDown = Gui.mouseDown()
+                    let pm2 = Gui.mouse()
+                    let pchanged = this.handleGuiInput(pr, pm2[0], pm2[1], Gui.mousePressed(),
+                        Gui.charsTyped(), Gui.keysPressed(), Gui.keysRepeated(), Gui.keyDown("Shift"))
+                    // Scroll interno de Textarea pedido DESDE el panel.
+                    if (this.__reqTaScroll) {
+                        pr.scrollToTa(this.__reqTaRg, this.__reqTaMy, this.__taDragOff)
+                        this.__reqTaScroll = false
+                        pchanged = true
                     }
                     // Un callback pudo CERRAR este panel (u otro): reubicar por id
-                    // antes del write-back — asignar por el índice viejo tras un
-                    // remove() explotaba con Index out of bounds.
+                    // antes de los write-backs — asignar por el índice viejo tras
+                    // un remove() explotaba con Index out of bounds.
                     let nidx = this.__panelIndex(pid)
+                    if (nidx >= 0) { this.__storePanelInput(nidx) }
+                    this.__restoreMainInput(saved)
+                    if (pchanged) { this.__panelDirty = true }   // re-render de la principal
                     if (nidx >= 0) {
                         this.__panelRs[nidx] = pr
                         pi = nidx + 1

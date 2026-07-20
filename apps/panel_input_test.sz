@@ -1,0 +1,163 @@
+// panel_input_test.sz — Prueba HEADLESS del estado de input POR PANEL
+// (multi-ventana): swap de contexto (__swapInInput / __storePanelInput /
+// __restoreMainInput), aislamiento de foco/caret/texto/dropdown entre la
+// principal y el panel, persistencia entre "frames" y limpieza al cerrar
+// (__panelStateRemove). Sin abrir ventanas: el "panel" es un stub de regiones
+// y handleGuiInput corre exactamente igual que en el loop real.
+//
+//   Serez-code\target\release\sz.exe serez-ui\apps\panel_input_test.sz
+
+import "serez-ui"
+
+class Checker {
+    public Checker() { this.pass = 0; this.fail = 0 }
+    public void check(string label, bool cond) {
+        if (cond) { this.pass = this.pass + 1; out "  PASS  " + label }
+        else      { this.fail = this.fail + 1; out "  FAIL  " + label }
+    }
+    public int done() { out ""; out "Resultado PANEL-INPUT: " + this.pass + " PASS, " + this.fail + " FAIL"; return this.fail }
+}
+
+// Renderer-stub: regiones + getters de modal que consulta handleGuiInput.
+class StubR {
+    public StubR(any regs) { this.regs = regs }
+    public any getRegions() { return this.regs }
+    public bool modalActive() { return false }
+    public int getModalRegStart() { return 0 }
+}
+
+class App:Window {
+    public App() {
+        super()
+        this.mainTxt  = "abc"
+        this.panelTxt = ""
+        this.panelLang = "es"
+    }
+    // Siembra el estado de un "panel" sin abrir ventana Gui (espejo de lo que
+    // openPanel hace además de Gui.openWindow).
+    public void seedPanel(int fakeId) {
+        this.__panelIds.push(fakeId)
+        this.__panelRs.push(null)
+        this.__panelPrev.push(false)
+        this.__pFocus.push(0)
+        this.__pCaret.push(0)
+        this.__pSel.push(0 - 1)
+        this.__pDropOpen.push(false)
+        this.__pDropHi.push(0)
+        this.__pDragIdx.push(0 - 1)
+        this.__pDragSel.push(false)
+        this.__pPressX.push(0 - 1)
+        this.__pTaDragOff.push(0)
+        this.__pUndo.push([])
+        this.__pRedo.push([])
+        this.__pUndoFocus.push(0 - 1)
+    }
+    public any render() {
+        return h("div", [], [
+            Input([["value", this.mainTxt], ["onChange", (v) => { this.mainTxt = v }]], []),
+            Button([["onClick", () => {}]], ["m"])
+        ])
+    }
+    // vdom del panel CACHEADO en el objeto (como hace mount() con el principal):
+    // construirlo desde una fn top-level pasando `app` por parámetro ataría los
+    // closures a una COPIA (objetos por valor) y el onChange mutaría la copia.
+    public void updatePanel() {
+        this.__pv = h("div", [], [
+            Input([["value", this.panelTxt], ["onChange", (v) => { this.panelTxt = v }]], []),
+            Dropdown([["value", this.panelLang], ["options", ["es", "en"]], ["onChange", (v) => { this.panelLang = v }]], [])
+        ])
+    }
+}
+
+fn any mainRegs(any app) {
+    let c = app.getVDom().getChildren()
+    return new StubR([
+        ["Input",  0,  0, 200, 34, c[0]],
+        ["Button", 0, 50,  80, 40, c[1]]
+    ])
+}
+
+fn any panelRegs(any app) {
+    let c = app.__pv.getChildren()
+    return new StubR([
+        ["Input",    0,  0, 200, 34, c[0]],
+        ["Dropdown", 0, 50, 200, 34, c[1]]
+    ])
+}
+
+let t = new Checker()
+let E = []
+
+let app = new App()
+app.mount()
+
+// ── Estado distintivo en la PRINCIPAL: tipear y mover el foco ────────────────
+out "=== principal: estado previo ==="
+app.handleGuiInput(mainRegs(app), 10, 10, true, "", E, E, false); app.update()
+app.handleGuiInput(mainRegs(app), 0, 0, false, "Z", E, E, false); app.update()
+t.check("principal: 'Z' entra al Input -> 'Zabc'", app.mainTxt == "Zabc")
+app.handleGuiInput(mainRegs(app), 0, 0, false, "", ["Tab"], E, false); app.update()
+t.check("principal: Tab -> foco 1 (Button)", app.__focus == 1)
+let mF = app.__focus
+let mC = app.__caret
+let mS = app.__selAnchor
+
+// ── Swap al panel: arranca con SUS defaults ─────────────────────────────────
+out "=== panel: swap-in con defaults propios ==="
+app.seedPanel(7)
+let saved = app.__swapInInput(0)
+t.check("panel: foco propio = 0", app.__focus == 0)
+t.check("panel: caret propio = 0", app.__caret == 0)
+t.check("panel: sin seleccion", app.__selAnchor == 0 - 1)
+t.check("panel: dropdown cerrado", app.__dropOpen == false)
+
+// ── Tipear en el Input del panel + abrir su Dropdown ────────────────────────
+out "=== panel: tipeo y dropdown propios ==="
+app.updatePanel()
+app.handleGuiInput(panelRegs(app), 10, 10, true, "", E, E, false); app.updatePanel()
+app.handleGuiInput(panelRegs(app), 0, 0, false, "h", E, E, false); app.updatePanel()
+app.handleGuiInput(panelRegs(app), 0, 0, false, "i", E, E, false); app.updatePanel()
+t.check("panel: 'h'+'i' entran al Input DEL PANEL", app.panelTxt == "hi")
+t.check("panel: caret avanzo a 2", app.__caret == 2)
+t.check("principal: su texto NO cambio", app.mainTxt == "Zabc")
+app.handleGuiInput(panelRegs(app), 0, 0, false, "", ["Tab"], E, false); app.updatePanel()
+t.check("panel: Tab -> foco 1 (Dropdown)", app.__focus == 1)
+app.handleGuiInput(panelRegs(app), 0, 0, false, "", ["Space"], E, false); app.updatePanel()
+t.check("panel: Space abre SU dropdown", app.__dropOpen == true)
+
+// ── Volver a la principal: su estado quedo intacto ──────────────────────────
+out "=== principal: restauracion intacta ==="
+let pC = app.__caret   // caret del panel al momento de guardar (Tab lo repositiono)
+app.__storePanelInput(0)
+app.__restoreMainInput(saved)
+t.check("principal: foco restaurado", app.__focus == mF)
+t.check("principal: caret restaurado", app.__caret == mC)
+t.check("principal: seleccion restaurada", app.__selAnchor == mS)
+t.check("principal: dropdown sigue cerrado", app.__dropOpen == false)
+
+// ── Re-entrar al panel: su estado PERSISTIO entre frames ────────────────────
+out "=== panel: persistencia entre frames ==="
+let saved2 = app.__swapInInput(0)
+t.check("panel: foco persistido (Dropdown)", app.__focus == 1)
+t.check("panel: dropdown sigue abierto", app.__dropOpen == true)
+t.check("panel: caret persistido", app.__caret == pC)
+app.__storePanelInput(0)
+app.__restoreMainInput(saved2)
+
+// ── Cierre: la limpieza saca el estado del panel correcto ───────────────────
+out "=== cierre: remocion de estado ==="
+app.seedPanel(9)
+let saved3 = app.__swapInInput(1)
+app.__caret = 42
+app.__storePanelInput(1)
+app.__restoreMainInput(saved3)
+t.check("dos paneles sembrados", app.panelCount() == 2)
+app.__panelIds.remove(0)
+app.__panelRs.remove(0)
+app.__panelPrev.remove(0)
+app.__panelStateRemove(0)
+t.check("queda 1 panel", app.panelCount() == 1)
+t.check("el panel 9 se reubico en el indice 0", app.__panelIndex(9) == 0)
+t.check("su estado viajo con el (caret 42)", app.__pCaret[0] == 42)
+
+t.done()
