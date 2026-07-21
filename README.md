@@ -41,6 +41,12 @@ A component is a class that **extends `Window`** and returns JSX from `render()`
 
 - `render()` — override; returns the VNode tree (JSX).
 - `styleVars()` — override; exposes state to the reactive CSS (`.szs`).
+- **Child → parent callbacks**: pass a method *without* parentheses and the child invokes it —
+  `<TaskRow onPick={this.pick} />` in the parent, `onClick={this.props.onPick}` in the child.
+  `this.pick` is a reference bound to the parent, so calling it mutates the parent's state.
+  Wrapping it (`onPick={() => this.pick()}`) works too, and is what you need when the child
+  supplies no arguments but your method takes some. Requires a core with method references
+  (older cores *ran* the method on read instead of referencing it).
 - `onKey(evt)` / `onMouse(evt)` / `onFrame()` — optional overrides for raw input and per-frame
   work (poll progress, auto-dismiss a `Toast`, animate).
 - **Run it**: `app.runGui(title, w, h)` (native window) or `app.runTui()` (terminal). The event
