@@ -91,6 +91,12 @@ The full reference lives on the Serez-Code site:
   .item (selected or hovered)           { border-color: #3b82f6; }
   .row  (not hidden)                    { display: flex; }
   ```
+
+  There are no grouping parentheses — the sheet scanner closes the condition at the first `)`.
+  Note that composite conditions need a core that also understands them: under
+  `useNativeRenderer(true)` the stylesheet is handed to the core's own CSS engine, and on an
+  older core those rules simply don't apply. The default (interpreted) renderer works on any
+  supported core.
 - **[Build a GUI app](https://serezcode.org/guides/gui-app)** — step-by-step tutorial from
   `sz install` to a working desktop app.
 
