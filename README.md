@@ -82,7 +82,15 @@ The full reference lives on the Serez-Code site:
   API surface.
 - **[`.szs` reference](https://serezcode.org/docs/serez-ui/szs)** — CSS with logic: reactive
   conditions against `styleVars()`, `width`/`height` media queries, the supported property table,
-  and custom fonts (`:font` + `font-family`).
+  and custom fonts (`:font` + `font-family`). Conditions combine with `and` / `or` / `not`
+  (media-query style; `&&` / `||` / `!` are accepted aliases), with the usual precedence —
+  `not` binds tighter than `and`, and `and` tighter than `or`:
+
+  ```css
+  body  (width > 600 and flag == true)  { background-color: #c12; }
+  .item (selected or hovered)           { border-color: #3b82f6; }
+  .row  (not hidden)                    { display: flex; }
+  ```
 - **[Build a GUI app](https://serezcode.org/guides/gui-app)** — step-by-step tutorial from
   `sz install` to a working desktop app.
 

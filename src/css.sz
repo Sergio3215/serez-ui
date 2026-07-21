@@ -305,19 +305,164 @@ export fn any cssParseCond(string s) {
     return [s.trim(), "", ""]
 }
 
+// ── Condiciones compuestas: `and` / `or` / `not` ──────────────────────────────
+//
+// Gramática de la condición de una regla (lo que va entre paréntesis):
+//
+//   cond   := clause (CONN clause)*
+//   CONN   := "and" | "&&" | "or" | "||"
+//   clause := ["not" | "!"] var [op valor]
+//
+// Precedencia habitual: `not` liga más que `and`, y `and` más que `or`; o sea
+// `a or b and c` es `a or (b and c)`. NO hay paréntesis de agrupación: el
+// scanner de la hoja corta la condición en el primer `)`.
+//
+//   body (width > 600 and flag == true) { … }
+//   .a   (flag == true or modo == "x")  { … }
+//   .b   (not oculto)                   { … }
+
+// Quita los `not`/`!` iniciales; devuelve [restoDelTexto, negado].
+export fn any cssStripNot(string seg) {
+    let s = seg.trim()
+    let neg = false
+    let sigue = true
+    while (sigue) {
+        sigue = false
+        if (s.length() > 0 && s.charAt(0) == "!") {
+            // `!=` es el operador de comparación, no una negación.
+            if (!(s.length() > 1 && s.charAt(1) == "=")) {
+                neg = !neg
+                s = s.substring(1, s.length()).trim()
+                sigue = true
+            }
+        } else {
+            if (s.length() >= 3 && s.substring(0, 3).toLowerCase() == "not") {
+                let resto = s.substring(3, s.length())
+                // `not` sólo cuenta como palabra completa (`notify` es un nombre).
+                if (resto.length() == 0 || !cssIsNameChar(resto.charAt(0))) {
+                    neg = !neg
+                    s = resto.trim()
+                    sigue = true
+                }
+            }
+        }
+    }
+    return [s, neg]
+}
+
+// Parte la condición en cláusulas por los conectores de tope. Devuelve
+// [vars, ops, vals, negs, ors] (arrays paralelos, uno por cláusula); `ors[k]`
+// es el conector que precede a la cláusula k (el de la primera se ignora).
+// Las comillas se respetan, así que un valor "and" no parte nada.
+export fn any cssParseCondList(string src) {
+    let vars = []
+    let ops  = []
+    let vals = []
+    let negs = []
+    let ors  = []
+    let n = src.length()
+    let start = 0
+    let i = 0
+    let quote = ""
+    let orConn = false
+    while (i < n) {
+        let c = src.charAt(i)
+        if (quote != "") {
+            if (c == quote) { quote = "" }
+            i = i + 1
+            continue
+        }
+        if (c == "'" || c == "\"") { quote = c; i = i + 1; continue }
+        let dobleAnd = c == "&" && i + 1 < n && src.charAt(i + 1) == "&"
+        let dobleOr  = c == "|" && i + 1 < n && src.charAt(i + 1) == "|"
+        if (dobleAnd || dobleOr) {
+            let seg = src.substring(start, i)
+            if (seg.trim().length() > 0) {
+                let cl = cssPushClause(seg, orConn)
+                vars.push(cl[0]); ops.push(cl[1]); vals.push(cl[2]); negs.push(cl[3]); ors.push(cl[4])
+            }
+            orConn = dobleOr
+            i = i + 2
+            start = i
+            continue
+        }
+        if (cssIsNameChar(c)) {
+            // Sólo el comienzo de una palabra puede ser un conector.
+            if (i > 0 && cssIsNameChar(src.charAt(i - 1))) { i = i + 1; continue }
+            let j = i
+            while (j < n && cssIsNameChar(src.charAt(j))) { j = j + 1 }
+            let w = src.substring(i, j).toLowerCase()
+            if (w == "and" || w == "or") {
+                let seg = src.substring(start, i)
+                if (seg.trim().length() > 0) {
+                    let cl = cssPushClause(seg, orConn)
+                    vars.push(cl[0]); ops.push(cl[1]); vals.push(cl[2]); negs.push(cl[3]); ors.push(cl[4])
+                }
+                orConn = w == "or"
+                start = j
+            }
+            i = j
+            continue
+        }
+        i = i + 1
+    }
+    let seg = src.substring(start, n)
+    if (seg.trim().length() > 0) {
+        let cl = cssPushClause(seg, orConn)
+        vars.push(cl[0]); ops.push(cl[1]); vals.push(cl[2]); negs.push(cl[3]); ors.push(cl[4])
+    }
+    return [vars, ops, vals, negs, ors]
+}
+
+// Una cláusula ya aislada → [var, op, val, negado, orConn].
+export fn any cssPushClause(string seg, bool orConn) {
+    let sn = cssStripNot(seg)
+    let p  = cssParseCond(sn[0])
+    return [p[0], p[1], p[2], sn[1], orConn]
+}
+
+// Evalúa la condición completa: OR de grupos AND, con `not` ya por cláusula.
+export fn bool cssCondEvalAll(any vars, any ops, any vals, any negs, any ors, any ctx) {
+    let done  = false   // acumulado de los grupos AND ya cerrados
+    let group = true    // grupo AND en curso
+    let k = 0
+    while (k < vars.length()) {
+        let v = cssCondEval(vars[k], ops[k], vals[k], ctx)
+        if (negs[k]) { v = !v }
+        if (k == 0) {
+            group = v
+        } else {
+            if (ors[k]) {
+                done = done || group   // `or` cierra el grupo AND anterior
+                group = v
+            } else {
+                group = group && v
+            }
+        }
+        k = k + 1
+    }
+    return done || group
+}
+
 // ── Stylesheet (arrays planos paralelos) ───────────────────────────────────────
 
 export public class Stylesheet {
     // Reglas (paralelas por índice ri):
-    //   selectors[ri], hasConds[ri], condVars[ri], condOps[ri], condVals[ri]
+    //   selectors[ri], hasConds[ri], condVars[ri], condOps[ri], condVals[ri],
+    //   condNegs[ri], condOrs[ri]
+    // Los cinco `cond*` son ARRAYS por regla (una entrada por cláusula de la
+    // condición): `flag == true and w > 600` deja dos cláusulas. condNegs marca
+    // el `not` de cada una y condOrs el conector que la precede.
     // Declaraciones (paralelas por índice di), enlazadas a su regla:
     //   declRuleIdx[di], declProps[di], declVals[di]
-    public Stylesheet(any selectors, any hasConds, any condVars, any condOps, any condVals, any declRuleIdx, any declProps, any declVals, any fontAliases, any fontPaths) {
+    public Stylesheet(any selectors, any hasConds, any condVars, any condOps, any condVals, any condNegs, any condOrs, any declRuleIdx, any declProps, any declVals, any fontAliases, any fontPaths) {
         this.selectors   = selectors
         this.hasConds    = hasConds
         this.condVars    = condVars
         this.condOps     = condOps
         this.condVals    = condVals
+        this.condNegs    = condNegs
+        this.condOrs     = condOrs
         this.declRuleIdx = declRuleIdx
         this.declProps   = declProps
         this.declVals    = declVals
@@ -376,7 +521,7 @@ export public class Stylesheet {
             if (sel == tag || sel == "*") {
                 let pass = true
                 if (this.hasConds[ri]) {
-                    pass = cssCondEval(this.condVars[ri], this.condOps[ri], this.condVals[ri], ctx)
+                    pass = cssCondEvalAll(this.condVars[ri], this.condOps[ri], this.condVals[ri], this.condNegs[ri], this.condOrs[ri], ctx)
                 }
                 if (pass) {
                     let ds = this.declStart[ri]
@@ -418,7 +563,7 @@ export public class Stylesheet {
             if (sel == tag || sel == "*") {
                 let pass = true
                 if (this.hasConds[ri]) {
-                    pass = cssCondEval(this.condVars[ri], this.condOps[ri], this.condVals[ri], ctx)
+                    pass = cssCondEvalAll(this.condVars[ri], this.condOps[ri], this.condVals[ri], this.condNegs[ri], this.condOrs[ri], ctx)
                 }
                 if (pass) {
                     let ds = this.declStart[ri]
@@ -466,6 +611,8 @@ export fn any parseCss(string src) {
     let condVars    = []
     let condOps     = []
     let condVals    = []
+    let condNegs    = []
+    let condOrs     = []
     let declRuleIdx = []
     let declProps   = []
     let declVals    = []
@@ -521,17 +668,20 @@ export fn any parseCss(string src) {
 
         // Condición opcional: (var OP literal)
         let hasCond = false
-        let cvar = ""
-        let cop  = ""
-        let cval = ""
+        let cvar = []
+        let cop  = []
+        let cval = []
+        let cneg = []
+        let cor  = []
         if (i < n && src.charAt(i) == "(") {
             i = i + 1
             let condStr = ""
             while (i < n && src.charAt(i) != ")") { condStr = condStr + src.charAt(i); i = i + 1; }
             if (i < n) { i = i + 1; }
-            let parsed = cssParseCond(condStr)
-            cvar = parsed[0]; cop = parsed[1]; cval = parsed[2]
-            hasCond = true
+            let parsed = cssParseCondList(condStr)
+            cvar = parsed[0]; cop = parsed[1]; cval = parsed[2]; cneg = parsed[3]; cor = parsed[4]
+            // `()` vacío = sin condición (no una condición que nunca pasa).
+            hasCond = cvar.length() > 0
         }
 
         i = cssSkip(src, i)
@@ -559,6 +709,8 @@ export fn any parseCss(string src) {
                 condVars.push(cvar)
                 condOps.push(cop)
                 condVals.push(cval)
+                condNegs.push(cneg)
+                condOrs.push(cor)
                 let k = 0
                 while (k < dprops.length()) {
                     declProps.push(dprops[k])
@@ -571,7 +723,7 @@ export fn any parseCss(string src) {
         }
     }
 
-    let sheet = new Stylesheet(selectors, hasConds, condVars, condOps, condVals, declRuleIdx, declProps, declVals, fontAliases, fontPaths)
+    let sheet = new Stylesheet(selectors, hasConds, condVars, condOps, condVals, condNegs, condOrs, declRuleIdx, declProps, declVals, fontAliases, fontPaths)
     sheet.setRaw(src)
     return sheet
 }
