@@ -49,11 +49,23 @@ A component is a class that **extends `Window`** and returns JSX from `render()`
   one step — the web syntax disappears, there is no web runtime.
 - **Style**: attach a `.szs` stylesheet (CSS with reactive conditions and `width`/`height` media
   queries) with `app.useStylesheet(parseCss(File.read("counter.szs")))` before `runGui`.
+- **Focus marks are opt-in** (v4.4): clicking a widget leaves no ring by default. Declare
+  `Input:focus { border-color: #22d3ee }` per widget or a global `*:focus { border: 2px solid #f43f5e }`
+  in the `.szs` to mark the focused widget (`:active-focus` is an accepted alias).
+- **Secondary windows**: `openPanel(title, w, h)` opens extra native windows whose content comes
+  from your `renderPanel(id)` override. Since v4.4 each panel carries its **own full input state**
+  — focus, caret/selection, editable `Input`/`Textarea`, `Dropdown`, undo — isolated from the main
+  window; the keyboard follows whichever window has OS focus. `closePanel(id)` is safe to call
+  from a panel's own callbacks.
 - **Responsive by default**: the GUI reflows on resize, block text word-wraps, and content taller
   than the window scrolls with the mouse wheel. For structural changes read `app.breakpoint()`
   (`"sm"`/`"md"`/`"lg"`) inside `render()`.
 - `app.useNativeRenderer(true)` (before `runGui`, core ≥ 9.2) opts into the core's native
-  layout/CSS/paint engine — same components, same `.szs`, much faster.
+  layout/CSS/paint engine — same components, same `.szs`, much faster. With core ≥ 9.3 both
+  renderers are at visual parity: class selectors, color/`font-scale`/`opacity` inheritance,
+  multi-value `padding`, `width` in px/%, `overflow: scroll` clipping, `line-height`,
+  `white-space: nowrap`, custom `:font` families and `position: absolute` badges render the same
+  on both paths.
 
 ## Documentation
 
