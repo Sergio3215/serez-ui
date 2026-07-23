@@ -12,6 +12,11 @@ export public class VNode {
         this.props    = props
         this.children = children
         this.key      = null
+        // Variables de estado (.szs) que expone el Component que produjo este
+        // nodo (styleVars() derivadas de props). null = ninguna. La Window raíz
+        // las recolecta recorriendo el vdom (ver Window.__allStyleVars). Se guarda
+        // FUERA de props a propósito: así no interfiere con diff/render/atributos.
+        this.svars    = null
     }
 
     public string getTag() {
@@ -51,5 +56,14 @@ export public class VNode {
             i = i + 1
         }
         this.props.push([name, val])
+    }
+
+    // styleVars() del Component que produjo este nodo (o null). Ver __renderComponent.
+    public any getStyleVars() {
+        return this.svars
+    }
+
+    public void setStyleVars(any v) {
+        this.svars = v
     }
 }

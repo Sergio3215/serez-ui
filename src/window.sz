@@ -47,6 +47,7 @@ export public class Window {
         this.__reqTaRg     = null
         this.__taDragOff   = 0    // offset del agarre del thumb del Textarea (arrastre 1:1)
         this.__sheet    = null   // Stylesheet (.szs) opcional
+        this.__svAcc    = []     // acumulador de styleVars() recolectadas del vdom (__allStyleVars)
         this.__native   = false  // camino de render nativo (Fase 3): layout+CSS+paint en el core
         this.__minW     = 0      // min-width del contenido GUI (0 = sin límite)
         this.__maxW     = 0      // max-width del contenido GUI (0 = sin límite)
@@ -370,7 +371,43 @@ export public class Window {
 
     // Override en subclases: contexto de estado para el CSS reactivo (.szs).
     // Devuelve [[nombre, valor], ...] con las variables usadas en las condiciones.
+    // Lo overridean tanto la Window raíz como los Component: el motor agrega las
+    // styleVars() de TODO el árbol (raíz + componentes) vía __allStyleVars, así una
+    // condición .szs reacciona al estado que vive en un componente hijo. En un
+    // Component las variables deben derivar de props (this.props[...]); su estado
+    // interno es efímero por frame y no persiste.
     public any styleVars() { return []; }
+
+    // Recorre el vdom acumulando en this.__svAcc las styleVars que los Component
+    // estamparon en sus nodos (ver __renderComponent). Recursivo; los primitivos
+    // (texto) se ignoran. Acumula en un campo (no en un parámetro) porque los arrays
+    // se pasan POR VALOR: un acumulador-parámetro perdería los push.
+    public void __walkStyleVars(any node) {
+        if (type_of(node) == "VNode") {
+            let sv = node.getStyleVars()
+            if (sv != null) {
+                let i = 0
+                while (i < sv.length()) { this.__svAcc.push(sv[i]); i = i + 1 }
+            }
+            let kids = node.getChildren()
+            let k = 0
+            while (k < kids.length()) { this.__walkStyleVars(kids[k]); k = k + 1 }
+        }
+    }
+
+    // Contexto de estado COMPLETO para el .szs: styleVars() de ESTA Window +
+    // styleVars() de todos los Component del árbol `vdom` (derivadas de props).
+    // Así una condición .szs reacciona al estado que vive en un componente hijo,
+    // no solo en la Window raíz. `vdom` = el árbol ya construido (this.vdom para la
+    // ventana principal; el pvdom del panel para las secundarias).
+    public any __allStyleVars(any vdom) {
+        this.__svAcc = []
+        let base = this.styleVars()
+        let b = 0
+        while (b < base.length()) { this.__svAcc.push(base[b]); b = b + 1 }
+        if (vdom != null) { this.__walkStyleVars(vdom); }
+        return this.__svAcc
+    }
 
     // Hoja de estilos (.szs) para el render GUI. Llamar antes de runGui().
     public void useStylesheet(any sheet) { this.__sheet = sheet }
@@ -1205,7 +1242,7 @@ export public class Window {
         r.setSel(this.__selAnchor)
         r.setDropOpen(this.__dropOpen)
         r.setDropHi(this.__dropHi)
-        r.setStyles(this.__sheet, this.styleVars())
+        r.setStyles(this.__sheet, this.__allStyleVars(this.getVDom()))
         r.setWidthBounds(this.__minW, this.__maxW)
         r.setNative(this.__native)
         let curW = width
@@ -1422,7 +1459,7 @@ export public class Window {
                 r.setWinFocused(winFoc)
                 r.setImePreedit(pre)
                 r.setFilesHovering(this.__hoveredFiles.length() > 0)
-                r.setStyles(this.__sheet, this.styleVars())
+                r.setStyles(this.__sheet, this.__allStyleVars(this.getVDom()))
                 r.setWidthBounds(this.__minW, this.__maxW)
                 // vdom solo se reconstruye (update) en cambio de estado/resize; en scroll/blink
                 // es idéntico → el renderer reusa el caché de segmentos sin comparar strings.
@@ -1460,7 +1497,7 @@ export public class Window {
                     let pr = this.__panelRs[pi]
                     let pm = Gui.mouse()
                     pr.setMouse(pm[0], pm[1], Gui.mouseDown())
-                    pr.setStyles(this.__sheet, this.styleVars())
+                    pr.setStyles(this.__sheet, this.__allStyleVars(pvdom))
                     pr.setNative(this.__native)   // mismo backend que la principal
                     // Estado de input PROPIO del panel → renderer: los widgets
                     // editables del panel se dibujan con SU foco/caret/selección/

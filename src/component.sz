@@ -21,6 +21,7 @@
 // React donde props "aparecen" disponibles.
 
 import "window"
+import "h"
 
 export public class Component:Window {
     public Component() {
@@ -54,7 +55,21 @@ export fn any __makeProps(any pairs) {
 // __renderComponent(new MiComp(), props, children) → VNode
 // Inyecta props/children en la instancia y devuelve su árbol renderizado.
 // El resultado se inserta como un child más; h() lo aplana si hace falta.
+//
+// Si el Component override styleVars() (variables .szs derivadas de props), las
+// ESTAMPA en el VNode devuelto: la Window raíz las recolecta recorriendo el vdom
+// (Window.__allStyleVars), de modo que el CSS reactivo también reacciona al estado
+// que vive en los componentes, no solo en la Window raíz. Solo aplica a styleVars()
+// derivadas de props (el estado interno del componente es efímero por frame).
 export fn any __renderComponent(any comp, any props, any children) {
     comp._init(props, children)
-    return comp.render()
+    let tree = comp.render()
+    let vars = comp.styleVars()
+    if (vars.length() > 0) {
+        // El árbol debe ser un VNode para poder estampar; si el componente devolvió
+        // texto o un array crudo, lo envolvemos en un fragment (transparente al render).
+        if (type_of(tree) != "VNode") { tree = hFrag([tree]); }
+        tree.setStyleVars(vars)
+    }
+    return tree
 }
