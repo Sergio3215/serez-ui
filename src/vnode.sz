@@ -50,7 +50,9 @@ export public class VNode {
         let i = 0
         while (i < this.props.length()) {
             if (this.props[i][0] == name) {
-                this.props[i][1] = val
+                // Reasignar el PAR entero: `this.props[i][1] = val` falla porque
+                // `this.props[i]` es una copia temporal (arrays por valor en serez-code).
+                this.props[i] = [name, val]
                 return
             }
             i = i + 1

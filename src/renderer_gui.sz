@@ -650,17 +650,29 @@ export public class GuiRenderer {
         if (this.sheet == null) { return null; }
         let v = this.styleRaw(tag, prop)
         if (node == null) { return v; }
+        // Cascada por especificidad: tag < clase < id (el id gana, como en la web).
         let cls = node.getProp("class")
-        if (cls == null) { return v; }
-        let parts = ("" + cls).trim().split(" ")
-        let i = 0
-        while (i < parts.length()) {
-            let c = parts[i].trim()
-            if (c.length() > 0) {
-                let cv = this.styleRaw("." + c, prop)
-                if (cv != null) { v = cv }
+        if (cls != null) {
+            let parts = ("" + cls).trim().split(" ")
+            let i = 0
+            while (i < parts.length()) {
+                let c = parts[i].trim()
+                if (c.length() > 0) {
+                    let cv = this.styleRaw("." + c, prop)
+                    if (cv != null) { v = cv }
+                }
+                i = i + 1
             }
-            i = i + 1
+        }
+        // Selector por id (`#main` sobre `id="main"`). La infraestructura matchea por
+        // string exacto, así que "#id" entra por el mismo styleRaw (y su caché).
+        let id = node.getProp("id")
+        if (id != null) {
+            let idStr = ("" + id).trim()
+            if (idStr.length() > 0) {
+                let iv = this.styleRaw("#" + idStr, prop)
+                if (iv != null) { v = iv }
+            }
         }
         return v
     }

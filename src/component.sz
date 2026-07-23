@@ -52,6 +52,71 @@ export fn any __makeProps(any pairs) {
     return d
 }
 
+// ── Reenvío de class/id de componente → nodo raíz (helpers, antes del caller
+//    porque en serez-code una fn debe estar definida antes de invocarse) ────────
+
+// ¿el dict `props` tiene la clave `k`? (acceso directo a dict lanza en clave ausente).
+export fn bool __propsHas(any props, string k) {
+    let ks = props.keys()
+    let i = 0
+    while (i < ks.length()) {
+        if (ks[i] == k) { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// ¿`tag` es un elemento pintable (no un fragment/texto interno)?
+export fn bool __isElementTag(string tag) {
+    return tag != "__fragment__" && tag != "__text__"
+}
+
+// Mergea dos listas de clases (separadas por espacio) sin duplicar tokens, para que
+// un componente que reenvía la clase a mano Y el auto-forward no den `"card card"`.
+export fn string __mergeClasses(string existing, string incoming) {
+    let res = existing.trim()
+    let seen = res.split(" ")
+    let inc = incoming.trim().split(" ")
+    let j = 0
+    while (j < inc.length()) {
+        let tok = inc[j].trim()
+        if (tok.length() > 0) {
+            let dup = false
+            let k = 0
+            while (k < seen.length()) {
+                if (seen[k].trim() == tok) { dup = true }
+                k = k + 1
+            }
+            if (!dup) {
+                if (res.length() > 0) { res = res + " " + tok } else { res = tok }
+                seen.push(tok)
+            }
+        }
+        j = j + 1
+    }
+    return res
+}
+
+// Copia el atributo `name` de los props del componente al VNode raíz y DEVUELVE el
+// tree (los objetos se pasan por VALOR en serez-code: hay que reasignar el retorno
+// para conservar la mutación — el llamador hace `tree = __forwardAttr(tree, ...)`).
+// merge=true → la clase entrante se APPENDEA a la existente (ambas aplican).
+// merge=false → solo se copia si el raíz no tenía ninguno (el del render gana).
+export fn any __forwardAttr(any tree, any props, string name, bool merge) {
+    if (!__propsHas(props, name)) { return tree; }
+    let incoming = ("" + props[name]).trim()
+    if (incoming.length() == 0) { return tree; }
+    let existing = tree.getProp(name)
+    if (existing == null) {
+        tree.setProp(name, incoming)
+    } else {
+        if (merge) {
+            tree.setProp(name, __mergeClasses("" + existing, incoming))
+        }
+    }
+    return tree
+}
+
 // __renderComponent(new MiComp(), props, children) → VNode
 // Inyecta props/children en la instancia y devuelve su árbol renderizado.
 // El resultado se inserta como un child más; h() lo aplana si hace falta.
@@ -70,6 +135,17 @@ export fn any __renderComponent(any comp, any props, any children) {
         // texto o un array crudo, lo envolvemos en un fragment (transparente al render).
         if (type_of(tree) != "VNode") { tree = hFrag([tree]); }
         tree.setStyleVars(vars)
+    }
+    // Reenvía `class`/`id` de los props del componente al VNode raíz que produce,
+    // para que `<MiComp class="x" id="y">` aplique `.x`/`#y` sobre su nodo raíz (como
+    // React reenviando className/id — pero automático). Sin esto, la clase quedaba en
+    // `this.props["class"]` y nunca llegaba a un nodo, así que `.x` no matcheaba.
+    //   - class: se MERGEA (append) con la que el render ya haya puesto → aplican ambas.
+    //   - id: se pone solo si el raíz no declaró uno (la identidad interna del render gana).
+    // Solo a un nodo-elemento raíz (no fragment/texto: no se pintan como elemento).
+    if (type_of(tree) == "VNode" && __isElementTag(tree.getTag())) {
+        tree = __forwardAttr(tree, props, "class", true)
+        tree = __forwardAttr(tree, props, "id", false)
     }
     return tree
 }
