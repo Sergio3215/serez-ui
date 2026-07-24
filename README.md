@@ -103,6 +103,30 @@ The full reference lives on the Serez-Code site:
   `useNativeRenderer(true)` the stylesheet is handed to the core's own CSS engine, and on an
   older core those rules simply don't apply. The default (interpreted) renderer works on any
   supported core.
+
+  Group many rules under **one** shared condition with **`@when` blocks** — a single logic gate
+  for several selectors (tags, `.classes`, `#ids`), so you don't repeat the condition rule by
+  rule. The query is the same `.szs` logic (a `styleVars()` variable, or `width`/`height`), not
+  just a media query. **`@else`** is the complement of the preceding `@when`, and **`@else (cond)`**
+  chains else-if; the branches are mutually exclusive (first match wins), so there's no need to
+  negate ranges by hand:
+
+  ```css
+  @when (width < 300 and darkMode) {
+      body   { color: #fff }
+      .card  { padding: 8 }
+      #main  { gap: 4 }
+  }
+
+  @when (width < 200) { body { color: #100 } }
+  @else (width < 400) { body { color: #200 } }
+  @else               { body { color: #300 } }
+  ```
+
+  Blocks nest (`@when` inside `@when` — conditions are AND-ed) and a rule inside a block may keep
+  its own `(cond)`, combined with the block's. `@else` negates the *whole* preceding condition, so
+  composites like `(a or b)` complement correctly. Unknown at-rules (`@media`, …) are discarded.
+  The same core-parity note applies under `useNativeRenderer(true)`.
 - **[Build a GUI app](https://serezcode.org/guides/gui-app)** — step-by-step tutorial from
   `sz install` to a working desktop app.
 
