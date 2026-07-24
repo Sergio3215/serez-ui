@@ -444,25 +444,40 @@ export fn bool cssCondEvalAll(any vars, any ops, any vals, any negs, any ors, an
     return done || group
 }
 
+// Evalúa la condición de una regla: AND de TÉRMINOS, cada uno negable. Todos deben
+// pasar. Cada término es [neg, vars, ops, vals, negs, ors]: los aportan la condición
+// propia de la regla y los bloques @when/@else que la envuelven (esos suman las
+// negaciones de las ramas previas). Negar el RESULTADO del término —y no cada
+// cláusula— evita aplicar De Morgan a condiciones compuestas. Lista vacía pasa.
+export fn bool cssTermsEvalAll(any terms, any ctx) {
+    let t = 0
+    while (t < terms.length()) {
+        let term = terms[t]
+        let v = cssCondEvalAll(term[1], term[2], term[3], term[4], term[5], ctx)
+        if (term[0]) { v = !v }
+        if (!v) { return false }
+        t = t + 1
+    }
+    return true
+}
+
 // ── Stylesheet (arrays planos paralelos) ───────────────────────────────────────
 
 export public class Stylesheet {
     // Reglas (paralelas por índice ri):
-    //   selectors[ri], hasConds[ri], condVars[ri], condOps[ri], condVals[ri],
-    //   condNegs[ri], condOrs[ri]
-    // Los cinco `cond*` son ARRAYS por regla (una entrada por cláusula de la
-    // condición): `flag == true and w > 600` deja dos cláusulas. condNegs marca
-    // el `not` de cada una y condOrs el conector que la precede.
+    //   selectors[ri], hasConds[ri], condTerms[ri]
+    // condTerms[ri] es la condición de la regla como AND de TÉRMINOS. Cada término
+    // es [neg, vars, ops, vals, negs, ors]: una condición completa (OR-de-ANDs, los
+    // cinco arrays paralelos por cláusula — `flag == true and w > 600` deja dos) más
+    // un flag `neg` que niega su RESULTADO entero. Una regla suelta `sel (c) {}` tiene
+    // un único término sin negar; los bloques `@when`/`@else` apilan términos: `@when
+    // (C)` suma C y un `@else` posterior suma ¬C (más su propia condición).
     // Declaraciones (paralelas por índice di), enlazadas a su regla:
     //   declRuleIdx[di], declProps[di], declVals[di]
-    public Stylesheet(any selectors, any hasConds, any condVars, any condOps, any condVals, any condNegs, any condOrs, any declRuleIdx, any declProps, any declVals, any fontAliases, any fontPaths) {
+    public Stylesheet(any selectors, any hasConds, any condTerms, any declRuleIdx, any declProps, any declVals, any fontAliases, any fontPaths) {
         this.selectors   = selectors
         this.hasConds    = hasConds
-        this.condVars    = condVars
-        this.condOps     = condOps
-        this.condVals    = condVals
-        this.condNegs    = condNegs
-        this.condOrs     = condOrs
+        this.condTerms   = condTerms
         this.declRuleIdx = declRuleIdx
         this.declProps   = declProps
         this.declVals    = declVals
@@ -521,7 +536,7 @@ export public class Stylesheet {
             if (sel == tag || sel == "*") {
                 let pass = true
                 if (this.hasConds[ri]) {
-                    pass = cssCondEvalAll(this.condVars[ri], this.condOps[ri], this.condVals[ri], this.condNegs[ri], this.condOrs[ri], ctx)
+                    pass = cssTermsEvalAll(this.condTerms[ri], ctx)
                 }
                 if (pass) {
                     let ds = this.declStart[ri]
@@ -563,7 +578,7 @@ export public class Stylesheet {
             if (sel == tag || sel == "*") {
                 let pass = true
                 if (this.hasConds[ri]) {
-                    pass = cssCondEvalAll(this.condVars[ri], this.condOps[ri], this.condVals[ri], this.condNegs[ri], this.condOrs[ri], ctx)
+                    pass = cssTermsEvalAll(this.condTerms[ri], ctx)
                 }
                 if (pass) {
                     let ds = this.declStart[ri]
@@ -602,27 +617,122 @@ export public class Stylesheet {
 
 // ── Parser (al final: usa todos los helpers de arriba) ─────────────────────────
 
+// Copia superficial de un array de términos (los términos no se mutan in situ, solo
+// se apilan enteros). Evita depender de la semántica de asignación de arrays de .sz.
+export fn any cssCopyTerms(any terms) {
+    let acc = []
+    let k = 0
+    while (k < terms.length()) { acc.push(terms[k]); k = k + 1 }
+    return acc
+}
+
+// Salta una at-rule desconocida (`@media`, …): su bloque {...} balanceado desde `i`,
+// o hasta el primer `;` si no abre bloque. Devuelve el índice tras el cierre.
+export fn int cssSkipAtRule(string src, int i) {
+    let n = src.length()
+    while (i < n && src.charAt(i) != "\{" && src.charAt(i) != ";") { i = i + 1 }
+    if (i < n && src.charAt(i) == ";") { return i + 1 }
+    if (i < n && src.charAt(i) == "\{") {
+        let depth = 0
+        while (i < n) {
+            let c = src.charAt(i)
+            if (c == "\{") { depth = depth + 1 }
+            else { if (c == "}") { depth = depth - 1; if (depth == 0) { return i + 1 } } }
+            i = i + 1
+        }
+    }
+    return i
+}
+
 export fn any parseCss(string src) {
     let n = src.length()
     let i = 0
 
     let selectors   = []
     let hasConds    = []
-    let condVars    = []
-    let condOps     = []
-    let condVals    = []
-    let condNegs    = []
-    let condOrs     = []
+    let condTerms   = []   // por regla: array de términos [neg,vars,ops,vals,negs,ors]
     let declRuleIdx = []
     let declProps   = []
     let declVals    = []
     let fontAliases = []
     let fontPaths   = []
 
+    // Pila de bloques @when/@else. `curAmbient` son los términos activos para las
+    // reglas del nivel actual; `elseNeg` las negaciones que un @else de este nivel
+    // debe AND-ear (las reinicia cualquier statement que no sea @else). Al abrir un
+    // bloque se apila [ambientDelPadre, elseNegDelPadre] y se restaura en su `}`.
+    let curAmbient = []
+    let elseNeg    = []
+    let stack      = []
+
     while (i < n) {
         i = cssSkip(src, i)
         if (i >= n) { break; }
         let c = src.charAt(i)
+
+        // Cierre de un bloque @when/@else: restaura el estado del nivel padre.
+        if (c == "}") {
+            if (stack.length() > 0) {
+                let fr = stack.pop()
+                curAmbient = fr[0]
+                elseNeg    = fr[1]
+            }
+            i = i + 1
+            continue
+        }
+
+        // Bloques @when (cond) { ... } / @else [(cond)] { ... }.
+        if (c == "@") {
+            let akw = cssReadName(src, i + 1)
+            let aname = akw[0].toLowerCase()
+            if (aname == "when" || aname == "else") {
+                i = parseInt(akw[1])
+                i = cssSkip(src, i)
+                // Condición del bloque: obligatoria en @when, opcional en @else.
+                let hasT = false
+                let tvar = []; let top = []; let tval = []; let tneg = []; let tor = []
+                if (i < n && src.charAt(i) == "(") {
+                    i = i + 1
+                    let cs = ""
+                    while (i < n && src.charAt(i) != ")") { cs = cs + src.charAt(i); i = i + 1; }
+                    if (i < n) { i = i + 1; }
+                    let pc = cssParseCondList(cs)
+                    tvar = pc[0]; top = pc[1]; tval = pc[2]; tneg = pc[3]; tor = pc[4]
+                    hasT = tvar.length() > 0
+                }
+                // Ambiente del cuerpo = heredado (+ negaciones previas si es @else) (+ propio).
+                let branch = cssCopyTerms(curAmbient)
+                if (aname == "else") {
+                    let e = 0
+                    while (e < elseNeg.length()) { branch.push(elseNeg[e]); e = e + 1 }
+                }
+                if (hasT) { branch.push([false, tvar, top, tval, tneg, tor]) }
+                // elseNeg que verá el @else siguiente de ESTE nivel: @when abre cadena
+                // nueva; el término negado alimenta al @else; @else pelado la cierra.
+                let newElse = []
+                if (aname == "else") {
+                    let e2 = 0
+                    while (e2 < elseNeg.length()) { newElse.push(elseNeg[e2]); e2 = e2 + 1 }
+                }
+                if (hasT) { newElse.push([true, tvar, top, tval, tneg, tor]) }
+                else { newElse = [] }
+                i = cssSkip(src, i)
+                if (i < n && src.charAt(i) == "\{") {
+                    stack.push([cssCopyTerms(curAmbient), newElse])
+                    curAmbient = branch
+                    elseNeg = []
+                    i = i + 1
+                }
+                continue
+            }
+            // At-rule desconocida (@media, …): se descarta entera y corta la cadena.
+            elseNeg = []
+            i = cssSkipAtRule(src, i)
+            continue
+        }
+
+        // Cualquier otro statement (:bloque o regla) corta la cadena if/else.
+        elseNeg = []
 
         // Bloques :import { ... } (se salta; los valores los da el ctx) y
         // :font { alias: ruta.ttf; } (declara fuentes que el renderer carga).
@@ -657,31 +767,34 @@ export fn any parseCss(string src) {
         // `Button:hover`. El matching del camino interpretado es por TAG exacto
         // (o `*`), así que una parte compuesta simplemente nunca matchea — antes
         // el parser la degradaba al último nombre y CONTAMINABA (p.ej.
-        // `section span` estilaba TODOS los span).
+        // `section span` estilaba TODOS los span). Corta también en `@`/`}`.
         let selRaw = ""
-        while (i < n && src.charAt(i) != "(" && src.charAt(i) != "\{" && src.charAt(i) != "}") {
+        while (i < n && src.charAt(i) != "(" && src.charAt(i) != "\{" && src.charAt(i) != "}" && src.charAt(i) != "@") {
             selRaw = selRaw + src.charAt(i)
             i = i + 1
         }
         selRaw = selRaw.trim()
-        if (selRaw.length() == 0) { i = i + 1; continue; }
+        if (selRaw.length() == 0) {
+            if (i < n && src.charAt(i) != "}" && src.charAt(i) != "@") { i = i + 1 }
+            continue
+        }
 
-        // Condición opcional: (var OP literal)
-        let hasCond = false
-        let cvar = []
-        let cop  = []
-        let cval = []
-        let cneg = []
-        let cor  = []
+        // Condición propia opcional: (var OP literal)
+        let ownHas = false
+        let ovar = []
+        let oop  = []
+        let oval = []
+        let oneg = []
+        let oor  = []
         if (i < n && src.charAt(i) == "(") {
             i = i + 1
             let condStr = ""
             while (i < n && src.charAt(i) != ")") { condStr = condStr + src.charAt(i); i = i + 1; }
             if (i < n) { i = i + 1; }
             let parsed = cssParseCondList(condStr)
-            cvar = parsed[0]; cop = parsed[1]; cval = parsed[2]; cneg = parsed[3]; cor = parsed[4]
+            ovar = parsed[0]; oop = parsed[1]; oval = parsed[2]; oneg = parsed[3]; oor = parsed[4]
             // `()` vacío = sin condición (no una condición que nunca pasa).
-            hasCond = cvar.length() > 0
+            ownHas = ovar.length() > 0
         }
 
         i = cssSkip(src, i)
@@ -697,6 +810,10 @@ export fn any parseCss(string src) {
             i = parseInt(res[2])
         }
 
+        // Condición efectiva de la regla = términos heredados (@when/@else) + el propio.
+        let terms = cssCopyTerms(curAmbient)
+        if (ownHas) { terms.push([false, ovar, oop, oval, oneg, oor]) }
+
         // Registrar una regla por parte del grupo (arrays planos paralelos)
         let parts = selRaw.split(",")
         let pi = 0
@@ -705,12 +822,8 @@ export fn any parseCss(string src) {
             if (part.length() > 0) {
                 let ruleIndex = selectors.length()
                 selectors.push(part)
-                hasConds.push(hasCond)
-                condVars.push(cvar)
-                condOps.push(cop)
-                condVals.push(cval)
-                condNegs.push(cneg)
-                condOrs.push(cor)
+                hasConds.push(terms.length() > 0)
+                condTerms.push(terms)
                 let k = 0
                 while (k < dprops.length()) {
                     declProps.push(dprops[k])
@@ -723,7 +836,7 @@ export fn any parseCss(string src) {
         }
     }
 
-    let sheet = new Stylesheet(selectors, hasConds, condVars, condOps, condVals, condNegs, condOrs, declRuleIdx, declProps, declVals, fontAliases, fontPaths)
+    let sheet = new Stylesheet(selectors, hasConds, condTerms, declRuleIdx, declProps, declVals, fontAliases, fontPaths)
     sheet.setRaw(src)
     return sheet
 }
