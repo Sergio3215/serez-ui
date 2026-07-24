@@ -2961,7 +2961,7 @@ export public class GuiRenderer {
         this.focusOrd = this.focusOrd + 1
 
         let hover = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
-        let color = this.colorFor("Button", "background-color", this.colBtn)
+        let color = this.nodeColor(node, "Button", "background-color", this.colBtn)
         if (disabled) {
             color = this.colBorder
         } else if (hover && this.mouseHeld) {
@@ -2971,7 +2971,7 @@ export public class GuiRenderer {
         }
 
         this.fillBox("Button", bx, by, bw, bh, color)
-        this.swText(bx + 14, by + 12, label, 2, this.colorFor("Button", "color", this.colText))
+        this.swText(bx + 14, by + 12, label, 2, this.nodeColor(node, "Button", "color", this.colText))
         if (fam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing("Button", bx, by, bw, bh) }
 
@@ -3003,12 +3003,12 @@ export public class GuiRenderer {
         let m     = Gui.measureText(label, 2)
         let btnW  = m[0] + 28
         let hover = this.mouseX >= bx && this.mouseX < bx + btnW && this.mouseY >= by && this.mouseY < by + bh
-        let color = this.colorFor("Button", "background-color", this.colBtn)
+        let color = this.nodeColor(node, "Button", "background-color", this.colBtn)
         if (disabled) { color = this.colBorder }
         else if (hover && this.mouseHeld) { color = this.colBtnDn }
         else if (hover) { color = this.colBtnHov }
         this.fillBox("Button", bx, by, btnW, bh, color)
-        this.swText(bx + 14, by + 12, label, 2, this.colorFor("Button", "color", this.colText))
+        this.swText(bx + 14, by + 12, label, 2, this.nodeColor(node, "Button", "color", this.colText))
         if (fam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing("FileInput", bx, by, btnW, bh) }
 
@@ -3063,7 +3063,7 @@ export public class GuiRenderer {
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
 
-        let ibg  = this.colorFor("Input", "background-color", this.colInput)
+        let ibg  = this.nodeColor(node, "Input", "background-color", this.colInput)
         let bcol = this.colBorder
         // Borde de foco solo si el app optó con Input:focus / *:focus (.szs).
         if (focused) {
@@ -3118,7 +3118,7 @@ export public class GuiRenderer {
             }
         }
 
-        let tcol = this.colorFor("Input", "color", this.colText)
+        let tcol = this.nodeColor(node, "Input", "color", this.colText)
         if (display.length() == 0 && placeholder != null) {
             // Placeholder en fuente PROPORCIONAL (texto no editable → sin caret math):
             // se ve moderno aunque el campo sea monoespaciado. El caret vacío queda en
@@ -3178,7 +3178,7 @@ export public class GuiRenderer {
         this.focusOrd = this.focusOrd + 1
 
         let hover = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
-        let color = this.colorFor("Select", "background-color", this.colInput)
+        let color = this.nodeColor(node, "Select", "background-color", this.colInput)
         if (!disabled && hover && this.mouseHeld) {
             color = this.colBtnDn
         } else if (!disabled && hover) {
@@ -3190,7 +3190,7 @@ export public class GuiRenderer {
         if (disabled) { display = "  " + display + "  "; }
         else { display = "< " + display + " >"; }
         let sfam = this.setFam("Select")
-        this.swText(bx + 10, by + 9, display, 2, this.colorFor("Select", "color", this.colText))
+        this.swText(bx + 10, by + 9, display, 2, this.nodeColor(node, "Select", "color", this.colText))
         if (sfam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing("Select", bx, by, bw, bh) }
 
@@ -3218,7 +3218,7 @@ export public class GuiRenderer {
         let regW  = boxSize + 8 + lm[0]
         let hover = this.mouseX >= bx && this.mouseX < bx + regW && this.mouseY >= by && this.mouseY < by + boxSize
 
-        let color = this.colorFor("Checkbox", "background-color", this.colInput)
+        let color = this.nodeColor(node, "Checkbox", "background-color", this.colInput)
         if (!disabled && hover && this.mouseHeld) {
             color = this.colBtnDn
         } else if (!disabled && hover) {
@@ -3226,9 +3226,9 @@ export public class GuiRenderer {
         }
         this.swRect(bx, by, boxSize, boxSize, color)
         if (checked) {
-            this.swText(bx + 4, by + 4, "X", 2, this.colorFor("Checkbox", "color", this.colText))
+            this.swText(bx + 4, by + 4, "X", 2, this.nodeColor(node, "Checkbox", "color", this.colText))
         }
-        this.swText(bx + boxSize + 8, by + 2, "" + label, 2, this.colorFor("Checkbox", "color", this.colText))
+        this.swText(bx + boxSize + 8, by + 2, "" + label, 2, this.nodeColor(node, "Checkbox", "color", this.colText))
         if (cfam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing("Checkbox", bx, by, regW, boxSize); }
 
@@ -3261,7 +3261,7 @@ export public class GuiRenderer {
 
         // Track (pill redondeado): acento si ON, borde si OFF.
         let track = this.colBorder
-        if (checked) { track = this.colorFor("Switch", "background-color", this.colBtn); }
+        if (checked) { track = this.nodeColor(node, "Switch", "background-color", this.colBtn); }
         if (disabled) { track = this.colBorder; }
         else if (checked && hover) { track = this.colBtnHov; }
         this.swRoundRect(bx, by, trackW, trackH, trackH / 2, track)
@@ -3276,7 +3276,7 @@ export public class GuiRenderer {
 
         // Etiqueta a la derecha (si hay).
         if (("" + label) != "") {
-            this.swText(bx + trackW + 8, by + 3, "" + label, 2, this.colorFor("Switch", "color", this.colText))
+            this.swText(bx + trackW + 8, by + 3, "" + label, 2, this.nodeColor(node, "Switch", "color", this.colText))
         }
         if (sfam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing("Switch", bx, by, regW, trackH); }
@@ -3308,7 +3308,7 @@ export public class GuiRenderer {
         this.swRect(bx, by + barH - 1, this.colWidth, 1, this.colBorder)
 
         let tfam = this.setFam("Tabs")
-        let accent = this.colorFor("Tabs", "background-color", this.colBtn)
+        let accent = this.nodeColor(node, "Tabs", "background-color", this.colBtn)
         let bounds = []
         let padX = 14
         let x = bx
@@ -3321,7 +3321,7 @@ export public class GuiRenderer {
             if (isAct) { this.swRect(x, by, tw, barH - 1, this.colInput); }
             else if (!disabled && hover) { this.swRect(x, by, tw, barH - 1, this.colInput); }
             let tcol = this.colMuted
-            if (isAct) { tcol = this.colorFor("Tabs", "color", this.colText); }
+            if (isAct) { tcol = this.nodeColor(node, "Tabs", "color", this.colText); }
             else if (!disabled && hover) { tcol = this.colText; }
             this.swText(x + padX, by + 9, label, 2, tcol)
             if (isAct) { this.swRect(x, by + barH - 3, tw, 3, accent); }   // subrayado del activo
@@ -3356,12 +3356,12 @@ export public class GuiRenderer {
         this.focusOrd = this.focusOrd + 1
 
         let hover = this.mouseX >= bx && this.mouseX < bx + hw && this.mouseY >= by && this.mouseY < by + headH
-        let hbg = this.colorFor("Collapsible", "background-color", this.colInput)
+        let hbg = this.nodeColor(node, "Collapsible", "background-color", this.colInput)
         if (!disabled && hover) { hbg = this.colBtnHov; }
         this.fillBox("Collapsible", bx, by, hw, headH, hbg)
 
         // Chevron (triángulo): derecha si cerrado, abajo si abierto.
-        let tcol = this.colorFor("Collapsible", "color", this.colText)
+        let tcol = this.nodeColor(node, "Collapsible", "color", this.colText)
         let cx0 = bx + 12
         let cy0 = by + headH / 2
         if (open) {
@@ -3515,7 +3515,7 @@ export public class GuiRenderer {
 
         let focused = myOrd == this.focus && !disabled
 
-        let tbg  = this.colorFor("Textarea", "background-color", this.colInput)
+        let tbg  = this.nodeColor(node, "Textarea", "background-color", this.colInput)
         let bcol = this.colBorder
         // Borde de foco solo si el app optó con Textarea:focus / *:focus (.szs).
         if (focused) {
@@ -3605,7 +3605,7 @@ export public class GuiRenderer {
                 if (this.selAnchor < car) { selLo = this.selAnchor; } else { selHi = this.selAnchor; }
             }
 
-            let tcol  = this.colorFor("Textarea", "color", this.colText)
+            let tcol  = this.nodeColor(node, "Textarea", "color", this.colText)
             this.swClipPush(bx + 2, by + 2, bw - 4, bh - 4)
             let li    = startSeg
             let yrow  = by + 6
@@ -3681,8 +3681,8 @@ export public class GuiRenderer {
         this.focusOrd = this.focusOrd + 1
 
         let rfam = this.setFam("RadioGroup")
-        let rgText = this.colorFor("RadioGroup", "color", this.colText)
-        let rgDot  = this.colorFor("RadioGroup", "background-color", this.colBtn)
+        let rgText = this.nodeColor(node, "RadioGroup", "color", this.colText)
+        let rgDot  = this.nodeColor(node, "RadioGroup", "background-color", this.colBtn)
         let i = 0
         while (i < options.length()) {
             let oy  = startY + i * lineH
@@ -3732,11 +3732,11 @@ export public class GuiRenderer {
         let knobX  = bx + filled
 
         let tyv = by + 13
-        let acc = this.colorFor("Slider", "background-color", this.colBtn)   // acento (fill+knob)
+        let acc = this.nodeColor(node, "Slider", "background-color", this.colBtn)   // acento (fill+knob)
         this.swRect(bx, tyv, trackW, 4, this.colBorder)
         this.swRect(bx, tyv, filled, 4, acc)
         this.swRect(knobX - 5, by + 5, 10, 18, acc)
-        this.swText(bx + trackW + 12, by + 7, "" + value, 2, this.colorFor("Slider", "color", this.colText))
+        this.swText(bx + trackW + 12, by + 7, "" + value, 2, this.nodeColor(node, "Slider", "color", this.colText))
         if (focused) { this.drawFocusRing("Slider", bx, by, this.colWidth, bh); }
 
         this.regions.push(["Slider", bx, by, trackW, bh, node])
@@ -3762,9 +3762,9 @@ export public class GuiRenderer {
         if (v < 0) { v = 0; }
         if (v > span) { v = span; }
 
-        this.fillBox("ProgressBar", bx, by, bw, bh, this.colorFor("ProgressBar", "background-color", this.colInput))
+        this.fillBox("ProgressBar", bx, by, bw, bh, this.nodeColor(node, "ProgressBar", "background-color", this.colInput))
         this.fillBox("ProgressBar", bx, by, (v * bw) / span, bh, this.colBtn)
-        if (label != null) { this.swText(bx + 8, by + 4, "" + label, 1, this.colorFor("ProgressBar", "color", this.colText)); }
+        if (label != null) { this.swText(bx + 8, by + 4, "" + label, 1, this.nodeColor(node, "ProgressBar", "color", this.colText)); }
         this.cy = this.cy + bh + 12
     }
 
@@ -3778,7 +3778,7 @@ export public class GuiRenderer {
         let bh = node.getProp("height")
         if (bh == null) { bh = 160; }
 
-        let col = this.colorFor("Chart", "color", this.colBtn)
+        let col = this.nodeColor(node, "Chart", "color", this.colBtn)
         let ucol = node.getProp("color")
         if (ucol != null) { col = ucol; }
 
@@ -3960,9 +3960,9 @@ export public class GuiRenderer {
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
 
-        this.fillBox("Dropdown", bx, by, bw, bh, this.colorFor("Dropdown", "background-color", this.colInput))
+        this.fillBox("Dropdown", bx, by, bw, bh, this.nodeColor(node, "Dropdown", "background-color", this.colInput))
         let dfam = this.setFam("Dropdown")
-        this.swText(bx + 10, by + 9, "" + value, 2, this.colorFor("Dropdown", "color", this.colText))
+        this.swText(bx + 10, by + 9, "" + value, 2, this.nodeColor(node, "Dropdown", "color", this.colText))
         if (dfam) { this.swSetFont(""); }
         this.drawTriDown(bx + bw - 16, by + 14, 4, this.colMuted)
         if (focused) { this.drawFocusRing("Dropdown", bx, by, bw, bh); }
@@ -4009,7 +4009,7 @@ export public class GuiRenderer {
 
     // ── Label / Link ───────────────────────────────────────────────────────────
     public void renderLabel(any node) {
-        this.drawWrapped("Label", this.collectText(node), 2, this.colorFor("Label", "color", this.colText), 8)
+        this.drawWrapped("Label", this.collectText(node), 2, this.nodeColor(node, "Label", "color", this.colText), 8)
     }
 
     public void renderLink(any node) {
@@ -4026,7 +4026,7 @@ export public class GuiRenderer {
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
 
-        let col = this.colorFor("Link", "color", this.colLink)
+        let col = this.nodeColor(node, "Link", "color", this.colLink)
         this.swText(bx, by, label, scale, col)
         if (fam) { this.swSetFont(""); }
         this.swRect(bx, by + 8 * scale + 1, lw, 1, col)
@@ -4245,8 +4245,8 @@ export public class GuiRenderer {
         let ty    = (rowH - 8 * scale) / 2
         if (ty < 2) { ty = 2; }
 
-        let tblText = this.colorFor("Table", "color", this.colText)
-        let tblHead = this.colorFor("Table", "background-color", this.colBtn)
+        let tblText = this.nodeColor(node, "Table", "color", this.colText)
+        let tblHead = this.nodeColor(node, "Table", "background-color", this.colBtn)
         let y = by
         if (columns.length() > 0) {
             this.swRect(bx, y, bw, rowH, tblHead)
@@ -4304,7 +4304,7 @@ export public class GuiRenderer {
         else if (kind == "error") { col = 0xdc2626; }
         // El .szs pisa el color del `kind` (paridad con el nativo: UA por kind,
         // la hoja del app gana): Toast { background-color / color }.
-        col = this.colorFor("Toast", "background-color", col)
+        col = this.nodeColor(node, "Toast", "background-color", col)
 
         let bx = this.cx
         let by = this.cy
@@ -4313,7 +4313,7 @@ export public class GuiRenderer {
         this.softShadow(bx, by, bw, bh)
         this.swRoundRect(bx, by, bw, bh, 6, col)
         let tfam = this.setFam("Toast")
-        this.swText(bx + 12, by + 9, "" + msg, 2, this.colorFor("Toast", "color", 0xffffff))
+        this.swText(bx + 12, by + 9, "" + msg, 2, this.nodeColor(node, "Toast", "color", 0xffffff))
         if (tfam) { this.swSetFont(""); }
         this.cy = this.cy + bh + 12
     }
@@ -4352,7 +4352,7 @@ export public class GuiRenderer {
         this.modalBoxX = mx; this.modalBoxY = my; this.modalBoxW = mw; this.modalBoxH = mh
         this.softShadow(mx, my, mw, mh)
         // Caja y borde estilables con `Modal { background-color / border }` (.szs).
-        this.swRoundRect(mx, my, mw, mh, 10, this.colorFor("Modal", "background-color", this.colInput))
+        this.swRoundRect(mx, my, mw, mh, 10, this.nodeColor(node, "Modal", "background-color", this.colInput))
         let mbord = this.borderColorFor("Modal")
         if (mbord < 0) { mbord = this.colBorder; }
         this.swRectOutline(mx, my, mw, mh, mbord)
@@ -4364,7 +4364,7 @@ export public class GuiRenderer {
         if (title != null) {
             // Fuente real para el título (sin esto salía con la rejilla monoespaciada).
             let mfam = this.setFam("Modal")
-            this.swText(innerX, topY, "" + title, 2, this.colorFor("Modal", "color", this.colText))
+            this.swText(innerX, topY, "" + title, 2, this.nodeColor(node, "Modal", "color", this.colText))
             if (mfam) { this.swSetFont(""); }
             topY = topY + 28
             this.swRect(innerX, topY, innerW, 1, this.colBorder)
