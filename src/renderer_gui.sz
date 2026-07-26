@@ -726,6 +726,8 @@ export public class GuiRenderer {
             if (uv != null) { v = uv }
             sti = sti + 1
         }
+        // shorthand `background: <color>` → sirve como background-color si no hay uno.
+        if (v == null && prop == "background-color") { v = this.nodeRaw(node, tag, "background") }
         return v
     }
 
@@ -4317,6 +4319,24 @@ export public class GuiRenderer {
         return 0
     }
 
+    // Alto aproximado de un nodo (para align-items del Row). 0 = desconocido/elástico.
+    public int measureNodeHeight(any node) {
+        if (node == null) { return 0; }
+        let isPrim = node is string || node is int || node is decimal || node is bool
+        if (isPrim) { return 8 * 2 + 4; }
+        let tag = node.getTag()
+        if (tag == "Button") { return 40; }
+        if (tag == "Checkbox" || tag == "Switch") { return 22; }
+        if (tag == "Input" || tag == "Select" || tag == "Dropdown") { return 34; }
+        if (tag == "Link" || tag == "Label") { return 8 * 2 + 4; }
+        if (tag == "h1") { return 8 * this.numProp("h1", "font-scale", 3) + 4; }
+        if (tag == "h2") { return 8 * this.numProp("h2", "font-scale", 2) + 4; }
+        if (tag == "p" || tag == "span" || tag == "h3" || tag == "li") {
+            return 8 * this.numProp(tag, "font-scale", 2) + 4
+        }
+        return 0
+    }
+
     // ── Row (flujo horizontal, ancho de contenido, alineado a la izquierda) ─────
     public void renderRow(any node) {
         // direction: column (responsive .szs) → apilar en vertical como un contenedor.
@@ -4336,6 +4356,8 @@ export public class GuiRenderer {
         if (k == 0) { return; }
 
         let gap   = this.numProp("Row", "gap", 10)
+        let cgap  = this.nodeRaw(node, "Row", "column-gap")   // alias de gap (eje horizontal)
+        if (cgap != null) { gap = this.firstNum("" + cgap, gap) }
         // Auto-wrap (Capa 3): si los hijos de ancho fijo no entran lado a lado, apilar en
         // vertical. `wrap={false}` lo desactiva. (`direction: column` del .szs ya forzó vertical.)
         if (node.getProp("wrap") != false) {
@@ -4352,21 +4374,28 @@ export public class GuiRenderer {
             }
         }
 
-        // justify-content (eje principal): reparte el espacio SOBRANTE entre hijos de
-        // ancho natural (Button/Link/Label/texto/Checkbox). Con hijos elásticos
-        // (Input/Select/contenedores → medida 0) cae al reparto flex de abajo.
+        // justify-content (x) + align-items (y): reparto sobre hijos de ancho natural
+        // (Button/Link/Label/texto/Checkbox). Con hijos elásticos (Input/Select/
+        // contenedores → medida 0) cae al reparto flex de abajo.
         let justify = this.nodeStr(node, "Row", "justify-content", "flex-start")
-        if (justify != "flex-start" && justify != "start") {
+        let align   = this.nodeStr(node, "Row", "align-items", "stretch")
+        let useJA = justify != "flex-start" && justify != "start"
+        if (align != "stretch" && align != "flex-start" && align != "start") { useJA = true }
+        if (useJA) {
             let nats = []
+            let hts  = []
             let allNat = true
             let ni = 0
             while (ni < children.length()) {
                 let nw = 0
+                let nh = 0
                 if (children[ni] != null) {
                     nw = this.measureNodeWidth(children[ni])
+                    nh = this.measureNodeHeight(children[ni])
                     if (nw <= 0) { allNat = false }
                 }
                 nats.push(nw)
+                hts.push(nh)
                 ni = ni + 1
             }
             if (allNat) {
@@ -4382,6 +4411,9 @@ export public class GuiRenderer {
                 else if (justify == "space-between") { if (k > 1) { extra = leftover / (k - 1) } else { off = leftover / 2 } }
                 else if (justify == "space-around") { let u = leftover / k; off = u / 2; extra = u }
                 else if (justify == "space-evenly") { let u = leftover / (k + 1); off = u; extra = u }
+                let mhh = 0
+                let hi = 0
+                while (hi < hts.length()) { if (hts[hi] > mhh) { mhh = hts[hi]; } hi = hi + 1 }
                 let rowX = this.cx
                 let rowY = this.cy
                 let scw  = this.colWidth
@@ -4391,12 +4423,15 @@ export public class GuiRenderer {
                 while (cj < children.length()) {
                     let chj = children[cj]
                     if (chj != null) {
+                        let cy0 = rowY
+                        if (align == "center") { cy0 = rowY + (mhh - hts[cj]) / 2 }
+                        else if (align == "flex-end" || align == "end") { cy0 = rowY + (mhh - hts[cj]) }
                         this.cx       = xj
-                        this.cy       = rowY
+                        this.cy       = cy0
                         this.colWidth = nats[cj]
                         this.lastW    = nats[cj]
                         this.renderNode(chj)
-                        let hj = this.cy - rowY
+                        let hj = (cy0 - rowY) + (this.cy - cy0)
                         if (hj > mh) { mh = hj }
                         xj = xj + nats[cj] + gap + extra
                     }
