@@ -325,10 +325,10 @@ export public class GuiRenderer {
         this.swPutZ(Gui.nodeRectAlpha(x, y, w2, h2, c, a), sig, z)
     }
 
-    public void swImage(int x, int y, int handle, int w = 0, int h = 0, int alpha = 255) {
-        let sig = "i|" + x + "|" + y + "|" + handle + "|" + w + "|" + h + "|" + alpha
+    public void swImage(int x, int y, int handle, int w = 0, int h = 0, int alpha = 255, int radius = 0) {
+        let sig = "i|" + x + "|" + y + "|" + handle + "|" + w + "|" + h + "|" + alpha + "|" + radius
         if (this.swHit(sig)) { return; }
-        if (w > 0 && h > 0) { this.swPut(Gui.nodeImage(x, y, handle, w, h, alpha), sig) }
+        if (w > 0 && h > 0) { this.swPut(Gui.nodeImage(x, y, handle, w, h, alpha, radius), sig) }
         else { this.swPut(Gui.nodeImage(x, y, handle), sig) }
     }
 
@@ -4371,8 +4371,12 @@ export public class GuiRenderer {
         if (al != null) { alv = al }
         let opRaw = this.nodeRaw(node, "Image", "opacity")
         if (opRaw != null) { alv = this.alpha255(opRaw) }
-        if (dw != sz[0] || dh != sz[1] || alv != 255) {
-            this.swImage(imgX, imgY, hnd, dw, dh, alv)
+        // Redondeo de los píxeles de la imagen (border-radius menos el padding, ya que
+        // la imagen va insetada). El marco/borde redondea con `rad` completo, arriba.
+        let imgRad = rad - pads[0]
+        if (imgRad < 0) { imgRad = 0 }
+        if (dw != sz[0] || dh != sz[1] || alv != 255 || imgRad > 0) {
+            this.swImage(imgX, imgY, hnd, dw, dh, alv, imgRad)
         } else {
             this.swImage(imgX, imgY, hnd)
         }
