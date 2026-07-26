@@ -937,11 +937,14 @@ export public class GuiRenderer {
         return w
     }
 
-    // Fondo de un control honrando border-radius del .szs (por tag/clase/id/estado).
+    // Fondo de un control honrando border-radius del .szs (por tag/clase/id/estado),
+    // más su `border`/`border-color` dibujado como contorno REDONDEADO (sigue el radius).
     public void fillBox(any node, string tag, int bx, int by, int bw, int bh, int color) {
         let rad = this.nodeNum(node, tag, "border-radius", 0)
         if (rad > 0) { this.swRoundRect(bx, by, bw, bh, rad, color) }
         else { this.swRect(bx, by, bw, bh, color) }
+        let bc = this.nodeBorderColor(node, tag)
+        if (bc >= 0) { this.swRoundRectOutline(bx, by, bw, bh, rad, bc) }
     }
 
     // Parte `text` en líneas que entran en `this.colWidth` (texto monoespaciado:
@@ -3013,13 +3016,20 @@ export public class GuiRenderer {
 
     // ── Anillo de foco (4 barras finas alrededor del rect) ─────────────────────
     // Solo se dibuja si el app optó por marcar el foco (ver focusColorFor).
-    public void drawFocusRing(string tag, int bx, int by, int bw, int bh) {
+    public void drawFocusRing(any node, string tag, int bx, int by, int bw, int bh) {
         let c = this.focusColorFor(tag)
         if (c < 0) { return; }
-        this.swRect(bx - 2, by - 2, bw + 4, 2, c)
-        this.swRect(bx - 2, by + bh, bw + 4, 2, c)
-        this.swRect(bx - 2, by - 2, 2, bh + 4, c)
-        this.swRect(bx + bw, by - 2, 2, bh + 4, c)
+        // El anillo sigue el border-radius del elemento (2px, redondeado si hay radius).
+        let rad = this.nodeNum(node, tag, "border-radius", 0)
+        if (rad > 0) {
+            this.swRoundRectOutline(bx - 2, by - 2, bw + 4, bh + 4, rad + 2, c)
+            this.swRoundRectOutline(bx - 1, by - 1, bw + 2, bh + 2, rad + 1, c)
+        } else {
+            this.swRect(bx - 2, by - 2, bw + 4, 2, c)
+            this.swRect(bx - 2, by + bh, bw + 4, 2, c)
+            this.swRect(bx - 2, by - 2, 2, bh + 4, c)
+            this.swRect(bx + bw, by - 2, 2, bh + 4, c)
+        }
     }
 
     // Triángulo lleno apuntando hacia abajo (▼): base arriba (ancho 2*half+1) que
@@ -3062,7 +3072,7 @@ export public class GuiRenderer {
         this.fillBox(node, "Button", bx, by, bw, bh, color)
         this.swText(bx + 14, by + 12, label, 2, this.nodeColor(node, "Button", "color", this.colText))
         if (fam) { this.swSetFont(""); }
-        if (focused) { this.drawFocusRing("Button", bx, by, bw, bh) }
+        if (focused) { this.drawFocusRing(node, "Button", bx, by, bw, bh) }
 
         this.regions.push(["Button", bx, by, bw, bh, node])
         this.lastW = bw
@@ -3102,7 +3112,7 @@ export public class GuiRenderer {
         this.fillBox(node, "Button", bx, by, btnW, bh, color)
         this.swText(bx + 14, by + 12, label, 2, this.nodeColor(node, "Button", "color", this.colText))
         if (fam) { this.swSetFont(""); }
-        if (focused) { this.drawFocusRing("FileInput", bx, by, btnW, bh) }
+        if (focused) { this.drawFocusRing(node, "FileInput", bx, by, btnW, bh) }
 
         // Nombre del archivo elegido (derecha), o el placeholder si no hay.
         // Texto no editable → fuente PROPORCIONAL (si no, caería a la rejilla mono).
@@ -3287,7 +3297,7 @@ export public class GuiRenderer {
         let sfam = this.setFam("Select")
         this.swText(bx + 10, by + 9, display, 2, this.nodeColor(node, "Select", "color", this.colText))
         if (sfam) { this.swSetFont(""); }
-        if (focused) { this.drawFocusRing("Select", bx, by, bw, bh) }
+        if (focused) { this.drawFocusRing(node, "Select", bx, by, bw, bh) }
 
         this.regions.push(["Select", bx, by, bw, bh, node])
         this.cy = this.cy + bh + 12
@@ -3325,7 +3335,7 @@ export public class GuiRenderer {
         }
         this.swText(bx + boxSize + 8, by + 2, "" + label, 2, this.nodeColor(node, "Checkbox", "color", this.colText))
         if (cfam) { this.swSetFont(""); }
-        if (focused) { this.drawFocusRing("Checkbox", bx, by, regW, boxSize); }
+        if (focused) { this.drawFocusRing(node, "Checkbox", bx, by, regW, boxSize); }
 
         this.regions.push(["Checkbox", bx, by, regW, boxSize, node])
         this.lastW = regW
@@ -3376,7 +3386,7 @@ export public class GuiRenderer {
             this.swText(bx + trackW + 8, by + 3, "" + label, 2, this.nodeColor(node, "Switch", "color", this.colText))
         }
         if (sfam) { this.swSetFont(""); }
-        if (focused) { this.drawFocusRing("Switch", bx, by, regW, trackH); }
+        if (focused) { this.drawFocusRing(node, "Switch", bx, by, regW, trackH); }
 
         this.regions.push(["Switch", bx, by, regW, trackH, node])
         this.lastW = regW
@@ -3430,7 +3440,7 @@ export public class GuiRenderer {
             i = i + 1
         }
         if (tfam) { this.swSetFont(""); }
-        if (focused) { this.drawFocusRing("Tabs", bx, by, x - bx, barH); }
+        if (focused) { this.drawFocusRing(node, "Tabs", bx, by, x - bx, barH); }
 
         this.regions.push(["Tabs", bx, by, x - bx, barH, node, bounds])
         this.lastW = x - bx
@@ -3476,7 +3486,7 @@ export public class GuiRenderer {
         let cfam = this.setFam("Collapsible")
         this.swText(bx + 28, by + 8, "" + title, 2, tcol)
         if (cfam) { this.swSetFont(""); }
-        if (focused) { this.drawFocusRing("Collapsible", bx, by, hw, headH); }
+        if (focused) { this.drawFocusRing(node, "Collapsible", bx, by, hw, headH); }
 
         this.regions.push(["Collapsible", bx, by, hw, headH, node])
         this.cy = this.cy + headH + 4
@@ -3809,7 +3819,7 @@ export public class GuiRenderer {
 
         let totalH = options.length() * lineH
         if (totalH == 0) { totalH = lineH; }
-        if (focused) { this.drawFocusRing("RadioGroup", bx, startY, this.colWidth, totalH); }
+        if (focused) { this.drawFocusRing(node, "RadioGroup", bx, startY, this.colWidth, totalH); }
 
         this.regions.push(["RadioGroup", bx, startY, this.colWidth, totalH, node])
         this.cy = startY + totalH + 10
@@ -3851,7 +3861,7 @@ export public class GuiRenderer {
         this.swRect(bx, tyv, filled, 4, acc)
         this.swRect(knobX - 5, by + 5, 10, 18, acc)
         this.swText(bx + trackW + 12, by + 7, "" + value, 2, this.nodeColor(node, "Slider", "color", this.colText))
-        if (focused) { this.drawFocusRing("Slider", bx, by, this.colWidth, bh); }
+        if (focused) { this.drawFocusRing(node, "Slider", bx, by, this.colWidth, bh); }
 
         this.regions.push(["Slider", bx, by, trackW, bh, node])
         this.cy = this.cy + bh + 12
@@ -4087,7 +4097,7 @@ export public class GuiRenderer {
         this.swText(bx + 10, by + 9, "" + value, 2, this.nodeColor(node, "Dropdown", "color", this.colText))
         if (dfam) { this.swSetFont(""); }
         this.drawTriDown(bx + bw - 16, by + 14, 4, this.colMuted)
-        if (focused) { this.drawFocusRing("Dropdown", bx, by, bw, bh); }
+        if (focused) { this.drawFocusRing(node, "Dropdown", bx, by, bw, bh); }
 
         this.regions.push(["Dropdown", bx, by, bw, bh, node])
 
@@ -4156,7 +4166,7 @@ export public class GuiRenderer {
         this.swText(bx, by, label, scale, col)
         if (fam) { this.swSetFont(""); }
         this.swRect(bx, by + 8 * scale + 1, lw, 1, col)
-        if (focused) { this.drawFocusRing("Link", bx, by, lw, 8 * scale + 4); }
+        if (focused) { this.drawFocusRing(node, "Link", bx, by, lw, 8 * scale + 4); }
 
         this.regions.push(["Link", bx, by, lw, 8 * scale + 4, node])
         this.lastW = lw
@@ -4445,7 +4455,7 @@ export public class GuiRenderer {
             r2 = r2 + 1
         }
         if (fam) { this.swSetFont(""); }
-        this.swRectOutline(bx, by, bw, y - by, this.colBorder)
+        this.swRoundRectOutline(bx, by, bw, y - by, this.nodeNum(node, "Table", "border-radius", 0), this.colBorder)
         this.lastW = bw
         this.cy = y + 12
     }
@@ -4612,7 +4622,7 @@ export public class GuiRenderer {
         let trad = this.nodeNum(node, "Tooltip", "border-radius", 4)
         this.swRoundRect(tx, ty, tw, th, trad, tbg)
         let tbord = this.nodeBorderColor(node, "Tooltip")
-        if (tbord >= 0) { this.swRectOutline(tx, ty, tw, th, tbord) }
+        if (tbord >= 0) { this.swRoundRectOutline(tx, ty, tw, th, trad, tbord) }
         this.swText(tx + 6, ty + 5, tip, scale, this.nodeColor(node, "Tooltip", "color", this.colText))
     }
 
