@@ -131,6 +131,7 @@ export public class GuiRenderer {
         this.tipText = ""
         this.tipX = 0
         this.tipY = 0
+        this.tipNode = null
 
         // Tema (oscuro)
         this.colBg     = 0x0f172a
@@ -307,10 +308,11 @@ export public class GuiRenderer {
         this.swPutZ(Gui.nodeRectAlpha(x, y, w2, h2, c, a), sig, z)
     }
 
-    public void swImage(int x, int y, int handle) {
-        let sig = "i|" + x + "|" + y + "|" + handle
+    public void swImage(int x, int y, int handle, int w = 0, int h = 0, int alpha = 255) {
+        let sig = "i|" + x + "|" + y + "|" + handle + "|" + w + "|" + h + "|" + alpha
         if (this.swHit(sig)) { return; }
-        this.swPut(Gui.nodeImage(x, y, handle), sig)
+        if (w > 0 && h > 0) { this.swPut(Gui.nodeImage(x, y, handle, w, h, alpha), sig) }
+        else { this.swPut(Gui.nodeImage(x, y, handle), sig) }
     }
 
     public void swPolygon(any pts, int c) {
@@ -2502,6 +2504,7 @@ export public class GuiRenderer {
                 && this.mouseY >= hr[2] && this.mouseY < hr[2] + hr[4]) {
                 this.hasTip = true
                 this.tipText = "" + hr[5].getProp("tip")
+                this.tipNode = hr[5]
             }
             thi = thi + 1
         }
@@ -3856,6 +3859,8 @@ export public class GuiRenderer {
         if (v < 0) { v = 0; }
         if (v > span) { v = span; }
 
+        let hover = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
+        this.setStates(false, hover, false, false)
         this.fillBox("ProgressBar", bx, by, bw, bh, this.nodeColor(node, "ProgressBar", "background-color", this.colInput))
         this.fillBox("ProgressBar", bx, by, (v * bw) / span, bh, this.colBtn)
         if (label != null) { this.swText(bx + 8, by + 4, "" + label, 1, this.nodeColor(node, "ProgressBar", "color", this.colText)); }
@@ -3872,6 +3877,9 @@ export public class GuiRenderer {
         let bh = node.getProp("height")
         if (bh == null) { bh = 160; }
 
+        let hover = this.mouseX >= this.cx && this.mouseX < this.cx + this.colWidth && this.mouseY >= this.cy && this.mouseY < this.cy + bh
+        this.setStates(false, hover, false, false)
+
         let col = this.nodeColor(node, "Chart", "color", this.colBtn)
         let ucol = node.getProp("color")
         if (ucol != null) { col = ucol; }
@@ -3880,8 +3888,8 @@ export public class GuiRenderer {
         let by = this.cy
         let bw = this.colWidth
 
-        // Caja de fondo (respeta CSS de Chart: background/border).
-        this.fillBox("Chart", bx, by, bw, bh, this.colInput)
+        // Caja de fondo (respeta CSS de Chart: background/border, incl. :hover).
+        this.fillBox("Chart", bx, by, bw, bh, this.nodeColor(node, "Chart", "background-color", this.colInput))
 
         let n = data.length()
         if (n == 0) {
@@ -4306,22 +4314,56 @@ export public class GuiRenderer {
         let sz = Gui.imageSize(hnd)
         // width/height opcionales → escala (aspect ratio si solo se da uno); sin ellos,
         // tamaño nativo (como antes). alpha opcional (0–255) para imágenes semitransparentes.
+        // width/height: prop del .szx, o `.szs` (Image { width/height }); si no, nativo.
+        // Escala vía el nodo retained Gui.nodeImage(x,y,h,w,h,alpha) (core >= 9.7).
         let pw = node.getProp("width")
+        if (pw == null) { let sw = this.nodeNum(node, "Image", "width", 0); if (sw > 0) { pw = sw } }
         let ph = node.getProp("height")
+        if (ph == null) { let sh = this.nodeNum(node, "Image", "height", 0); if (sh > 0) { ph = sh } }
         let dw = sz[0]
         let dh = sz[1]
         if (pw != null && ph != null) { dw = pw; dh = ph }
         else if (pw != null && sz[0] > 0) { dw = pw; dh = sz[1] * pw / sz[0] }
         else if (ph != null && sz[1] > 0) { dh = ph; dw = sz[0] * ph / sz[1] }
-        if (dw != sz[0] || dh != sz[1]) {
-            let al = node.getProp("alpha")
-            if (al == null) { this.swImage(this.cx, this.cy, hnd, dw, dh) }
-            else { this.swImage(this.cx, this.cy, hnd, dw, dh, al) }
-        } else {
-            this.swImage(this.cx, this.cy, hnd)
+
+        // Caja CSS de la imagen: padding + fondo + borde + border-radius + :hover
+        // (Image { background-color / border / border-radius / padding }). El radius
+        // redondea el marco/fondo; los píxeles de la imagen quedan rectangulares
+        // (clip redondeado = primitivo del core, aún no disponible).
+        let bx   = this.cx
+        let by   = this.cy
+        let pads = this.nodePad(node, "Image")     // [top, right, bottom, left]
+        let boxW = dw + pads[1] + pads[3]
+        let boxH = dh + pads[0] + pads[2]
+        let hover = this.mouseX >= bx && this.mouseX < bx + boxW && this.mouseY >= by && this.mouseY < by + boxH
+        this.setStates(false, hover, false, false)
+        let ibg  = this.nodeColor(node, "Image", "background-color", 0 - 1)
+        let rad  = this.nodeNum(node, "Image", "border-radius", 0)
+        let bord = this.nodeBorderColor(node, "Image")
+        // Fondo detrás de la imagen (redondeado si hay radius).
+        if (ibg >= 0) {
+            if (rad > 0) { this.swRoundRect(bx, by, boxW, boxH, rad, ibg) }
+            else { this.swRect(bx, by, boxW, boxH, ibg) }
         }
-        this.lastW = dw
-        this.cy = this.cy + dh + 10
+        // La imagen (nodo retained con dirty-skip), insetada por el padding. Escala y
+        // opacity (Image { opacity } 0–1, o prop `alpha` 0–255) van al nodo.
+        let imgX = bx + pads[3]
+        let imgY = by + pads[0]
+        let alv = 255
+        let al = node.getProp("alpha")
+        if (al != null) { alv = al }
+        let opRaw = this.nodeRaw(node, "Image", "opacity")
+        if (opRaw != null) { alv = this.alpha255(opRaw) }
+        if (dw != sz[0] || dh != sz[1] || alv != 255) {
+            this.swImage(imgX, imgY, hnd, dw, dh, alv)
+        } else {
+            this.swImage(imgX, imgY, hnd)
+        }
+        // Borde por encima (rectangular). Un borde redondeado y el redondeo de los
+        // píxeles de la imagen necesitan un clip/outline redondeado del core.
+        if (bord >= 0) { this.swRectOutline(bx, by, boxW, boxH, bord) }
+        this.lastW = boxW
+        this.cy = this.cy + boxH + 10
     }
 
     // ── Table (solo lectura: encabezados + filas, celdas alineadas) ────────────
@@ -4346,6 +4388,10 @@ export public class GuiRenderer {
         let ty    = (rowH - 8 * scale) / 2
         if (ty < 2) { ty = 2; }
 
+        let estRows = rows.length()
+        if (columns.length() > 0) { estRows = estRows + 1 }
+        let hover = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + estRows * rowH
+        this.setStates(false, hover, false, false)
         let tblText = this.nodeColor(node, "Table", "color", this.colText)
         let tblHead = this.nodeColor(node, "Table", "background-color", this.colBtn)
         let y = by
@@ -4404,7 +4450,9 @@ export public class GuiRenderer {
         else if (kind == "warn") { col = 0xd97706; }
         else if (kind == "error") { col = 0xdc2626; }
         // El .szs pisa el color del `kind` (paridad con el nativo: UA por kind,
-        // la hoja del app gana): Toast { background-color / color }.
+        // la hoja del app gana): Toast { background-color / color }, incl. :hover.
+        let thover = this.mouseX >= this.cx && this.mouseX < this.cx + this.colWidth && this.mouseY >= this.cy && this.mouseY < this.cy + 34
+        this.setStates(false, thover, false, false)
         col = this.nodeColor(node, "Toast", "background-color", col)
 
         let bx = this.cx
@@ -4452,7 +4500,9 @@ export public class GuiRenderer {
         let my = (this.h - mh) / 2
         this.modalBoxX = mx; this.modalBoxY = my; this.modalBoxW = mw; this.modalBoxH = mh
         this.softShadow(mx, my, mw, mh)
-        // Caja y borde estilables con `Modal { background-color / border }` (.szs).
+        // Caja y borde estilables con `Modal { background-color / border }` (.szs), incl. :hover.
+        let mhover = this.mouseX >= mx && this.mouseX < mx + mw && this.mouseY >= my && this.mouseY < my + mh
+        this.setStates(false, mhover, false, false)
         this.swRoundRect(mx, my, mw, mh, 10, this.nodeColor(node, "Modal", "background-color", this.colInput))
         let mbord = this.borderColorFor("Modal")
         if (mbord < 0) { mbord = this.colBorder; }
@@ -4518,6 +4568,7 @@ export public class GuiRenderer {
                 this.tipText = "" + tip
                 this.tipX    = this.mouseX
                 this.tipY    = this.mouseY
+                this.tipNode = node
             }
         }
     }
@@ -4532,8 +4583,16 @@ export public class GuiRenderer {
         if (tx + tw > this.w) { tx = this.w - tw - 4; }
         if (ty + th > this.h) { ty = this.tipY - th - 4; }
         this.softShadow(tx, ty, tw, th)
-        this.swRoundRect(tx, ty, tw, th, 4, 0x1f2937)
-        this.swText(tx + 6, ty + 5, tip, scale, this.colText)
+        // Caja estilable con Tooltip { background-color / color / border / border-radius }
+        // (el tip ES el estado hover → Tooltip:hover también aplica). Defaults = look previo.
+        this.setStates(false, true, false, false)
+        let node = this.tipNode
+        let tbg  = this.nodeColor(node, "Tooltip", "background-color", 0x1f2937)
+        let trad = this.nodeNum(node, "Tooltip", "border-radius", 4)
+        this.swRoundRect(tx, ty, tw, th, trad, tbg)
+        let tbord = this.nodeBorderColor(node, "Tooltip")
+        if (tbord >= 0) { this.swRectOutline(tx, ty, tw, th, tbord) }
+        this.swText(tx + 6, ty + 5, tip, scale, this.nodeColor(node, "Tooltip", "color", this.colText))
     }
 
     // Nombre de cursor para la posición del mouse (mano sobre interactivos, I-beam
