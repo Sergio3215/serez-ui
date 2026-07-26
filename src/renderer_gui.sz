@@ -34,6 +34,7 @@ export public class GuiRenderer {
         this.mouseX     = -1
         this.mouseY     = -1
         this.mouseHeld  = false
+        this.__states   = []     // pseudo-estados activos del elemento en curso (:focus/:hover/:active/:disabled); los lee nodeRaw
         this.sheet      = null   // Stylesheet (.szs) opcional
         this.ctx        = []     // contexto de estado [[nombre, valor]] para condiciones
         this.fullCtx    = []     // ctx + width/height inyectados (media queries .szs)
@@ -674,12 +675,71 @@ export public class GuiRenderer {
                 if (iv != null) { v = iv }
             }
         }
+        // Pseudo-estados (:focus/:hover/:active/:disabled): cuando el elemento está en
+        // un estado (this.__states, seteado por el widget), las reglas `tag:estado` /
+        // `.clase:estado` / `#id:estado` / `*:estado` PISAN — así un pseudo cambia
+        // CUALQUIER propiedad, igual que una regla normal (como en la web).
+        let sti = 0
+        while (sti < this.__states.length()) {
+            let st = this.__states[sti]
+            let tv = this.styleRaw(tag + ":" + st, prop)
+            if (tv != null) { v = tv }
+            if (cls != null) {
+                let cparts = ("" + cls).trim().split(" ")
+                let ci = 0
+                while (ci < cparts.length()) {
+                    let cc = cparts[ci].trim()
+                    if (cc.length() > 0) {
+                        let ccv = this.styleRaw("." + cc + ":" + st, prop)
+                        if (ccv != null) { v = ccv }
+                    }
+                    ci = ci + 1
+                }
+            }
+            if (id != null) {
+                let ids = ("" + id).trim()
+                if (ids.length() > 0) {
+                    let idv = this.styleRaw("#" + ids + ":" + st, prop)
+                    if (idv != null) { v = idv }
+                }
+            }
+            let uv = this.styleRaw("*:" + st, prop)
+            if (uv != null) { v = uv }
+            sti = sti + 1
+        }
         return v
     }
 
     public int nodeColor(any node, string tag, string prop, int fallback) {
         if (this.sheet == null) { return fallback; }
         return this.sheet.rawToColor(this.nodeRaw(node, tag, prop), fallback)
+    }
+
+    // Setea los pseudo-estados activos del elemento en curso (los lee nodeRaw para que
+    // las reglas `tag:estado` pisen cualquier prop). `disabled` es excluyente: un
+    // elemento deshabilitado no muestra hover/focus/active.
+    public void setStates(bool focused, bool hover, bool active, bool disabled) {
+        let st = []
+        if (disabled) {
+            st.push("disabled")
+        } else {
+            if (hover)   { st.push("hover") }
+            if (focused) { st.push("focus") }
+            if (active)  { st.push("active") }
+        }
+        this.__states = st
+    }
+
+    // ¿El mouse está sobre el bloque de texto de este tag? Banda de la columna
+    // (cx..colWidth) por el alto envuelto. Para :hover en p/span/h1…/Label (aprox.:
+    // mide con la rejilla; con fuente propia el alto puede diferir un poco).
+    public bool textHover(any node, string tag, int scale) {
+        let nlines = this.wrapText(this.collectText(node), scale).length()
+        if (nlines < 1) { nlines = 1 }
+        let lh = 8 * scale + 4
+        if (tag != "") { lh = this.nodeNum(node, tag, "line-height", lh) }
+        let bh = nlines * lh
+        return this.mouseX >= this.cx && this.mouseX < this.cx + this.colWidth && this.mouseY >= this.cy && this.mouseY < this.cy + bh
     }
 
     // Primer entero de un valor CSS ("6 20" → 6, "8px" → 8, "-4" → -4);
@@ -2678,6 +2738,7 @@ export public class GuiRenderer {
 
     public void renderNode(any node) {
         if (node == null) { return; }
+        this.__states = []   // cada elemento setea los suyos; los no interactivos quedan sin pseudo
 
         let isPrim = node is string || node is int || node is decimal || node is bool
         if (isPrim) {
@@ -2694,10 +2755,12 @@ export public class GuiRenderer {
 
         if (tag == "h1") {
             let sc1 = this.nodeNum(node, "h1", "font-scale", 3)
+            this.setStates(false, this.textHover(node, "h1", sc1), false, false)
             this.renderTextTag("h1", node, sc1, this.nodeColor(node, "h1", "color", this.colText), 12)
 
         } else if (tag == "h2") {
             let sc2 = this.nodeNum(node, "h2", "font-scale", 2)
+            this.setStates(false, this.textHover(node, "h2", sc2), false, false)
             this.renderTextTag("h2", node, sc2, this.nodeColor(node, "h2", "color", this.colText), 10)
 
         } else if (tag == "p" || tag == "span" || tag == "h3" || tag == "li"
@@ -2712,6 +2775,7 @@ export public class GuiRenderer {
             let defCol = this.colMuted
             if (tag == "b" || tag == "i" || tag == "strong" || tag == "em") { defCol = this.curText; }
             let scp = this.nodeNum(node, tag, "font-scale", defSc)
+            this.setStates(false, this.textHover(node, tag, scp), false, false)
             this.renderTextTag(tag, node, scp, this.nodeColor(node, tag, "color", defCol), 8)
 
         } else if (tag == "hr") {
@@ -2836,6 +2900,10 @@ export public class GuiRenderer {
             // del contenido (los nodos hijos van a z 0).
             let boxH = this.cy - boxY
             if (boxH > 0) {
+                // :hover del contenedor (fondo/borde) — acá ya se conoce la caja entera,
+                // así que `div:hover`/`.card:hover { background-color/border }` aplica.
+                let chover = this.mouseX >= boxX && this.mouseX < boxX + boxW && this.mouseY >= boxY && this.mouseY < boxY + boxH
+                this.setStates(false, chover, false, false)
                 let bgc = this.nodeColor(node, tag, "background-color", -1)
                 let rad = this.nodeNum(node, tag, "border-radius", 0)
                 let brc = this.nodeBorderColor(node, tag)
@@ -2960,15 +3028,16 @@ export public class GuiRenderer {
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
 
-        let hover = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
-        let color = this.nodeColor(node, "Button", "background-color", this.colBtn)
-        if (disabled) {
-            color = this.colBorder
-        } else if (hover && this.mouseHeld) {
-            color = this.colBtnDn
-        } else if (hover) {
-            color = this.colBtnHov
-        }
+        let hover  = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
+        let active = hover && this.mouseHeld && !disabled
+        this.setStates(focused, hover, active, disabled)
+        // Fallback de fondo = feedback built-in por estado; lo PISA una regla
+        // Button:hover/:active/:disabled/:focus del .szs si existe (vía nodeColor).
+        let dflt = this.colBtn
+        if (disabled) { dflt = this.colBorder }
+        else if (active) { dflt = this.colBtnDn }
+        else if (hover)  { dflt = this.colBtnHov }
+        let color = this.nodeColor(node, "Button", "background-color", dflt)
 
         this.fillBox("Button", bx, by, bw, bh, color)
         this.swText(bx + 14, by + 12, label, 2, this.nodeColor(node, "Button", "color", this.colText))
@@ -3002,11 +3071,14 @@ export public class GuiRenderer {
         let fam   = this.setFam("Button")
         let m     = Gui.measureText(label, 2)
         let btnW  = m[0] + 28
-        let hover = this.mouseX >= bx && this.mouseX < bx + btnW && this.mouseY >= by && this.mouseY < by + bh
-        let color = this.nodeColor(node, "Button", "background-color", this.colBtn)
-        if (disabled) { color = this.colBorder }
-        else if (hover && this.mouseHeld) { color = this.colBtnDn }
-        else if (hover) { color = this.colBtnHov }
+        let hover  = this.mouseX >= bx && this.mouseX < bx + btnW && this.mouseY >= by && this.mouseY < by + bh
+        let active = hover && this.mouseHeld && !disabled
+        this.setStates(focused, hover, active, disabled)
+        let dflt = this.colBtn
+        if (disabled) { dflt = this.colBorder }
+        else if (active) { dflt = this.colBtnDn }
+        else if (hover) { dflt = this.colBtnHov }
+        let color = this.nodeColor(node, "Button", "background-color", dflt)
         this.fillBox("Button", bx, by, btnW, bh, color)
         this.swText(bx + 14, by + 12, label, 2, this.nodeColor(node, "Button", "color", this.colText))
         if (fam) { this.swSetFont(""); }
@@ -3062,6 +3134,9 @@ export public class GuiRenderer {
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
+        let hover  = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
+        let active = hover && this.mouseHeld && !disabled
+        this.setStates(focused, hover, active, disabled)
 
         let ibg  = this.nodeColor(node, "Input", "background-color", this.colInput)
         let bcol = this.colBorder
@@ -3177,13 +3252,13 @@ export public class GuiRenderer {
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
 
-        let hover = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
-        let color = this.nodeColor(node, "Select", "background-color", this.colInput)
-        if (!disabled && hover && this.mouseHeld) {
-            color = this.colBtnDn
-        } else if (!disabled && hover) {
-            color = this.colBtnHov
-        }
+        let hover  = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
+        let active = hover && this.mouseHeld && !disabled
+        this.setStates(focused, hover, active, disabled)
+        let dflt = this.colInput
+        if (active) { dflt = this.colBtnDn }
+        else if (!disabled && hover) { dflt = this.colBtnHov }
+        let color = this.nodeColor(node, "Select", "background-color", dflt)
         this.fillBox("Select", bx, by, bw, bh, color)
 
         let display = "" + value
@@ -3218,12 +3293,12 @@ export public class GuiRenderer {
         let regW  = boxSize + 8 + lm[0]
         let hover = this.mouseX >= bx && this.mouseX < bx + regW && this.mouseY >= by && this.mouseY < by + boxSize
 
-        let color = this.nodeColor(node, "Checkbox", "background-color", this.colInput)
-        if (!disabled && hover && this.mouseHeld) {
-            color = this.colBtnDn
-        } else if (!disabled && hover) {
-            color = this.colBtnHov
-        }
+        let active = hover && this.mouseHeld && !disabled
+        this.setStates(focused, hover, active, disabled)
+        let dflt = this.colInput
+        if (active) { dflt = this.colBtnDn }
+        else if (!disabled && hover) { dflt = this.colBtnHov }
+        let color = this.nodeColor(node, "Checkbox", "background-color", dflt)
         this.swRect(bx, by, boxSize, boxSize, color)
         if (checked) {
             this.swText(bx + 4, by + 4, "X", 2, this.nodeColor(node, "Checkbox", "color", this.colText))
@@ -3257,7 +3332,9 @@ export public class GuiRenderer {
         let sfam = this.setFam("Switch")
         let lm   = Gui.measureText("" + label, 2)
         let regW = trackW + 8 + lm[0]
-        let hover = this.mouseX >= bx && this.mouseX < bx + regW && this.mouseY >= by && this.mouseY < by + trackH
+        let hover  = this.mouseX >= bx && this.mouseX < bx + regW && this.mouseY >= by && this.mouseY < by + trackH
+        let active = hover && this.mouseHeld && !disabled
+        this.setStates(focused, hover, active, disabled)
 
         // Track (pill redondeado): acento si ON, borde si OFF.
         let track = this.colBorder
@@ -3303,6 +3380,9 @@ export public class GuiRenderer {
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
+        let hover0 = this.mouseX >= bx && this.mouseX < bx + this.colWidth && this.mouseY >= by && this.mouseY < by + barH
+        let active = hover0 && this.mouseHeld && !disabled
+        this.setStates(focused, hover0, active, disabled)
 
         // Línea inferior a lo ancho (el subrayado del activo se dibuja encima).
         this.swRect(bx, by + barH - 1, this.colWidth, 1, this.colBorder)
@@ -3355,9 +3435,12 @@ export public class GuiRenderer {
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
 
-        let hover = this.mouseX >= bx && this.mouseX < bx + hw && this.mouseY >= by && this.mouseY < by + headH
-        let hbg = this.nodeColor(node, "Collapsible", "background-color", this.colInput)
-        if (!disabled && hover) { hbg = this.colBtnHov; }
+        let hover  = this.mouseX >= bx && this.mouseX < bx + hw && this.mouseY >= by && this.mouseY < by + headH
+        let active = hover && this.mouseHeld && !disabled
+        this.setStates(focused, hover, active, disabled)
+        let dflt = this.colInput
+        if (!disabled && hover) { dflt = this.colBtnHov }
+        let hbg = this.nodeColor(node, "Collapsible", "background-color", dflt)
         this.fillBox("Collapsible", bx, by, hw, headH, hbg)
 
         // Chevron (triángulo): derecha si cerrado, abajo si abierto.
@@ -3515,6 +3598,9 @@ export public class GuiRenderer {
 
         let focused = myOrd == this.focus && !disabled
 
+        let hover  = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
+        let active = hover && this.mouseHeld && !disabled
+        this.setStates(focused, hover, active, disabled)
         let tbg  = this.nodeColor(node, "Textarea", "background-color", this.colInput)
         let bcol = this.colBorder
         // Borde de foco solo si el app optó con Textarea:focus / *:focus (.szs).
@@ -3679,6 +3765,11 @@ export public class GuiRenderer {
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
+        let rgH0   = options.length() * lineH
+        if (rgH0 == 0) { rgH0 = lineH }
+        let hover  = this.mouseX >= bx && this.mouseX < bx + this.colWidth && this.mouseY >= startY && this.mouseY < startY + rgH0
+        let active = hover && this.mouseHeld && !disabled
+        this.setStates(focused, hover, active, disabled)
 
         let rfam = this.setFam("RadioGroup")
         let rgText = this.nodeColor(node, "RadioGroup", "color", this.colText)
@@ -3722,6 +3813,9 @@ export public class GuiRenderer {
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
+        let hover  = this.mouseX >= bx && this.mouseX < bx + this.colWidth && this.mouseY >= by && this.mouseY < by + bh
+        let active = hover && this.mouseHeld && !disabled
+        this.setStates(focused, hover, active, disabled)
 
         let span = max - min
         if (span <= 0) { span = 1; }
@@ -3959,6 +4053,9 @@ export public class GuiRenderer {
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
+        let hover  = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
+        let active = hover && this.mouseHeld && !disabled
+        this.setStates(focused, hover, active, disabled)
 
         this.fillBox("Dropdown", bx, by, bw, bh, this.nodeColor(node, "Dropdown", "background-color", this.colInput))
         let dfam = this.setFam("Dropdown")
@@ -4009,6 +4106,7 @@ export public class GuiRenderer {
 
     // ── Label / Link ───────────────────────────────────────────────────────────
     public void renderLabel(any node) {
+        this.setStates(false, this.textHover(node, "Label", 2), false, false)
         this.drawWrapped("Label", this.collectText(node), 2, this.nodeColor(node, "Label", "color", this.colText), 8)
     }
 
@@ -4025,6 +4123,9 @@ export public class GuiRenderer {
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
+        let hover  = this.mouseX >= bx && this.mouseX < bx + lw && this.mouseY >= by && this.mouseY < by + 8 * scale + 4
+        let active = hover && this.mouseHeld && !disabled
+        this.setStates(focused, hover, active, disabled)
 
         let col = this.nodeColor(node, "Link", "color", this.colLink)
         this.swText(bx, by, label, scale, col)
