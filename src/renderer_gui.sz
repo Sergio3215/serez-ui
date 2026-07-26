@@ -819,6 +819,67 @@ export public class GuiRenderer {
         return [vals[0], vals[1], vals[2], vals[3]]
     }
 
+    // margin del .szs: shorthand `margin: a b c d` (como padding) con los
+    // `margin-top/right/bottom/left` sueltos pisando. Devuelve [top, right, bottom, left].
+    public any nodeMargin(any node, string tag) {
+        let mt = 0; let mr = 0; let mb = 0; let ml = 0
+        let raw = this.nodeRaw(node, tag, "margin")
+        if (raw != null) {
+            let toks = ("" + raw).trim().split(" ")
+            let vals = []
+            let i = 0
+            while (i < toks.length()) {
+                let t = toks[i].trim()
+                if (t.length() > 0) { vals.push(this.firstNum(t, 0)) }
+                i = i + 1
+            }
+            if (vals.length() == 1) { mt = vals[0]; mr = vals[0]; mb = vals[0]; ml = vals[0] }
+            else if (vals.length() == 2) { mt = vals[0]; mr = vals[1]; mb = vals[0]; ml = vals[1] }
+            else if (vals.length() == 3) { mt = vals[0]; mr = vals[1]; mb = vals[2]; ml = vals[1] }
+            else if (vals.length() >= 4) { mt = vals[0]; mr = vals[1]; mb = vals[2]; ml = vals[3] }
+        }
+        let t2 = this.nodeRaw(node, tag, "margin-top");    if (t2 != null) { mt = this.firstNum("" + t2, mt) }
+        let r2 = this.nodeRaw(node, tag, "margin-right");  if (r2 != null) { mr = this.firstNum("" + r2, mr) }
+        let b2 = this.nodeRaw(node, tag, "margin-bottom"); if (b2 != null) { mb = this.firstNum("" + b2, mb) }
+        let l2 = this.nodeRaw(node, tag, "margin-left");   if (l2 != null) { ml = this.firstNum("" + l2, ml) }
+        return [mt, mr, mb, ml]
+    }
+
+    // Ancho del borde: `border-width`, o el primer token numérico del shorthand
+    // `border: 3px solid #fff` (→ 3). Mínimo 1.
+    public int nodeBorderWidth(any node, string tag) {
+        let bw = this.nodeRaw(node, tag, "border-width")
+        if (bw != null) {
+            let n = this.firstNum("" + bw, 1)
+            if (n < 1) { n = 1 }
+            return n
+        }
+        let sh = this.nodeRaw(node, tag, "border")
+        if (sh == null) { return 1 }
+        let toks = ("" + sh).trim().split(" ")
+        let i = 0
+        while (i < toks.length()) {
+            let t = toks[i].trim()
+            if (t.length() > 0 && t.charAt(0) != "#") {
+                let n = this.firstNum(t, 0 - 1)
+                if (n >= 1) { return n }
+            }
+            i = i + 1
+        }
+        return 1
+    }
+
+    // Borde redondeado de ancho `bw` px (bw contornos concéntricos hacia adentro).
+    public void swRoundRectBorder(int x, int y, int w2, int h2, int rad, int c, int bw) {
+        let i = 0
+        while (i < bw) {
+            let r2 = rad - i
+            if (r2 < 0) { r2 = 0 }
+            this.swRoundRectOutline(x + i, y + i, w2 - 2 * i, h2 - 2 * i, r2, c)
+            i = i + 1
+        }
+    }
+
     public string nodeStr(any node, string tag, string prop, string fallback) {
         let v = this.nodeRaw(node, tag, prop)
         if (v == null) { return fallback; }
@@ -944,7 +1005,7 @@ export public class GuiRenderer {
         if (rad > 0) { this.swRoundRect(bx, by, bw, bh, rad, color) }
         else { this.swRect(bx, by, bw, bh, color) }
         let bc = this.nodeBorderColor(node, tag)
-        if (bc >= 0) { this.swRoundRectOutline(bx, by, bw, bh, rad, bc) }
+        if (bc >= 0) { this.swRoundRectBorder(bx, by, bw, bh, rad, bc, this.nodeBorderWidth(node, tag)) }
     }
 
     // Parte `text` en líneas que entran en `this.colWidth` (texto monoespaciado:
@@ -1047,6 +1108,8 @@ export public class GuiRenderer {
         }
         let lh    = 8 * scale + 4
         if (tag != "") { lh = this.nodeNum(node, tag, "line-height", lh); }
+        let deco = "none"
+        if (tag != "") { deco = this.nodeStr(node, tag, "text-decoration", "none"); }
         let maxW  = 0
         let li    = 0
         while (li < lines.length()) {
@@ -1055,6 +1118,9 @@ export public class GuiRenderer {
             if (align == "center") { lx = this.cx + (this.colWidth - lw) / 2; }
             else if (align == "right") { lx = this.cx + this.colWidth - lw; }
             this.swText(lx, this.cy + li * lh, lines[li], scale, color, style)
+            // text-decoration: subrayado (base del texto) o tachado (centro).
+            if (deco == "underline") { this.swRect(lx, this.cy + li * lh + 8 * scale + 1, lw, 1, color) }
+            else if (deco == "line-through") { this.swRect(lx, this.cy + li * lh + 4 * scale, lw, 1, color) }
             if (lw > maxW) { maxW = lw; }
             li = li + 1
         }
@@ -2773,7 +2839,8 @@ export public class GuiRenderer {
 
         let tag      = node.getTag()
         if (this.strProp(tag, "display", "block") == "none") { return; }   // .szs: ocultar
-        this.cy = this.cy + this.numProp(tag, "margin-top", 0)             // .szs: espacio arriba
+        let mrg = this.nodeMargin(node, tag)                              // margin shorthand + sueltos
+        this.cy = this.cy + mrg[0]                                        // .szs: margin-top
         let children = node.getChildren()
 
         if (tag == "h1") {
@@ -2856,8 +2923,8 @@ export public class GuiRenderer {
             // Props con conciencia de clase (`<div class="card">` toma `.card`);
             // padding 1/2/3/4 valores, margin-left/right y width (px o %).
             let pads = this.nodePad(node, tag)   // [top, right, bottom, left]
-            let ml   = this.nodeNum(node, tag, "margin-left", 0)
-            let mr   = this.nodeNum(node, tag, "margin-right", 0)
+            let ml   = mrg[3]
+            let mr   = mrg[1]
             let savedCx = this.cx
             let savedCW = this.colWidth
             let savedCT = this.curText
@@ -2940,14 +3007,23 @@ export public class GuiRenderer {
                         if (ownAlpha < 255) { this.swRectAlphaZ(boxX, boxY, boxW, boxH, bgc, ownAlpha, zb - 1); }
                         else { this.swBoxZ(boxX, boxY, boxW, boxH, rad, bgc, zb - 1); }
                     }
-                    if (brc >= 0) { this.swRoundRectOutlineZ(boxX, boxY, boxW, boxH, rad, brc, zb); }
+                    if (brc >= 0) {
+                        let cbw = this.nodeBorderWidth(node, tag)   // border-width (concéntrico)
+                        let ci = 0
+                        while (ci < cbw) {
+                            let cr = rad - ci
+                            if (cr < 0) { cr = 0 }
+                            this.swRoundRectOutlineZ(boxX + ci, boxY + ci, boxW - 2 * ci, boxH - 2 * ci, cr, brc, zb)
+                            ci = ci + 1
+                        }
+                    }
                 }
             }
             // El contenedor ocupa TODO su ancho de columna: sin esto, Row avanzaba
             // con el lastW del último texto anidado y las columnas se superponían.
             this.lastW = savedCW
         }
-        this.cy = this.cy + this.numProp(tag, "margin-bottom", 0)   // .szs: espacio extra abajo
+        this.cy = this.cy + mrg[2]                                  // .szs: margin-bottom (shorthand o suelto)
     }
 
     // Hijo `position:absolute` de un contenedor (soporte mínimo del interpretado:
