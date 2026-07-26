@@ -2989,6 +2989,11 @@ export public class GuiRenderer {
                 }
                 if (wv > 0 && wv < boxW) { boxW = wv }
             }
+            // min-width / max-width (px) acotan la caja del contenedor.
+            let maxWv = this.nodeNum(node, tag, "max-width", 0)
+            if (maxWv > 0 && boxW > maxWv) { boxW = maxWv }
+            let minWv = this.nodeNum(node, tag, "min-width", 0)
+            if (minWv > 0 && boxW < minWv) { boxW = minWv }
             // height fija + overflow scroll/hidden → los hijos se RECORTAN a la
             // caja y el flujo continúa justo debajo (como prim_layout_scroll).
             let fixH = this.nodeNum(node, tag, "height", 0 - 1)
@@ -3006,6 +3011,8 @@ export public class GuiRenderer {
             this.cx       = boxX + pads[3]
             this.cy       = this.cy + pads[0]
             this.colWidth = boxW - pads[3] - pads[1]
+            let rowGap = this.nodeNum(node, tag, "row-gap", 0)   // espacio vertical entre hijos
+            let placed = false
             let i = 0
             while (i < children.length()) {
                 let k = children[i]
@@ -3017,7 +3024,11 @@ export public class GuiRenderer {
                     isAbsKid = this.nodeStr(k, k.getTag(), "position", "static") == "absolute"
                 }
                 if (isAbsKid) { this.drawAbsBadge(k, boxX, boxY, boxW) }
-                else { this.renderNode(k) }
+                else {
+                    if (placed && rowGap > 0) { this.cy = this.cy + rowGap }
+                    placed = true
+                    this.renderNode(k)
+                }
                 i = i + 1
             }
             this.cx       = savedCx
@@ -4342,8 +4353,15 @@ export public class GuiRenderer {
         // direction: column (responsive .szs) → apilar en vertical como un contenedor.
         if (this.strProp("Row", "direction", "row") == "column") {
             let kids = node.getChildren()
+            let cgap2 = this.numProp("Row", "gap", 0)          // en column, gap = vertical
+            let rg = this.nodeRaw(node, "Row", "row-gap")
+            if (rg != null) { cgap2 = this.firstNum("" + rg, cgap2) }
             let ki = 0
-            while (ki < kids.length()) { this.renderNode(kids[ki]); ki = ki + 1 }
+            while (ki < kids.length()) {
+                if (ki > 0 && cgap2 > 0) { this.cy = this.cy + cgap2 }
+                this.renderNode(kids[ki])
+                ki = ki + 1
+            }
             return
         }
         let children = node.getChildren()
