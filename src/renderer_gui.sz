@@ -4351,6 +4351,64 @@ export public class GuiRenderer {
                 return
             }
         }
+
+        // justify-content (eje principal): reparte el espacio SOBRANTE entre hijos de
+        // ancho natural (Button/Link/Label/texto/Checkbox). Con hijos elásticos
+        // (Input/Select/contenedores → medida 0) cae al reparto flex de abajo.
+        let justify = this.nodeStr(node, "Row", "justify-content", "flex-start")
+        if (justify != "flex-start" && justify != "start") {
+            let nats = []
+            let allNat = true
+            let ni = 0
+            while (ni < children.length()) {
+                let nw = 0
+                if (children[ni] != null) {
+                    nw = this.measureNodeWidth(children[ni])
+                    if (nw <= 0) { allNat = false }
+                }
+                nats.push(nw)
+                ni = ni + 1
+            }
+            if (allNat) {
+                let total = gap * (k - 1)
+                let ti2 = 0
+                while (ti2 < nats.length()) { total = total + nats[ti2]; ti2 = ti2 + 1 }
+                let leftover = this.colWidth - total
+                if (leftover < 0) { leftover = 0 }
+                let off = 0
+                let extra = 0
+                if (justify == "center") { off = leftover / 2 }
+                else if (justify == "flex-end" || justify == "end") { off = leftover }
+                else if (justify == "space-between") { if (k > 1) { extra = leftover / (k - 1) } else { off = leftover / 2 } }
+                else if (justify == "space-around") { let u = leftover / k; off = u / 2; extra = u }
+                else if (justify == "space-evenly") { let u = leftover / (k + 1); off = u; extra = u }
+                let rowX = this.cx
+                let rowY = this.cy
+                let scw  = this.colWidth
+                let mh   = 0
+                let xj   = rowX + off
+                let cj   = 0
+                while (cj < children.length()) {
+                    let chj = children[cj]
+                    if (chj != null) {
+                        this.cx       = xj
+                        this.cy       = rowY
+                        this.colWidth = nats[cj]
+                        this.lastW    = nats[cj]
+                        this.renderNode(chj)
+                        let hj = this.cy - rowY
+                        if (hj > mh) { mh = hj }
+                        xj = xj + nats[cj] + gap + extra
+                    }
+                    cj = cj + 1
+                }
+                this.colWidth = scw
+                this.cx       = rowX
+                this.cy       = rowY + mh
+                this.lastW    = scw
+                return
+            }
+        }
         // Reparto por pesos: cada hijo puede llevar `flex={n}` (default 1). El ancho
         // disponible se reparte proporcional a los pesos. Sin flex en ningún hijo →
         // reparto en partes iguales (idéntico al comportamiento anterior).
