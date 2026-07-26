@@ -880,6 +880,48 @@ export public class GuiRenderer {
         }
     }
 
+    // box-shadow del .szs: `offX offY blur [spread] color` (cualquier orden de números
+    // + color). Aproxima el blur con capas alpha (faint→fuerte). z != 0 = capas con z
+    // explícito (para el fondo diferido de contenedores); z == 0 = inmediato (widgets).
+    public void boxShadow(any node, string tag, int bx, int by, int bw, int bh, int z) {
+        let raw = this.nodeRaw(node, tag, "box-shadow")
+        if (raw == null) { return; }
+        let s = ("" + raw).trim()
+        if (s == "" || s == "none") { return; }
+        let toks = s.split(" ")
+        let nums = []
+        let col  = 0x000000
+        let ti = 0
+        while (ti < toks.length()) {
+            let t = toks[ti].trim()
+            if (t.length() > 0) {
+                // Un token que empieza con dígito o '-' es un número (offX/offY/blur);
+                // el resto (#hex, rgb(), nombre) es el color. (Los hex tienen dígitos,
+                // así que NO se puede usar firstNum para distinguir.)
+                let ch = t.charAt(0)
+                let isNum = ch == "-" || ch == "0" || ch == "1" || ch == "2" || ch == "3" || ch == "4" || ch == "5" || ch == "6" || ch == "7" || ch == "8" || ch == "9"
+                if (isNum) { nums.push(this.firstNum(t, 0)) }
+                else { let c = this.sheet.rawToColor(t, 0 - 1); if (c >= 0) { col = c } }
+            }
+            ti = ti + 1
+        }
+        let offX = 0; let offY = 3; let blur = 8
+        if (nums.length() >= 1) { offX = nums[0] }
+        if (nums.length() >= 2) { offY = nums[1] }
+        if (nums.length() >= 3) { blur = nums[2] }
+        if (blur < 1) { blur = 1 }
+        let steps = blur
+        if (steps > 8) { steps = 8 }
+        let si = 0
+        while (si < steps) {
+            let sp = blur - (blur * si) / steps
+            let a  = 10 + (si * 34) / steps
+            if (z != 0) { this.swRectAlphaZ(bx + offX - sp, by + offY - sp, bw + 2 * sp, bh + 2 * sp, col, a, z) }
+            else { this.swRectAlpha(bx + offX - sp, by + offY - sp, bw + 2 * sp, bh + 2 * sp, col, a) }
+            si = si + 1
+        }
+    }
+
     public string nodeStr(any node, string tag, string prop, string fallback) {
         let v = this.nodeRaw(node, tag, prop)
         if (v == null) { return fallback; }
@@ -1001,6 +1043,7 @@ export public class GuiRenderer {
     // Fondo de un control honrando border-radius del .szs (por tag/clase/id/estado),
     // más su `border`/`border-color` dibujado como contorno REDONDEADO (sigue el radius).
     public void fillBox(any node, string tag, int bx, int by, int bw, int bh, int color) {
+        this.boxShadow(node, tag, bx, by, bw, bh, 0)
         let rad = this.nodeNum(node, tag, "border-radius", 0)
         if (rad > 0) { this.swRoundRect(bx, by, bw, bh, rad, color) }
         else { this.swRect(bx, by, bw, bh, color) }
@@ -3002,6 +3045,7 @@ export public class GuiRenderer {
                     // debajo del contenido y de las cajas de contenedores internos.
                     let zb = this.boxZ
                     this.boxZ = zb - 2
+                    this.boxShadow(node, tag, boxX, boxY, boxW, boxH, zb - 3)   // box-shadow detrás del fondo
                     if (bgc >= 0) {
                         // Con opacity el fondo va translúcido (rect sin radius).
                         if (ownAlpha < 255) { this.swRectAlphaZ(boxX, boxY, boxW, boxH, bgc, ownAlpha, zb - 1); }
