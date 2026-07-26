@@ -277,6 +277,23 @@ export public class GuiRenderer {
         this.swPut(Gui.nodeRectOutline(x, y, w2, h2, c), sig)
     }
 
+    // Contorno redondeado (border + border-radius). rad<=0 cae al outline recto.
+    public void swRoundRectOutline(int x, int y, int w2, int h2, int rad, int c) {
+        let sig = "rro|" + x + "|" + y + "|" + w2 + "|" + h2 + "|" + rad + "|" + c
+        if (this.swHit(sig)) { return; }
+        if (rad > 0) { this.swPut(Gui.nodeRoundRectOutline(x, y, w2, h2, rad, c), sig) }
+        else { this.swPut(Gui.nodeRectOutline(x, y, w2, h2, c), sig) }
+    }
+
+    public void swRoundRectOutlineZ(int x, int y, int w2, int h2, int rad, int c, int z) {
+        let sig = "rroz|" + x + "|" + y + "|" + w2 + "|" + h2 + "|" + rad + "|" + c + "|" + z
+        if (this.swHit(sig)) { return; }
+        let nid = 0
+        if (rad > 0) { nid = Gui.nodeRoundRectOutline(x, y, w2, h2, rad, c) }
+        else { nid = Gui.nodeRectOutline(x, y, w2, h2, c) }
+        this.swPutZ(nid, sig, z)
+    }
+
     public void swCircle(int x, int y, int rad, int c) {
         let sig = "c|" + x + "|" + y + "|" + rad + "|" + c
         if (this.swHit(sig)) { return; }
@@ -920,9 +937,9 @@ export public class GuiRenderer {
         return w
     }
 
-    // Fondo de un control honrando border-radius del .szs.
-    public void fillBox(string tag, int bx, int by, int bw, int bh, int color) {
-        let rad = this.numProp(tag, "border-radius", 0)
+    // Fondo de un control honrando border-radius del .szs (por tag/clase/id/estado).
+    public void fillBox(any node, string tag, int bx, int by, int bw, int bh, int color) {
+        let rad = this.nodeNum(node, tag, "border-radius", 0)
         if (rad > 0) { this.swRoundRect(bx, by, bw, bh, rad, color) }
         else { this.swRect(bx, by, bw, bh, color) }
     }
@@ -2920,7 +2937,7 @@ export public class GuiRenderer {
                         if (ownAlpha < 255) { this.swRectAlphaZ(boxX, boxY, boxW, boxH, bgc, ownAlpha, zb - 1); }
                         else { this.swBoxZ(boxX, boxY, boxW, boxH, rad, bgc, zb - 1); }
                     }
-                    if (brc >= 0) { this.swRectOutlineZ(boxX, boxY, boxW, boxH, brc, zb); }
+                    if (brc >= 0) { this.swRoundRectOutlineZ(boxX, boxY, boxW, boxH, rad, brc, zb); }
                 }
             }
             // El contenedor ocupa TODO su ancho de columna: sin esto, Row avanzaba
@@ -3042,7 +3059,7 @@ export public class GuiRenderer {
         else if (hover)  { dflt = this.colBtnHov }
         let color = this.nodeColor(node, "Button", "background-color", dflt)
 
-        this.fillBox("Button", bx, by, bw, bh, color)
+        this.fillBox(node, "Button", bx, by, bw, bh, color)
         this.swText(bx + 14, by + 12, label, 2, this.nodeColor(node, "Button", "color", this.colText))
         if (fam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing("Button", bx, by, bw, bh) }
@@ -3082,7 +3099,7 @@ export public class GuiRenderer {
         else if (active) { dflt = this.colBtnDn }
         else if (hover) { dflt = this.colBtnHov }
         let color = this.nodeColor(node, "Button", "background-color", dflt)
-        this.fillBox("Button", bx, by, btnW, bh, color)
+        this.fillBox(node, "Button", bx, by, btnW, bh, color)
         this.swText(bx + 14, by + 12, label, 2, this.nodeColor(node, "Button", "color", this.colText))
         if (fam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing("FileInput", bx, by, btnW, bh) }
@@ -3148,7 +3165,7 @@ export public class GuiRenderer {
             let fc = this.focusColorFor("Input")
             if (fc >= 0) { bcol = fc }
         }
-        let irad = this.numProp("Input", "border-radius", 0)
+        let irad = this.nodeNum(node, "Input", "border-radius", 0)
         if (irad > 0) {
             this.swRoundRect(bx, by, bw, bh, irad, bcol)
             let ir2 = irad - 2
@@ -3262,7 +3279,7 @@ export public class GuiRenderer {
         if (active) { dflt = this.colBtnDn }
         else if (!disabled && hover) { dflt = this.colBtnHov }
         let color = this.nodeColor(node, "Select", "background-color", dflt)
-        this.fillBox("Select", bx, by, bw, bh, color)
+        this.fillBox(node, "Select", bx, by, bw, bh, color)
 
         let display = "" + value
         if (disabled) { display = "  " + display + "  "; }
@@ -3444,7 +3461,7 @@ export public class GuiRenderer {
         let dflt = this.colInput
         if (!disabled && hover) { dflt = this.colBtnHov }
         let hbg = this.nodeColor(node, "Collapsible", "background-color", dflt)
-        this.fillBox("Collapsible", bx, by, hw, headH, hbg)
+        this.fillBox(node, "Collapsible", bx, by, hw, headH, hbg)
 
         // Chevron (triángulo): derecha si cerrado, abajo si abierto.
         let tcol = this.nodeColor(node, "Collapsible", "color", this.colText)
@@ -3611,7 +3628,7 @@ export public class GuiRenderer {
             let fc = this.focusColorFor("Textarea")
             if (fc >= 0) { bcol = fc }
         }
-        let trad = this.numProp("Textarea", "border-radius", 0)
+        let trad = this.nodeNum(node, "Textarea", "border-radius", 0)
         if (trad > 0) {
             this.swRoundRect(bx, by, bw, bh, trad, bcol)
             let tr2 = trad - 2
@@ -3861,8 +3878,8 @@ export public class GuiRenderer {
 
         let hover = this.mouseX >= bx && this.mouseX < bx + bw && this.mouseY >= by && this.mouseY < by + bh
         this.setStates(false, hover, false, false)
-        this.fillBox("ProgressBar", bx, by, bw, bh, this.nodeColor(node, "ProgressBar", "background-color", this.colInput))
-        this.fillBox("ProgressBar", bx, by, (v * bw) / span, bh, this.colBtn)
+        this.fillBox(node, "ProgressBar", bx, by, bw, bh, this.nodeColor(node, "ProgressBar", "background-color", this.colInput))
+        this.fillBox(node, "ProgressBar", bx, by, (v * bw) / span, bh, this.colBtn)
         if (label != null) { this.swText(bx + 8, by + 4, "" + label, 1, this.nodeColor(node, "ProgressBar", "color", this.colText)); }
         this.cy = this.cy + bh + 12
     }
@@ -3889,7 +3906,7 @@ export public class GuiRenderer {
         let bw = this.colWidth
 
         // Caja de fondo (respeta CSS de Chart: background/border, incl. :hover).
-        this.fillBox("Chart", bx, by, bw, bh, this.nodeColor(node, "Chart", "background-color", this.colInput))
+        this.fillBox(node, "Chart", bx, by, bw, bh, this.nodeColor(node, "Chart", "background-color", this.colInput))
 
         let n = data.length()
         if (n == 0) {
@@ -4065,7 +4082,7 @@ export public class GuiRenderer {
         let active = hover && this.mouseHeld && !disabled
         this.setStates(focused, hover, active, disabled)
 
-        this.fillBox("Dropdown", bx, by, bw, bh, this.nodeColor(node, "Dropdown", "background-color", this.colInput))
+        this.fillBox(node, "Dropdown", bx, by, bw, bh, this.nodeColor(node, "Dropdown", "background-color", this.colInput))
         let dfam = this.setFam("Dropdown")
         this.swText(bx + 10, by + 9, "" + value, 2, this.nodeColor(node, "Dropdown", "color", this.colText))
         if (dfam) { this.swSetFont(""); }
@@ -4359,9 +4376,9 @@ export public class GuiRenderer {
         } else {
             this.swImage(imgX, imgY, hnd)
         }
-        // Borde por encima (rectangular). Un borde redondeado y el redondeo de los
-        // píxeles de la imagen necesitan un clip/outline redondeado del core.
-        if (bord >= 0) { this.swRectOutline(bx, by, boxW, boxH, bord) }
+        // Borde por encima (redondeado con border-radius). Los píxeles de la imagen
+        // en sí siguen rectangulares (falta un CLIP redondeado en el core).
+        if (bord >= 0) { this.swRoundRectOutline(bx, by, boxW, boxH, rad, bord) }
         this.lastW = boxW
         this.cy = this.cy + boxH + 10
     }
@@ -4503,10 +4520,10 @@ export public class GuiRenderer {
         // Caja y borde estilables con `Modal { background-color / border }` (.szs), incl. :hover.
         let mhover = this.mouseX >= mx && this.mouseX < mx + mw && this.mouseY >= my && this.mouseY < my + mh
         this.setStates(false, mhover, false, false)
-        this.swRoundRect(mx, my, mw, mh, 10, this.nodeColor(node, "Modal", "background-color", this.colInput))
+        this.swRoundRect(mx, my, mw, mh, this.nodeNum(node, "Modal", "border-radius", 10), this.nodeColor(node, "Modal", "background-color", this.colInput))
         let mbord = this.borderColorFor("Modal")
         if (mbord < 0) { mbord = this.colBorder; }
-        this.swRectOutline(mx, my, mw, mh, mbord)
+        this.swRoundRectOutline(mx, my, mw, mh, this.nodeNum(node, "Modal", "border-radius", 10), mbord)
 
         let innerX = mx + 18
         let innerW = mw - 36
