@@ -141,6 +141,7 @@ export public class GuiRenderer {
         this.curPx     = 16         // font-size HEREDADO en píxeles (font-size:Npx real)
         this.curAlpha  = 255        // opacidad HEREDADA acumulada (255 = opaco)
         this.curZBias  = 0          // z-index heredado (bias sumado a la z natural en swPut)
+        this.curTx     = null       // transform afín heredado [rotDeg, sxMille, syMille, ox, oy] o null
         this.boxZ      = 0 - 2      // z para cajas de contenedor (decrece al cerrar cada una)
         this.colMuted  = 0x94a3b8
         this.colBtn    = 0x3b82f6
@@ -214,6 +215,7 @@ export public class GuiRenderer {
     public void swPut(int nid, string sig) {
         let k = this.swPos
         Gui.nodeSet(nid, "z", k + this.curZBias)
+        this.applyTx(nid)
         if (k < this.swIds.length()) {
             this.swIds[k] = nid
             this.swSigs[k] = sig
@@ -236,12 +238,20 @@ export public class GuiRenderer {
         this.swPut(Gui.nodeRoundRect(x, y, w2, h2, rad, c), sig)
     }
 
+    // Aplica el transform afín heredado (rotate/scale) al nodo, si hay uno activo.
+    public void applyTx(int nid) {
+        if (this.curTx != null) {
+            Gui.nodeTransform(nid, this.curTx[0], this.curTx[1], this.curTx[2], this.curTx[3], this.curTx[4])
+        }
+    }
+
     // Registra el nodo con un z EXPLÍCITO (swPut normal pisa z con la posición).
     // Suma el bias de z-index heredado para que un contenedor con z-index suba
     // también su fondo/borde (emitidos con z explícito negativo).
     public void swPutZ(int nid, string sig, int z) {
         let k = this.swPos
         Gui.nodeSet(nid, "z", z + this.curZBias)
+        this.applyTx(nid)
         if (k < this.swIds.length()) {
             this.swIds[k] = nid
             this.swSigs[k] = sig
@@ -350,6 +360,32 @@ export public class GuiRenderer {
         if (this.swHit(sig)) { return; }
         if (w > 0 && h > 0) { this.swPut(Gui.nodeImage(x, y, handle, w, h, alpha, radius), sig) }
         else { this.swPut(Gui.nodeImage(x, y, handle), sig) }
+    }
+
+    // Imagen con z EXPLÍCITO (para background-image detrás del contenido).
+    public void swImageZ(int x, int y, int handle, int w, int h, int alpha, int radius, int z) {
+        let sig = "iz|" + x + "|" + y + "|" + handle + "|" + w + "|" + h + "|" + alpha + "|" + radius + "|" + z
+        if (this.swHit(sig)) { return; }
+        if (w > 0 && h > 0) { this.swPutZ(Gui.nodeImage(x, y, handle, w, h, alpha, radius), sig, z) }
+        else { this.swPutZ(Gui.nodeImage(x, y, handle), sig, z) }
+    }
+
+    // background-image: url(ruta) | ruta → handle de imagen (cacheado), o -1.
+    public int bgImageHandle(any node, string tag) {
+        let raw = this.nodeRaw(node, tag, "background-image")
+        if (raw == null) { return 0 - 1; }
+        let s = ("" + raw).trim()
+        if (s == "" || s == "none") { return 0 - 1; }
+        let u = s.indexOf("url(")
+        if (u >= 0) {
+            let b = s.indexOf(")")
+            if (b > u + 4) { s = s.substring(u + 4, b).trim() }
+        }
+        if (s.length() >= 2) {
+            let q0 = s.charAt(0)
+            if (q0 == "\"" || q0 == "'") { s = s.substring(1, s.length() - 1) }
+        }
+        return this.imgHandle(s)
     }
 
     public void swPolygon(any pts, int c) {
@@ -857,6 +893,53 @@ export public class GuiRenderer {
             if (comma >= 0) { dy = this.firstNum(inner.substring(comma + 1, inner.length()), 0); }
         }
         return [dx, dy]
+    }
+
+    // Decimal (p.ej. "1.5") → milésimas (1500). Defensivo: basura → 1000 (=1.0).
+    public int mille(string s) {
+        let t = s.trim()
+        let num = ""
+        let seen = false
+        let i = 0
+        while (i < t.length()) {
+            let ch = t.charAt(i)
+            let isDig = ch == "0" || ch == "1" || ch == "2" || ch == "3" || ch == "4" || ch == "5" || ch == "6" || ch == "7" || ch == "8" || ch == "9"
+            if (isDig || ch == ".") { num = num + ch; seen = true }
+            else { if (ch == "-" && num == "") { num = "-" } else { if (seen) { i = t.length() } } }
+            i = i + 1
+        }
+        if (num == "" || num == "-" || num == ".") { return 1000 }
+        let d = 0
+        try { d = parseDecimal(num) } catch (e) { return 1000 }
+        return this.firstNum("" + (d * 1000), 1000)
+    }
+
+    // transform: rotate(deg) / scale(s[,s]) / scaleX / scaleY → [rotDeg, sxMille, syMille].
+    // Identidad = [0, 1000, 1000]. rotate/scale NO se combinan con translate en el
+    // mismo string acá (translate lo maneja transformTranslate); pueden coexistir.
+    public any transformRotScale(any node, string tag) {
+        let raw = this.nodeRaw(node, tag, "transform")
+        if (raw == null) { return [0, 1000, 1000]; }
+        let s = ("" + raw).trim()
+        if (s == "" || s == "none") { return [0, 1000, 1000]; }
+        let rot = 0
+        let sxm = 1000
+        let sym = 1000
+        let ir = s.indexOf("rotate(")
+        if (ir >= 0) { rot = this.firstNum(s.substring(ir + 7, s.length()), 0) }
+        let ix = s.indexOf("scaleX(")
+        if (ix >= 0) { sxm = this.mille(s.substring(ix + 7, s.length())) }
+        let iy = s.indexOf("scaleY(")
+        if (iy >= 0) { sym = this.mille(s.substring(iy + 7, s.length())) }
+        let isc = s.indexOf("scale(")
+        if (isc >= 0) {
+            let inner = s.substring(isc + 6, s.length())
+            let m = this.mille(inner)
+            sxm = m; sym = m
+            let comma = inner.indexOf(",")
+            if (comma >= 0) { sym = this.mille(inner.substring(comma + 1, inner.length())) }
+        }
+        return [rot, sxm, sym]
     }
 
     // grid-template-columns → array de anchos de columna en px. Soporta px fijos
@@ -2940,6 +3023,7 @@ export public class GuiRenderer {
         // font-size heredado en px: body { font-size } > body { font-scale }*8 > 16.
         this.curPx = this.pxTag("body", 16)
         this.curZBias = 0
+        this.curTx = null
         this.curAlpha = 255
         // z de cajas de contenedor: cada contenedor que CIERRA toma el siguiente
         // valor (decreciendo) → el interno (cierra primero) queda por ENCIMA del
@@ -3080,6 +3164,14 @@ export public class GuiRenderer {
         let savedZBias = this.curZBias
         let zi = this.nodeNum(node, tag, "z-index", 0)
         if (zi != 0) { this.curZBias = zi * 100000 }
+        // transform: rotate/scale — afín aplicado a cada nodo del subárbol en swPut,
+        // con origen en el top-left del elemento (transform-origin: 0 0). Se compone
+        // con el translate ya aplicado a cx/cy.
+        let savedTx = this.curTx
+        let rs = this.transformRotScale(node, tag)
+        if (rs[0] != 0 || rs[1] != 1000 || rs[2] != 1000) {
+            this.curTx = [rs[0], rs[1], rs[2], this.cx, this.cy]
+        }
 
         if (tag == "h1") {
             let px1 = this.nodePx(node, "h1", 24)
@@ -3217,9 +3309,19 @@ export public class GuiRenderer {
                 let tracks = this.gridTracks(this.nodeRaw(node, tag, "grid-template-columns"), this.colWidth, cGap)
                 let ncols = tracks.length()
                 if (ncols < 1) { ncols = 1; tracks = [this.colWidth]; }
+                // grid-template-rows (opcional): alturas explícitas de fila. `fr` solo
+                // reparte si el contenedor tiene alto fijo; si no, esa fila cae a auto.
+                let rowsRaw = this.nodeRaw(node, tag, "grid-template-rows")
+                let rowTracks = []
+                if (rowsRaw != null) {
+                    let availH = 0
+                    if (fixH > 0) { availH = fixH - pads[0] - pads[2] }
+                    rowTracks = this.gridTracks(rowsRaw, availH, rGap)
+                }
                 let contentX = this.cx
                 let rowY = this.cy
                 let col = 0
+                let rowIdx = 0
                 let rowMaxH = 0
                 let gi = 0
                 while (gi < children.length()) {
@@ -3233,11 +3335,18 @@ export public class GuiRenderer {
                     let hUsed = this.cy - rowY
                     if (hUsed > rowMaxH) { rowMaxH = hUsed }
                     col = col + 1
-                    if (col >= ncols) { rowY = rowY + rowMaxH + rGap; col = 0; rowMaxH = 0 }
+                    if (col >= ncols) {
+                        let rh = rowMaxH
+                        if (rowIdx < rowTracks.length() && rowTracks[rowIdx] > 0) { rh = rowTracks[rowIdx] }
+                        rowY = rowY + rh + rGap; col = 0; rowMaxH = 0; rowIdx = rowIdx + 1
+                    }
                     gi = gi + 1
                 }
-                if (col > 0) { rowY = rowY + rowMaxH }                       // última fila incompleta
-                else if (children.length() > 0) { rowY = rowY - rGap }       // sin gap tras la última fila completa
+                if (col > 0) {
+                    let rh = rowMaxH                                          // última fila incompleta
+                    if (rowIdx < rowTracks.length() && rowTracks[rowIdx] > 0) { rh = rowTracks[rowIdx] }
+                    rowY = rowY + rh
+                } else if (children.length() > 0) { rowY = rowY - rGap }      // sin gap tras la última fila completa
                 this.cy = rowY
             } else {
                 let placed = false
@@ -3283,7 +3392,8 @@ export public class GuiRenderer {
                 let bgc = this.nodeColor(node, tag, "background-color", -1)
                 let rad = this.nodeNum(node, tag, "border-radius", 0)
                 let brc = this.nodeBorderColor(node, tag)
-                if (bgc >= 0 || brc >= 0) {
+                let bgImg = this.bgImageHandle(node, tag)   // background-image: url(...)
+                if (bgc >= 0 || brc >= 0 || bgImg >= 0) {
                     // z por contenedor cerrado: fondo debajo del borde, ambos
                     // debajo del contenido y de las cajas de contenedores internos.
                     let zb = this.boxZ
@@ -3293,6 +3403,12 @@ export public class GuiRenderer {
                         // Con opacity el fondo va translúcido (rect sin radius).
                         if (ownAlpha < 255) { this.swRectAlphaZ(boxX, boxY, boxW, boxH, bgc, ownAlpha, zb - 1); }
                         else { this.swBoxZ(boxX, boxY, boxW, boxH, rad, bgc, zb - 1); }
+                    }
+                    // background-image: estirada a la caja (mismo z que el color → encima
+                    // de él por orden de id; debajo del contenido y del borde). El radius
+                    // redondea las esquinas de la imagen para casar la caja.
+                    if (bgImg >= 0) {
+                        this.swImageZ(boxX, boxY, bgImg, boxW, boxH, ownAlpha, rad, zb - 1)
                     }
                     if (brc >= 0) {
                         let cbw = this.nodeBorderWidth(node, tag)   // border-width (concéntrico)
@@ -3314,6 +3430,7 @@ export public class GuiRenderer {
         // (visual-only). En Y solo se descuenta el desplazamiento, no el alto avanzado.
         if (trX != 0 || trY != 0) { this.cx = this.cx - trX; this.cy = this.cy - trY; }
         this.curZBias = savedZBias                                  // restaura el z-index del padre
+        this.curTx    = savedTx                                     // restaura el transform del padre
         this.cy = this.cy + mrg[2]                                  // .szs: margin-bottom (shorthand o suelto)
     }
 
