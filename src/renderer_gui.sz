@@ -138,6 +138,7 @@ export public class GuiRenderer {
         this.colText   = 0xe2e8f0
         this.curText   = 0xe2e8f0   // color de texto HEREDADO (body → div → texto suelto)
         this.curScale  = 2          // font-scale HEREDADA (como font-size en CSS)
+        this.curPx     = 16         // font-size HEREDADO en píxeles (font-size:Npx real)
         this.curAlpha  = 255        // opacidad HEREDADA acumulada (255 = opaco)
         this.boxZ      = 0 - 2      // z para cajas de contenedor (decrece al cerrar cada una)
         this.colMuted  = 0x94a3b8
@@ -314,6 +315,20 @@ export public class GuiRenderer {
         if (spacing != 0) { Gui.nodeSet(nid, "spacing", spacing) }
         if (this.swFont != "") { Gui.nodeSet(nid, "font", this.swFont) }
         // opacity heredada de los contenedores (255 = opaco, no toca el nodo)
+        if (this.curAlpha < 255) { Gui.nodeSet(nid, "alpha", this.curAlpha) }
+        this.swPut(nid, sig)
+    }
+
+    // Como swText pero `px` es el tamaño de fuente EN PÍXELES real (font-size), no la
+    // escala de rejilla → texto a cualquier tamaño (14, 20, 22px…), no solo múltiplos
+    // de 8. Usa el primitivo Gui.nodeTextPx del core (requires >= 9.10).
+    public void swTextPx(int x, int y, string t, int px, int c, int style = 0, int spacing = 0) {
+        let sig = "tp|" + x + "|" + y + "|" + px + "|" + c + "|" + style + "|" + spacing + "|" + this.curAlpha + "|" + this.swFont + "|" + t
+        if (this.swHit(sig)) { return; }
+        let nid = Gui.nodeTextPx(x, y, t, px, c)
+        if (style != 0) { Gui.nodeSet(nid, "style", style) }
+        if (spacing != 0) { Gui.nodeSet(nid, "spacing", spacing) }
+        if (this.swFont != "") { Gui.nodeSet(nid, "font", this.swFont) }
         if (this.curAlpha < 255) { Gui.nodeSet(nid, "alpha", this.curAlpha) }
         this.swPut(nid, sig)
     }
@@ -754,10 +769,10 @@ export public class GuiRenderer {
     // ¿El mouse está sobre el bloque de texto de este tag? Banda de la columna
     // (cx..colWidth) por el alto envuelto. Para :hover en p/span/h1…/Label (aprox.:
     // mide con la rejilla; con fuente propia el alto puede diferir un poco).
-    public bool textHover(any node, string tag, int scale) {
-        let nlines = this.wrapText(this.collectText(node), scale).length()
+    public bool textHover(any node, string tag, int px) {
+        let nlines = this.wrapText(this.collectText(node), px).length()
         if (nlines < 1) { nlines = 1 }
-        let lh = 8 * scale + 4
+        let lh = px + 4
         if (tag != "") { lh = this.nodeNum(node, tag, "line-height", lh) }
         let bh = nlines * lh
         return this.mouseX >= this.cx && this.mouseX < this.cx + this.colWidth && this.mouseY >= this.cy && this.mouseY < this.cy + bh
@@ -800,6 +815,27 @@ export public class GuiRenderer {
 
     public int nodeNum(any node, string tag, string prop, int fallback) {
         return this.firstNum(this.nodeRaw(node, tag, prop), fallback)
+    }
+
+    // Tamaño de fuente EFECTIVO en píxeles del nodo (tag/clase/id/estado): `font-size`
+    // (px, web-like) tiene prioridad; si no, `font-scale` (×8, la rejilla nativa); si
+    // no, el default heredado `defPx`. Es la fuente única de verdad del pipeline de
+    // texto interpretado (drawWrapped/renderTextTag/key-text).
+    public int nodePx(any node, string tag, int defPx) {
+        let fs = this.nodeNum(node, tag, "font-size", 0 - 1)
+        if (fs > 0) { return fs }
+        let sc = this.nodeNum(node, tag, "font-scale", 0 - 1)
+        if (sc > 0) { return sc * 8 }
+        return defPx
+    }
+
+    // Igual que nodePx pero solo por TAG (para medir sin nodo, p.ej. autosize).
+    public int pxTag(string tag, int defPx) {
+        let fs = this.numProp(tag, "font-size", 0 - 1)
+        if (fs > 0) { return fs }
+        let sc = this.numProp(tag, "font-scale", 0 - 1)
+        if (sc > 0) { return sc * 8 }
+        return defPx
     }
 
     // padding con 1/2/3/4 valores (como CSS) → [top, right, bottom, left].
@@ -1035,9 +1071,10 @@ export public class GuiRenderer {
     }
 
     // Ancho de un texto con la fuente del tag (mide y restaura la default).
-    public int measureFor(string tag, string text, int scale) {
+    // `px` = tamaño de fuente en píxeles (font-size). Mide con la fuente del tag.
+    public int measureFor(string tag, string text, int px) {
         let active = this.setFam(tag)
-        let w = Gui.measureText(text, scale)[0]
+        let w = Gui.measureTextPx(text, px)[0]
         if (active) { this.swSetFont(""); }
         return w
     }
@@ -1056,8 +1093,8 @@ export public class GuiRenderer {
     // Parte `text` en líneas que entran en `this.colWidth` (texto monoespaciado:
     // 8*scale px/char). Corta por palabras; una palabra más larga que la línea se
     // parte por la fuerza. Respeta los saltos de línea explícitos (\n).
-    public any wrapText(string text, int scale) {
-        let charW = 8 * scale
+    public any wrapText(string text, int px) {
+        let charW = px
         let maxChars = this.colWidth / charW
         if (maxChars < 1) { maxChars = 1; }
         let lines = []
@@ -1092,7 +1129,7 @@ export public class GuiRenderer {
 
     // Como wrapText pero midiendo con la fuente ACTIVA (proporcional): corta por
     // palabras cuando la línea candidata supera el ancho disponible en px.
-    public any wrapTextMeasured(string text, int scale) {
+    public any wrapTextMeasured(string text, int px) {
         let maxW  = this.colWidth
         let lines = []
         let paras = text.split("\n")
@@ -1105,7 +1142,7 @@ export public class GuiRenderer {
                 let word = words[wi]
                 let candidate = word
                 if (cur.length() > 0) { candidate = cur + " " + word; }
-                if (Gui.measureText(candidate, scale)[0] > maxW && cur.length() > 0) {
+                if (Gui.measureTextPx(candidate, px)[0] > maxW && cur.length() > 0) {
                     lines.push(cur)
                     cur = word
                 } else {
@@ -1123,7 +1160,7 @@ export public class GuiRenderer {
     // espacio tras el bloque (calibrado para que 1 línea = el avance previo).
     // `node` (opcional) habilita las reglas por CLASE del nodo (`p.centrado`):
     // white-space/align/estilo/line-height se resuelven con conciencia de clase.
-    public void drawWrapped(string tag, string text, int scale, int color, int blockGap, any node = null) {
+    public void drawWrapped(string tag, string text, int px, int color, int blockGap, any node = null) {
         // Fuente del tag (texto suelto hereda la de body).
         let ftag = tag
         if (ftag == "") { ftag = "body"; }
@@ -1133,9 +1170,9 @@ export public class GuiRenderer {
         if (tag != "" && this.nodeStr(node, tag, "white-space", "normal") == "nowrap") {
             lines = [text]                          // opt-out: una sola línea (puede recortarse)
         } else if (custom) {
-            lines = this.wrapTextMeasured(text, scale)
+            lines = this.wrapTextMeasured(text, px)
         } else {
-            lines = this.wrapText(text, scale)
+            lines = this.wrapText(text, px)
         }
         let align = "left"
         if (tag != "") { align = this.nodeStr(node, tag, "text-align", "left"); }
@@ -1151,21 +1188,21 @@ export public class GuiRenderer {
             if (this.nodeStr(node, tag, "font-weight", defW) == "bold")  { style = style + 1; }
             if (this.nodeStr(node, tag, "font-style", defS)  == "italic"){ style = style + 2; }
         }
-        let lh    = 8 * scale + 4
+        let lh    = px + 4
         if (tag != "") { lh = this.nodeNum(node, tag, "line-height", lh); }
         let deco = "none"
         if (tag != "") { deco = this.nodeStr(node, tag, "text-decoration", "none"); }
         let maxW  = 0
         let li    = 0
         while (li < lines.length()) {
-            let lw = Gui.measureText(lines[li], scale)[0]
+            let lw = Gui.measureTextPx(lines[li], px)[0]
             let lx = this.cx
             if (align == "center") { lx = this.cx + (this.colWidth - lw) / 2; }
             else if (align == "right") { lx = this.cx + this.colWidth - lw; }
-            this.swText(lx, this.cy + li * lh, lines[li], scale, color, style)
+            this.swTextPx(lx, this.cy + li * lh, lines[li], px, color, style)
             // text-decoration: subrayado (base del texto) o tachado (centro).
-            if (deco == "underline") { this.swRect(lx, this.cy + li * lh + 8 * scale + 1, lw, 1, color) }
-            else if (deco == "line-through") { this.swRect(lx, this.cy + li * lh + 4 * scale, lw, 1, color) }
+            if (deco == "underline") { this.swRect(lx, this.cy + li * lh + px + 1, lw, 1, color) }
+            else if (deco == "line-through") { this.swRect(lx, this.cy + li * lh + px / 2, lw, 1, color) }
             if (lw > maxW) { maxW = lw; }
             li = li + 1
         }
@@ -2663,8 +2700,16 @@ export public class GuiRenderer {
         // (el interpretado en ese caso desborda por la derecha).
         let availW = this.w - this.pad * 2
         let effW = availW
-        if (this.maxW > 0 && effW > this.maxW) { effW = this.maxW }
-        if (effW < this.minW) { effW = this.minW }
+        // `body { max-width / min-width }` acota la columna (CSS-nativo, = setMaxWidth/
+        // setMinWidth); el valor por código gana solo si no hay CSS.
+        let capMax = this.maxW
+        let bMaxW = this.numProp("body", "max-width", 0)
+        if (bMaxW > 0) { capMax = bMaxW }
+        let capMin = this.minW
+        let bMinW = this.numProp("body", "min-width", 0)
+        if (bMinW > 0) { capMin = bMinW }
+        if (capMax > 0 && effW > capMax) { effW = capMax }
+        if (effW < capMin) { effW = capMin }
         if (effW != availW) {
             let side = (this.w - effW) / 2
             if (side < 0) { side = 0; }
@@ -2744,8 +2789,14 @@ export public class GuiRenderer {
         // Ancho de contenido acotado por min/max-width; se centra si max lo limita.
         let avail = width - this.pad * 2
         let eff   = avail
-        if (this.maxW > 0 && eff > this.maxW) { eff = this.maxW; }
-        if (eff < this.minW) { eff = this.minW; }
+        let capMax2 = this.maxW
+        let bMax2 = this.numProp("body", "max-width", 0)
+        if (bMax2 > 0) { capMax2 = bMax2 }
+        let capMin2 = this.minW
+        let bMin2 = this.numProp("body", "min-width", 0)
+        if (bMin2 > 0) { capMin2 = bMin2 }
+        if (capMax2 > 0 && eff > capMax2) { eff = capMax2; }
+        if (eff < capMin2) { eff = capMin2; }
         this.cx          = this.pad
         if (eff < avail) { this.cx = (width - eff) / 2; }   // centrar bajo max-width
         this.cy          = this.pad - this.scrollY    // desplazamiento de scroll vertical
@@ -2763,6 +2814,8 @@ export public class GuiRenderer {
         this.curText = this.colorFor("body", "color", this.colText)
         // Escala heredada (como font-size): arranca en la de body (o 2).
         this.curScale = this.numProp("body", "font-scale", 2)
+        // font-size heredado en px: body { font-size } > body { font-scale }*8 > 16.
+        this.curPx = this.pxTag("body", 16)
         this.curAlpha = 255
         // z de cajas de contenedor: cada contenedor que CIERRA toma el siguiente
         // valor (decreciendo) → el interno (cierra primero) queda por ENCIMA del
@@ -2876,9 +2929,9 @@ export public class GuiRenderer {
 
         let isPrim = node is string || node is int || node is decimal || node is bool
         if (isPrim) {
-            // El texto suelto usa color Y escala HEREDADOS del contenedor
-            // (div { color; font-scale }) — como el motor nativo.
-            this.drawWrapped("", "" + node, this.curScale, this.curText, 6)
+            // El texto suelto usa color Y tamaño HEREDADOS del contenedor
+            // (div { color; font-size }) — como el motor nativo.
+            this.drawWrapped("", "" + node, this.curPx, this.curText, 6)
             return
         }
 
@@ -2889,29 +2942,29 @@ export public class GuiRenderer {
         let children = node.getChildren()
 
         if (tag == "h1") {
-            let sc1 = this.nodeNum(node, "h1", "font-scale", 3)
-            this.setStates(false, this.textHover(node, "h1", sc1), false, false)
-            this.renderTextTag("h1", node, sc1, this.nodeColor(node, "h1", "color", this.colText), 12)
+            let px1 = this.nodePx(node, "h1", 24)
+            this.setStates(false, this.textHover(node, "h1", px1), false, false)
+            this.renderTextTag("h1", node, px1, this.nodeColor(node, "h1", "color", this.colText), 12)
 
         } else if (tag == "h2") {
-            let sc2 = this.nodeNum(node, "h2", "font-scale", 2)
-            this.setStates(false, this.textHover(node, "h2", sc2), false, false)
-            this.renderTextTag("h2", node, sc2, this.nodeColor(node, "h2", "color", this.colText), 10)
+            let px2 = this.nodePx(node, "h2", 16)
+            this.setStates(false, this.textHover(node, "h2", px2), false, false)
+            this.renderTextTag("h2", node, px2, this.nodeColor(node, "h2", "color", this.colText), 10)
 
         } else if (tag == "p" || tag == "span" || tag == "h3" || tag == "li"
                 || tag == "h4" || tag == "h5" || tag == "h6"
                 || tag == "b" || tag == "i" || tag == "strong" || tag == "em") {
-            // p/span/li sin font-scale propia HEREDAN la del contenedor (como el
-            // nativo); h3-h6 conservan su default de título (2). Escala/color con
+            // p/span/li sin font-size propia HEREDAN el del contenedor (como el
+            // nativo); h3-h6 conservan su default de título (16px). Tamaño/color con
             // conciencia de clase (`p.centrado`). b/i/strong/em heredan color
             // (curText) y llevan negrita/itálica implícitas (ver drawWrapped).
-            let defSc = this.curScale
-            if (tag == "h3" || tag == "h4" || tag == "h5" || tag == "h6") { defSc = 2; }
+            let defPx = this.curPx
+            if (tag == "h3" || tag == "h4" || tag == "h5" || tag == "h6") { defPx = 16; }
             let defCol = this.colMuted
             if (tag == "b" || tag == "i" || tag == "strong" || tag == "em") { defCol = this.curText; }
-            let scp = this.nodeNum(node, tag, "font-scale", defSc)
-            this.setStates(false, this.textHover(node, tag, scp), false, false)
-            this.renderTextTag(tag, node, scp, this.nodeColor(node, tag, "color", defCol), 8)
+            let pxp = this.nodePx(node, tag, defPx)
+            this.setStates(false, this.textHover(node, tag, pxp), false, false)
+            this.renderTextTag(tag, node, pxp, this.nodeColor(node, tag, "color", defCol), 8)
 
         } else if (tag == "hr") {
             this.swLine(this.cx, this.cy, this.cx + this.colWidth, this.cy, this.colorFor("hr", "color", this.colBorder))
@@ -2974,6 +3027,7 @@ export public class GuiRenderer {
             let savedCW = this.colWidth
             let savedCT = this.curText
             let savedCS = this.curScale
+            let savedPx = this.curPx
             let boxX    = this.cx + ml
             let boxY    = this.cy
             let boxW    = savedCW - ml - mr
@@ -3005,6 +3059,7 @@ export public class GuiRenderer {
             let savedCA = this.curAlpha
             this.curText  = this.nodeColor(node, tag, "color", this.curText)
             this.curScale = this.nodeNum(node, tag, "font-scale", this.curScale)
+            this.curPx    = this.nodePx(node, tag, this.curPx)   // font-size heredado (px)
             let opRaw = this.nodeRaw(node, tag, "opacity")
             if (opRaw != null) { this.curAlpha = (this.curAlpha * this.alpha255(opRaw)) / 255 }
             let ownAlpha  = this.curAlpha   // alpha efectiva de ESTA caja (su fondo)
@@ -3035,6 +3090,7 @@ export public class GuiRenderer {
             this.colWidth = savedCW
             this.curText  = savedCT
             this.curScale = savedCS
+            this.curPx    = savedPx
             this.curAlpha = savedCA
             this.cy       = this.cy + pads[2]
             if (clipped) {
@@ -3089,12 +3145,12 @@ export public class GuiRenderer {
     public void drawAbsBadge(any node, int boxX, int boxY, int boxW) {
         let tag = node.getTag()
         let pads = this.nodePad(node, tag)
-        let scale = this.nodeNum(node, tag, "font-scale", this.curScale)
+        let px = this.nodePx(node, tag, this.curPx)
         let text = this.collectText(node)
         let fam = this.setFam(tag)
-        let tw = Gui.measureText(text, scale)[0]
+        let tw = Gui.measureTextPx(text, px)[0]
         let kw = tw + pads[1] + pads[3]
-        let kh = 8 * scale + 4 + pads[0] + pads[2]
+        let kh = px + 4 + pads[0] + pads[2]
         let kx = boxX
         let lRaw = this.nodeRaw(node, tag, "left")
         let rRaw = this.nodeRaw(node, tag, "right")
@@ -3107,7 +3163,7 @@ export public class GuiRenderer {
             if (rad > 0) { this.swRoundRect(kx, ky, kw, kh, rad, bgc) }
             else { this.swRect(kx, ky, kw, kh, bgc) }
         }
-        this.swText(kx + pads[3], ky + pads[0], text, scale, this.nodeColor(node, tag, "color", this.curText))
+        this.swTextPx(kx + pads[3], ky + pads[0], text, px, this.nodeColor(node, tag, "color", this.curText))
         if (fam) { this.swSetFont(""); }
     }
 
@@ -4274,8 +4330,9 @@ export public class GuiRenderer {
 
     // ── Label / Link ───────────────────────────────────────────────────────────
     public void renderLabel(any node) {
-        this.setStates(false, this.textHover(node, "Label", 2), false, false)
-        this.drawWrapped("Label", this.collectText(node), 2, this.nodeColor(node, "Label", "color", this.colText), 8)
+        let px = this.nodePx(node, "Label", 16)
+        this.setStates(false, this.textHover(node, "Label", px), false, false)
+        this.drawWrapped("Label", this.collectText(node), px, this.nodeColor(node, "Label", "color", this.colText), 8)
     }
 
     public void renderLink(any node) {
@@ -4312,20 +4369,20 @@ export public class GuiRenderer {
     public int measureNodeWidth(any node) {
         if (node == null) { return 0; }
         let isPrim = node is string || node is int || node is decimal || node is bool
-        if (isPrim) { return this.measureFor("body", "" + node, 2); }
+        if (isPrim) { return this.measureFor("body", "" + node, this.curPx); }
         let tag = node.getTag()
-        if (tag == "Button") { return this.measureFor("Button", this.collectText(node), 2) + 28; }
-        if (tag == "Link")   { return this.measureFor("Link", this.collectText(node), 2); }
-        if (tag == "Label")  { return this.measureFor("Label", this.collectText(node), 2); }
+        if (tag == "Button") { return this.measureFor("Button", this.collectText(node), this.nodePx(node, "Button", 16)) + 28; }
+        if (tag == "Link")   { return this.measureFor("Link", this.collectText(node), this.nodePx(node, "Link", 16)); }
+        if (tag == "Label")  { return this.measureFor("Label", this.collectText(node), this.nodePx(node, "Label", 16)); }
         if (tag == "Checkbox") {
             let lbl = node.getProp("label")
             if (lbl == null) { lbl = this.collectText(node); }
             return 28 + Gui.measureText("" + lbl, 2)[0]
         }
-        if (tag == "h1") { return this.measureFor("h1", this.collectText(node), this.numProp("h1", "font-scale", 3)); }
-        if (tag == "h2") { return this.measureFor("h2", this.collectText(node), this.numProp("h2", "font-scale", 2)); }
+        if (tag == "h1") { return this.measureFor("h1", this.collectText(node), this.nodePx(node, "h1", 24)); }
+        if (tag == "h2") { return this.measureFor("h2", this.collectText(node), this.nodePx(node, "h2", 16)); }
         if (tag == "p" || tag == "span" || tag == "h3" || tag == "li") {
-            return this.measureFor(tag, this.collectText(node), this.numProp(tag, "font-scale", 2))
+            return this.measureFor(tag, this.collectText(node), this.nodePx(node, tag, this.curPx))
         }
         return 0
     }
@@ -4334,16 +4391,16 @@ export public class GuiRenderer {
     public int measureNodeHeight(any node) {
         if (node == null) { return 0; }
         let isPrim = node is string || node is int || node is decimal || node is bool
-        if (isPrim) { return 8 * 2 + 4; }
+        if (isPrim) { return this.curPx + 4; }
         let tag = node.getTag()
         if (tag == "Button") { return 40; }
         if (tag == "Checkbox" || tag == "Switch") { return 22; }
         if (tag == "Input" || tag == "Select" || tag == "Dropdown") { return 34; }
-        if (tag == "Link" || tag == "Label") { return 8 * 2 + 4; }
-        if (tag == "h1") { return 8 * this.numProp("h1", "font-scale", 3) + 4; }
-        if (tag == "h2") { return 8 * this.numProp("h2", "font-scale", 2) + 4; }
+        if (tag == "Link" || tag == "Label") { return this.nodePx(node, tag, 16) + 4; }
+        if (tag == "h1") { return this.nodePx(node, "h1", 24) + 4; }
+        if (tag == "h2") { return this.nodePx(node, "h2", 16) + 4; }
         if (tag == "p" || tag == "span" || tag == "h3" || tag == "li") {
-            return 8 * this.numProp(tag, "font-scale", 2) + 4
+            return this.nodePx(node, tag, this.curPx) + 4
         }
         return 0
     }
@@ -4566,7 +4623,7 @@ export public class GuiRenderer {
         if (hnd < 0) {
             let alt = node.getProp("alt")
             if (alt == null) { alt = "[image]"; }
-            this.drawWrapped("", "" + alt, 2, this.colMuted, 6)
+            this.drawWrapped("", "" + alt, this.curPx, this.colMuted, 6)
             return
         }
         let sz = Gui.imageSize(hnd)
@@ -4925,9 +4982,9 @@ export public class GuiRenderer {
     // los tramos de texto/inline van con el estilo del tag; cada hijo bloque
     // (div, Col, Button...) pasa por renderNode y ocupa sus propias líneas.
     // Sin hijos bloque = el camino de siempre (collectText), cero cambios.
-    public void renderTextTag(string tag, any node, int scale, int color, int blockGap) {
+    public void renderTextTag(string tag, any node, int px, int color, int blockGap) {
         if (!this.hasBlockKids(node)) {
-            this.drawWrapped(tag, this.collectText(node), scale, color, blockGap, node)
+            this.drawWrapped(tag, this.collectText(node), px, color, blockGap, node)
             return
         }
         let children = node.getChildren()
@@ -4939,7 +4996,7 @@ export public class GuiRenderer {
                 run = run + this.collectText(k)
             } else {
                 if (run != "") {
-                    this.drawWrapped(tag, run, scale, color, blockGap, node)
+                    this.drawWrapped(tag, run, px, color, blockGap, node)
                     run = ""
                 }
                 this.renderNode(k)
@@ -4947,7 +5004,7 @@ export public class GuiRenderer {
             i = i + 1
         }
         if (run != "") {
-            this.drawWrapped(tag, run, scale, color, blockGap, node)
+            this.drawWrapped(tag, run, px, color, blockGap, node)
         }
     }
 }
