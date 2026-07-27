@@ -829,6 +829,95 @@ export public class GuiRenderer {
         return defPx
     }
 
+    // transform: translate(dx[,dy]) / translateX(dx) / translateY(dy) → [dx, dy] px.
+    // Desplazamiento VISUAL del elemento y su subárbol (no afecta el flujo, como en
+    // CSS). rotate()/scale() NO se soportan (necesitan un group-transform en la escena
+    // del core — el rasterizador software no rota/escala subárboles): se ignoran.
+    public any transformTranslate(any node, string tag) {
+        let raw = this.nodeRaw(node, tag, "transform")
+        if (raw == null) { return [0, 0]; }
+        let s = ("" + raw).trim()
+        if (s == "" || s == "none") { return [0, 0]; }
+        let dx = 0
+        let dy = 0
+        let ix = s.indexOf("translateX(")
+        if (ix >= 0) { dx = this.firstNum(s.substring(ix + 11, s.length()), 0); }
+        let iy = s.indexOf("translateY(")
+        if (iy >= 0) { dy = this.firstNum(s.substring(iy + 11, s.length()), 0); }
+        let it = s.indexOf("translate(")
+        if (it >= 0) {
+            let inner = s.substring(it + 10, s.length())
+            dx = this.firstNum(inner, 0)
+            let comma = inner.indexOf(",")
+            if (comma >= 0) { dy = this.firstNum(inner.substring(comma + 1, inner.length()), 0); }
+        }
+        return [dx, dy]
+    }
+
+    // grid-template-columns → array de anchos de columna en px. Soporta px fijos
+    // ("100px"/"100"), fracciones ("1fr"/"2fr") y repeat(n, VALUE). El sobrante tras
+    // los fijos y los gaps se reparte entre los fr por su peso. `avail` = ancho de
+    // contenido; `gap` = column-gap.
+    public any gridTracks(any raw, int avail, int gap) {
+        if (raw == null) { return []; }
+        let s = ("" + raw).trim()
+        if (s == "" || s == "none") { return []; }
+        // Expandir repeat(n, VALUE) → n copias de VALUE.
+        let expanded = ""
+        let guard = 0
+        while (s.indexOf("repeat(") >= 0 && guard < 50) {
+            guard = guard + 1
+            let ri = s.indexOf("repeat(")
+            expanded = expanded + s.substring(0, ri) + " "
+            let rest = s.substring(ri + 7, s.length())
+            let close = rest.indexOf(")")
+            if (close < 0) { s = ""; ri = -1; }
+            else {
+                let inner = rest.substring(0, close)
+                let n = this.firstNum(inner, 1)
+                let comma = inner.indexOf(",")
+                let val = inner.substring(comma + 1, inner.length()).trim()
+                let c = 0
+                while (c < n) { expanded = expanded + val + " "; c = c + 1 }
+                s = rest.substring(close + 1, rest.length())
+            }
+        }
+        expanded = expanded + s
+        let toks = expanded.split(" ")
+        let isFr    = []
+        let baseW   = []
+        let frSum   = 0
+        let fixedSum = 0
+        let ti = 0
+        while (ti < toks.length()) {
+            let t = toks[ti].trim()
+            if (t.length() > 0) {
+                if (t.includes("fr")) {
+                    let w = this.firstNum(t, 1)
+                    isFr.push(true); baseW.push(w); frSum = frSum + w
+                } else {
+                    let w = this.firstNum(t, 0)
+                    isFr.push(false); baseW.push(w); fixedSum = fixedSum + w
+                }
+            }
+            ti = ti + 1
+        }
+        let ncols = baseW.length()
+        if (ncols == 0) { return []; }
+        let totalGap = (ncols - 1) * gap
+        let remaining = avail - totalGap - fixedSum
+        if (remaining < 0) { remaining = 0; }
+        if (frSum < 1) { frSum = 1; }
+        let widths = []
+        let wi = 0
+        while (wi < baseW.length()) {
+            if (isFr[wi]) { widths.push(remaining * baseW[wi] / frSum) }
+            else { widths.push(baseW[wi]) }
+            wi = wi + 1
+        }
+        return widths
+    }
+
     // Igual que nodePx pero solo por TAG (para medir sin nodo, p.ej. autosize).
     public int pxTag(string tag, int defPx) {
         let fs = this.numProp(tag, "font-size", 0 - 1)
@@ -1192,14 +1281,19 @@ export public class GuiRenderer {
         if (tag != "") { lh = this.nodeNum(node, tag, "line-height", lh); }
         let deco = "none"
         if (tag != "") { deco = this.nodeStr(node, tag, "text-decoration", "none"); }
+        // letter-spacing (px): el core lo aplica en el nodo Text, pero measureTextPx NO
+        // lo incluye → hay que sumar (nChars-1)*ls al ancho para alinear/subrayar bien.
+        let ls = 0
+        if (tag != "") { ls = this.nodeNum(node, tag, "letter-spacing", 0); }
         let maxW  = 0
         let li    = 0
         while (li < lines.length()) {
             let lw = Gui.measureTextPx(lines[li], px)[0]
+            if (ls != 0) { let nc = lines[li].length(); if (nc > 1) { lw = lw + (nc - 1) * ls; } }
             let lx = this.cx
             if (align == "center") { lx = this.cx + (this.colWidth - lw) / 2; }
             else if (align == "right") { lx = this.cx + this.colWidth - lw; }
-            this.swTextPx(lx, this.cy + li * lh, lines[li], px, color, style)
+            this.swTextPx(lx, this.cy + li * lh, lines[li], px, color, style, ls)
             // text-decoration: subrayado (base del texto) o tachado (centro).
             if (deco == "underline") { this.swRect(lx, this.cy + li * lh + px + 1, lw, 1, color) }
             else if (deco == "line-through") { this.swRect(lx, this.cy + li * lh + px / 2, lw, 1, color) }
@@ -2940,6 +3034,12 @@ export public class GuiRenderer {
         let mrg = this.nodeMargin(node, tag)                              // margin shorthand + sueltos
         this.cy = this.cy + mrg[0]                                        // .szs: margin-top
         let children = node.getChildren()
+        // transform: translate(dx,dy) — desplaza el elemento (y su subárbol) sin
+        // afectar el flujo: se aplica antes del dibujo y se revierte al final.
+        let trf = this.transformTranslate(node, tag)
+        let trX = trf[0]
+        let trY = trf[1]
+        if (trX != 0 || trY != 0) { this.cx = this.cx + trX; this.cy = this.cy + trY; }
 
         if (tag == "h1") {
             let px1 = this.nodePx(node, "h1", 24)
@@ -3067,24 +3167,58 @@ export public class GuiRenderer {
             this.cy       = this.cy + pads[0]
             this.colWidth = boxW - pads[3] - pads[1]
             let rowGap = this.nodeNum(node, tag, "row-gap", 0)   // espacio vertical entre hijos
-            let placed = false
-            let i = 0
-            while (i < children.length()) {
-                let k = children[i]
-                // position:absolute mínimo (badge de texto): fuera del flujo,
-                // anclado a la caja de ESTE contenedor por left/right + top.
-                let isAbsKid = false
-                let kIsPrim = k is string || k is int || k is decimal || k is bool
-                if (!kIsPrim) {
-                    isAbsKid = this.nodeStr(k, k.getTag(), "position", "static") == "absolute"
+            let disp = this.nodeStr(node, tag, "display", "block")
+            if (disp == "grid") {
+                // display: grid — ubica los hijos en celdas por grid-template-columns.
+                // El gap por defecto (gap/column-gap/row-gap) separa columnas y filas.
+                let gGap = this.nodeNum(node, tag, "gap", 0)
+                let cGap = this.nodeNum(node, tag, "column-gap", gGap)
+                let rGap = this.nodeNum(node, tag, "row-gap", gGap)
+                let tracks = this.gridTracks(this.nodeRaw(node, tag, "grid-template-columns"), this.colWidth, cGap)
+                let ncols = tracks.length()
+                if (ncols < 1) { ncols = 1; tracks = [this.colWidth]; }
+                let contentX = this.cx
+                let rowY = this.cy
+                let col = 0
+                let rowMaxH = 0
+                let gi = 0
+                while (gi < children.length()) {
+                    let cellX = contentX
+                    let cc = 0
+                    while (cc < col) { cellX = cellX + tracks[cc] + cGap; cc = cc + 1 }
+                    this.cx       = cellX
+                    this.colWidth = tracks[col]
+                    this.cy       = rowY
+                    this.renderNode(children[gi])
+                    let hUsed = this.cy - rowY
+                    if (hUsed > rowMaxH) { rowMaxH = hUsed }
+                    col = col + 1
+                    if (col >= ncols) { rowY = rowY + rowMaxH + rGap; col = 0; rowMaxH = 0 }
+                    gi = gi + 1
                 }
-                if (isAbsKid) { this.drawAbsBadge(k, boxX, boxY, boxW) }
-                else {
-                    if (placed && rowGap > 0) { this.cy = this.cy + rowGap }
-                    placed = true
-                    this.renderNode(k)
+                if (col > 0) { rowY = rowY + rowMaxH }                       // última fila incompleta
+                else if (children.length() > 0) { rowY = rowY - rGap }       // sin gap tras la última fila completa
+                this.cy = rowY
+            } else {
+                let placed = false
+                let i = 0
+                while (i < children.length()) {
+                    let k = children[i]
+                    // position:absolute mínimo (badge de texto): fuera del flujo,
+                    // anclado a la caja de ESTE contenedor por left/right + top.
+                    let isAbsKid = false
+                    let kIsPrim = k is string || k is int || k is decimal || k is bool
+                    if (!kIsPrim) {
+                        isAbsKid = this.nodeStr(k, k.getTag(), "position", "static") == "absolute"
+                    }
+                    if (isAbsKid) { this.drawAbsBadge(k, boxX, boxY, boxW) }
+                    else {
+                        if (placed && rowGap > 0) { this.cy = this.cy + rowGap }
+                        placed = true
+                        this.renderNode(k)
+                    }
+                    i = i + 1
                 }
-                i = i + 1
             }
             this.cx       = savedCx
             this.colWidth = savedCW
@@ -3136,6 +3270,9 @@ export public class GuiRenderer {
             // con el lastW del último texto anidado y las columnas se superponían.
             this.lastW = savedCW
         }
+        // Revertir el translate: el flujo continúa como si no hubiera transform
+        // (visual-only). En Y solo se descuenta el desplazamiento, no el alto avanzado.
+        if (trX != 0 || trY != 0) { this.cx = this.cx - trX; this.cy = this.cy - trY; }
         this.cy = this.cy + mrg[2]                                  // .szs: margin-bottom (shorthand o suelto)
     }
 
