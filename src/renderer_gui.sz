@@ -140,6 +140,7 @@ export public class GuiRenderer {
         this.curScale  = 2          // font-scale HEREDADA (como font-size en CSS)
         this.curPx     = 16         // font-size HEREDADO en píxeles (font-size:Npx real)
         this.curAlpha  = 255        // opacidad HEREDADA acumulada (255 = opaco)
+        this.curZBias  = 0          // z-index heredado (bias sumado a la z natural en swPut)
         this.boxZ      = 0 - 2      // z para cajas de contenedor (decrece al cerrar cada una)
         this.colMuted  = 0x94a3b8
         this.colBtn    = 0x3b82f6
@@ -207,10 +208,12 @@ export public class GuiRenderer {
         return false
     }
 
-    // Registra el nodo recién creado en la posición actual (z = posición).
+    // Registra el nodo recién creado en la posición actual (z = posición + z-index
+    // heredado). El bias de z-index (curZBias) sube todo el subárbol por encima del
+    // contenido normal preservando el orden interno.
     public void swPut(int nid, string sig) {
         let k = this.swPos
-        Gui.nodeSet(nid, "z", k)
+        Gui.nodeSet(nid, "z", k + this.curZBias)
         if (k < this.swIds.length()) {
             this.swIds[k] = nid
             this.swSigs[k] = sig
@@ -234,9 +237,11 @@ export public class GuiRenderer {
     }
 
     // Registra el nodo con un z EXPLÍCITO (swPut normal pisa z con la posición).
+    // Suma el bias de z-index heredado para que un contenedor con z-index suba
+    // también su fondo/borde (emitidos con z explícito negativo).
     public void swPutZ(int nid, string sig, int z) {
         let k = this.swPos
-        Gui.nodeSet(nid, "z", z)
+        Gui.nodeSet(nid, "z", z + this.curZBias)
         if (k < this.swIds.length()) {
             this.swIds[k] = nid
             this.swSigs[k] = sig
@@ -1249,11 +1254,35 @@ export public class GuiRenderer {
     // espacio tras el bloque (calibrado para que 1 línea = el avance previo).
     // `node` (opcional) habilita las reglas por CLASE del nodo (`p.centrado`):
     // white-space/align/estilo/line-height se resuelven con conciencia de clase.
+    // text-transform: pone en mayúsculas la 1ª letra de cada palabra.
+    public string capitalizeWords(string s) {
+        let acc = ""
+        let atStart = true
+        let i = 0
+        while (i < s.length()) {
+            let ch = s.charAt(i)
+            if (ch == " " || ch == "\n" || ch == "\t") { acc = acc + ch; atStart = true }
+            else {
+                if (atStart) { acc = acc + ch.upper() } else { acc = acc + ch }
+                atStart = false
+            }
+            i = i + 1
+        }
+        return acc
+    }
+
     public void drawWrapped(string tag, string text, int px, int color, int blockGap, any node = null) {
         // Fuente del tag (texto suelto hereda la de body).
         let ftag = tag
         if (ftag == "") { ftag = "body"; }
         let custom = this.setFam(ftag)
+        // text-transform: uppercase | lowercase | capitalize (none = sin cambio).
+        if (tag != "") {
+            let tt = this.nodeStr(node, tag, "text-transform", "none")
+            if (tt == "uppercase") { text = text.upper() }
+            else if (tt == "lowercase") { text = text.lower() }
+            else if (tt == "capitalize") { text = this.capitalizeWords(text) }
+        }
 
         let lines = []
         if (tag != "" && this.nodeStr(node, tag, "white-space", "normal") == "nowrap") {
@@ -2910,6 +2939,7 @@ export public class GuiRenderer {
         this.curScale = this.numProp("body", "font-scale", 2)
         // font-size heredado en px: body { font-size } > body { font-scale }*8 > 16.
         this.curPx = this.pxTag("body", 16)
+        this.curZBias = 0
         this.curAlpha = 255
         // z de cajas de contenedor: cada contenedor que CIERRA toma el siguiente
         // valor (decreciendo) → el interno (cierra primero) queda por ENCIMA del
@@ -3039,7 +3069,17 @@ export public class GuiRenderer {
         let trf = this.transformTranslate(node, tag)
         let trX = trf[0]
         let trY = trf[1]
+        // position: relative — top/left desplazan el propio elemento (visual, como el
+        // translate). El relative como CONTEXTO de hijos absolute ya funcionaba.
+        if (this.nodeStr(node, tag, "position", "static") == "relative") {
+            trX = trX + this.nodeNum(node, tag, "left", 0)
+            trY = trY + this.nodeNum(node, tag, "top", 0)
+        }
         if (trX != 0 || trY != 0) { this.cx = this.cx + trX; this.cy = this.cy + trY; }
+        // z-index: sube el subárbol por encima del contenido normal (bias en swPut).
+        let savedZBias = this.curZBias
+        let zi = this.nodeNum(node, tag, "z-index", 0)
+        if (zi != 0) { this.curZBias = zi * 100000 }
 
         if (tag == "h1") {
             let px1 = this.nodePx(node, "h1", 24)
@@ -3270,9 +3310,10 @@ export public class GuiRenderer {
             // con el lastW del último texto anidado y las columnas se superponían.
             this.lastW = savedCW
         }
-        // Revertir el translate: el flujo continúa como si no hubiera transform
+        // Revertir el translate/relative: el flujo continúa como si no hubiera offset
         // (visual-only). En Y solo se descuenta el desplazamiento, no el alto avanzado.
         if (trX != 0 || trY != 0) { this.cx = this.cx - trX; this.cy = this.cy - trY; }
+        this.curZBias = savedZBias                                  // restaura el z-index del padre
         this.cy = this.cy + mrg[2]                                  // .szs: margin-bottom (shorthand o suelto)
     }
 
@@ -5090,6 +5131,10 @@ export public class GuiRenderer {
             let rg = this.regions[i]
             if (mx >= rg[1] && mx < rg[1] + rg[3] && my >= rg[2] && my < rg[2] + rg[4]) {
                 let tag = rg[0]
+                // CSS `cursor` explícito gana (el core mapea pointer/text/move/
+                // crosshair/not-allowed/…). "auto"/"" cae a la heurística por tag.
+                let cur = this.nodeStr(rg[5], tag, "cursor", "")
+                if (cur != "" && cur != "auto") { return cur; }
                 if (tag == "Button" || tag == "Link" || tag == "Dropdown" || tag == "Select" || tag == "Checkbox" || tag == "Switch" || tag == "FileInput" || tag == "Tabs" || tag == "Collapsible") { return "hand"; }
                 if (tag == "Textarea") {
                     let totalSegs = rg[7]
