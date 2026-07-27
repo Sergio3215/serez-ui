@@ -724,6 +724,7 @@ export public class Window {
                 let dw = fdrop[3]
                 let dh = fdrop[4]
                 let optH = 30
+                if (fdrop.length() > 6) { optH = fdrop[6] + 14 }   // font-size del Dropdown (= render)
                 let oy0 = dy + dh
                 if (mx >= dx && mx < dx + dw && my >= oy0 && my < oy0 + dopts.length() * optH) {
                     let idx = 0

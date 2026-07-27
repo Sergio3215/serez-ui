@@ -3235,10 +3235,11 @@ export public class GuiRenderer {
     // ── Button ─────────────────────────────────────────────────────────────────
     public void renderButton(any node) {
         let label    = this.collectText(node)
+        let px       = this.nodePx(node, "Button", 16)   // font-size (px); 16 = escala 2
         let fam      = this.setFam("Button")
-        let m        = Gui.measureText(label, 2)
+        let m        = Gui.measureTextPx(label, px)
         let bw       = m[0] + 28
-        let bh       = 40
+        let bh       = px + 24                             // alto sigue al texto (40 a 16px)
         let bx       = this.cx
         let by       = this.cy
         let disabled = node.getProp("disabled") == true
@@ -3259,7 +3260,7 @@ export public class GuiRenderer {
         let color = this.nodeColor(node, "Button", "background-color", dflt)
 
         this.fillBox(node, "Button", bx, by, bw, bh, color)
-        this.swText(bx + 14, by + 12, label, 2, this.nodeColor(node, "Button", "color", this.colText))
+        this.swTextPx(bx + 14, by + (bh - px) / 2, label, px, this.nodeColor(node, "Button", "color", this.colText))
         if (fam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing(node, "Button", bx, by, bw, bh) }
 
@@ -3278,9 +3279,10 @@ export public class GuiRenderer {
         if (placeholder == null) { placeholder = "Ningun archivo"; }
         let disabled = node.getProp("disabled") == true
 
+        let px = this.nodePx(node, "FileInput", 16)
         let bx = this.cx
         let by = this.cy
-        let bh = 40
+        let bh = px + 24
 
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
@@ -3288,7 +3290,7 @@ export public class GuiRenderer {
 
         // Botón (izquierda) — mismo estilo que Button.
         let fam   = this.setFam("Button")
-        let m     = Gui.measureText(label, 2)
+        let m     = Gui.measureTextPx(label, px)
         let btnW  = m[0] + 28
         let hover  = this.mouseX >= bx && this.mouseX < bx + btnW && this.mouseY >= by && this.mouseY < by + bh
         let active = hover && this.mouseHeld && !disabled
@@ -3299,7 +3301,7 @@ export public class GuiRenderer {
         else if (hover) { dflt = this.colBtnHov }
         let color = this.nodeColor(node, "Button", "background-color", dflt)
         this.fillBox(node, "Button", bx, by, btnW, bh, color)
-        this.swText(bx + 14, by + 12, label, 2, this.nodeColor(node, "Button", "color", this.colText))
+        this.swTextPx(bx + 14, by + (bh - px) / 2, label, px, this.nodeColor(node, "Button", "color", this.colText))
         if (fam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing(node, "FileInput", bx, by, btnW, bh) }
 
@@ -3312,7 +3314,7 @@ export public class GuiRenderer {
             shownCol = this.colText
         }
         let sfam = this.setFam("body")
-        this.swText(bx + btnW + 12, by + 12, shown, 2, shownCol)
+        this.swTextPx(bx + btnW + 12, by + (bh - px) / 2, shown, px, shownCol)
         if (sfam) { this.swSetFont(""); }
 
         // La región cubre solo el botón (el click abre el diálogo).
@@ -3339,16 +3341,17 @@ export public class GuiRenderer {
         let type        = node.getProp("type")
         let disabled    = node.getProp("disabled") == true
 
+        let px = this.nodePx(node, "Input", 16)   // font-size (px); 16 = escala 2
         let bx = this.cx
         let by = this.cy
         let bw = this.colWidth
-        let bh = 34
-        let scale = 2
+        let bh = px + 18                            // 34 a 16px
+        let ty = by + (bh - px) / 2                 // baseline vertical del texto
         // Fuente del campo: si la hoja define Input { font-family } (monoespaciada),
-        // se activa y el ancho de celda se MIDE; si no, la rejilla 8x8 por defecto.
+        // se activa y el ancho de celda se MIDE; si no, la rejilla px por defecto.
         let fam = this.setMonoFam("Input")
-        let charW = 8 * scale
-        if (fam) { charW = Gui.measureText("M", scale)[0]; if (charW < 1) { charW = 8 * scale; } }
+        let charW = px
+        if (fam) { charW = Gui.measureTextPx("M", px)[0]; if (charW < 1) { charW = px; } }
 
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
@@ -3408,7 +3411,7 @@ export public class GuiRenderer {
             let vlo = lo - start; if (vlo < 0) { vlo = 0; }
             let vhi = hi - start; if (vhi > fit) { vhi = fit; }
             if (vhi > vlo) {
-                this.swRectAlpha(textX + vlo * charW, by + 7, (vhi - vlo) * charW, bh - 14, this.colFocus, 110)
+                this.swRectAlpha(textX + vlo * charW, ty - 2, (vhi - vlo) * charW, px + 4, this.colFocus, 110)
             }
         }
 
@@ -3419,14 +3422,14 @@ export public class GuiRenderer {
             // textX (posición 0), así que no hay desalineación.
             if (fam) { this.swSetFont(""); }
             let pfam = this.setFam("body")
-            this.swText(textX, by + 9, "" + placeholder, scale, this.colMuted)
+            this.swTextPx(textX, ty, "" + placeholder, px, this.colMuted)
             if (pfam) { this.swSetFont(""); }
             if (fam) { this.setMonoFam("Input"); }
         } else {
             let endIdx = start + fit
             if (endIdx > display.length()) { endIdx = display.length(); }
             let shown = display.substring(start, endIdx)
-            this.swText(textX, by + 9, shown, scale, tcol)
+            this.swTextPx(textX, ty, shown, px, tcol)
         }
 
         // Caret solo si el campo Y la ventana tienen foco: un Input enfocado de una
@@ -3439,14 +3442,14 @@ export public class GuiRenderer {
             // Composición IME en curso (CJK): se pinta subrayada justo en el caret.
             let pre = this.imePreedit
             if (pre != null && pre != "") {
-                this.swText(caretX, by + 9, "" + pre, scale, tcol, 4)
+                this.swTextPx(caretX, ty, "" + pre, px, tcol, 4)
                 caretX = caretX + pre.length() * charW
             }
             // blink: visible 700ms, oculto 300ms
             if (Gui.time() % 1000 < 700) {
-                this.swRect(caretX, by + 7, 2, bh - 14, this.colText)
+                this.swRect(caretX, ty - 2, 2, px + 4, this.colText)
             }
-            Gui.setImePosition(caretX, by + 7)
+            Gui.setImePosition(caretX, ty - 2)
         }
 
         if (fam) { this.swSetFont(""); }
@@ -3462,10 +3465,11 @@ export public class GuiRenderer {
         let value    = node.getProp("value")
         let disabled = node.getProp("disabled") == true
 
+        let px = this.nodePx(node, "Select", 16)
         let bx = this.cx
         let by = this.cy
         let bw = this.colWidth
-        let bh = 34
+        let bh = px + 18
 
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
@@ -3484,7 +3488,7 @@ export public class GuiRenderer {
         if (disabled) { display = "  " + display + "  "; }
         else { display = "< " + display + " >"; }
         let sfam = this.setFam("Select")
-        this.swText(bx + 10, by + 9, display, 2, this.nodeColor(node, "Select", "color", this.colText))
+        this.swTextPx(bx + 10, by + (bh - px) / 2, display, px, this.nodeColor(node, "Select", "color", this.colText))
         if (sfam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing(node, "Select", bx, by, bw, bh) }
 
@@ -3499,18 +3503,22 @@ export public class GuiRenderer {
         if (label == null) { label = this.collectText(node); }
         let disabled = node.getProp("disabled") == true
 
+        let px = this.nodePx(node, "Checkbox", 16)
         let bx = this.cx
         let by = this.cy
         let boxSize = 20
+        let rowH = boxSize
+        if (px > rowH) { rowH = px }                 // fila alta si el texto es grande
+        let boxY = by + (rowH - boxSize) / 2
 
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
 
         let cfam  = this.setFam("Checkbox")
-        let lm    = Gui.measureText("" + label, 2)
+        let lm    = Gui.measureTextPx("" + label, px)
         let regW  = boxSize + 8 + lm[0]
-        let hover = this.mouseX >= bx && this.mouseX < bx + regW && this.mouseY >= by && this.mouseY < by + boxSize
+        let hover = this.mouseX >= bx && this.mouseX < bx + regW && this.mouseY >= by && this.mouseY < by + rowH
 
         let active = hover && this.mouseHeld && !disabled
         this.setStates(focused, hover, active, disabled)
@@ -3518,17 +3526,17 @@ export public class GuiRenderer {
         if (active) { dflt = this.colBtnDn }
         else if (!disabled && hover) { dflt = this.colBtnHov }
         let color = this.nodeColor(node, "Checkbox", "background-color", dflt)
-        this.swRect(bx, by, boxSize, boxSize, color)
+        this.swRect(bx, boxY, boxSize, boxSize, color)
         if (checked) {
-            this.swText(bx + 4, by + 4, "X", 2, this.nodeColor(node, "Checkbox", "color", this.colText))
+            this.swText(bx + 4, boxY + 4, "X", 2, this.nodeColor(node, "Checkbox", "color", this.colText))
         }
-        this.swText(bx + boxSize + 8, by + 2, "" + label, 2, this.nodeColor(node, "Checkbox", "color", this.colText))
+        this.swTextPx(bx + boxSize + 8, by + (rowH - px) / 2, "" + label, px, this.nodeColor(node, "Checkbox", "color", this.colText))
         if (cfam) { this.swSetFont(""); }
-        if (focused) { this.drawFocusRing(node, "Checkbox", bx, by, regW, boxSize); }
+        if (focused) { this.drawFocusRing(node, "Checkbox", bx, by, regW, rowH); }
 
-        this.regions.push(["Checkbox", bx, by, regW, boxSize, node])
+        this.regions.push(["Checkbox", bx, by, regW, rowH, node])
         this.lastW = regW
-        this.cy = this.cy + boxSize + 12
+        this.cy = this.cy + rowH + 12
     }
 
     // ── Switch / Toggle (pill con knob deslizante; misma semántica que Checkbox) ─
@@ -3538,20 +3546,24 @@ export public class GuiRenderer {
         if (label == null) { label = this.collectText(node); }
         let disabled = node.getProp("disabled") == true
 
+        let px = this.nodePx(node, "Switch", 16)
         let bx = this.cx
         let by = this.cy
         let trackW = 44
         let trackH = 22
         let knobR  = 8
+        let rowH = trackH
+        if (px > rowH) { rowH = px }
+        let trackY = by + (rowH - trackH) / 2
 
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
 
         let sfam = this.setFam("Switch")
-        let lm   = Gui.measureText("" + label, 2)
+        let lm   = Gui.measureTextPx("" + label, px)
         let regW = trackW + 8 + lm[0]
-        let hover  = this.mouseX >= bx && this.mouseX < bx + regW && this.mouseY >= by && this.mouseY < by + trackH
+        let hover  = this.mouseX >= bx && this.mouseX < bx + regW && this.mouseY >= by && this.mouseY < by + rowH
         let active = hover && this.mouseHeld && !disabled
         this.setStates(focused, hover, active, disabled)
 
@@ -3560,26 +3572,26 @@ export public class GuiRenderer {
         if (checked) { track = this.nodeColor(node, "Switch", "background-color", this.colBtn); }
         if (disabled) { track = this.colBorder; }
         else if (checked && hover) { track = this.colBtnHov; }
-        this.swRoundRect(bx, by, trackW, trackH, trackH / 2, track)
+        this.swRoundRect(bx, trackY, trackW, trackH, trackH / 2, track)
 
         // Knob (círculo): izquierda (OFF) o derecha (ON).
         let knobCx = bx + knobR + 3
         if (checked) { knobCx = bx + trackW - knobR - 3; }
-        let knobCy  = by + trackH / 2
+        let knobCy  = trackY + trackH / 2
         let knobCol = this.colText
         if (disabled) { knobCol = this.colMuted; }
         this.swCircle(knobCx, knobCy, knobR, knobCol)
 
         // Etiqueta a la derecha (si hay).
         if (("" + label) != "") {
-            this.swText(bx + trackW + 8, by + 3, "" + label, 2, this.nodeColor(node, "Switch", "color", this.colText))
+            this.swTextPx(bx + trackW + 8, by + (rowH - px) / 2, "" + label, px, this.nodeColor(node, "Switch", "color", this.colText))
         }
         if (sfam) { this.swSetFont(""); }
-        if (focused) { this.drawFocusRing(node, "Switch", bx, by, regW, trackH); }
+        if (focused) { this.drawFocusRing(node, "Switch", bx, by, regW, rowH); }
 
-        this.regions.push(["Switch", bx, by, regW, trackH, node])
+        this.regions.push(["Switch", bx, by, regW, rowH, node])
         this.lastW = regW
-        this.cy = this.cy + trackH + 12
+        this.cy = this.cy + rowH + 12
     }
 
     // ── Tabs (barra de pestañas; la app renderiza el contenido según `active`) ──
@@ -3592,9 +3604,10 @@ export public class GuiRenderer {
         if (active == null) { active = 0; }
         let disabled = node.getProp("disabled") == true
 
+        let px = this.nodePx(node, "Tabs", 16)
         let bx = this.cx
         let by = this.cy
-        let barH = 34
+        let barH = px + 18
 
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
@@ -3614,7 +3627,7 @@ export public class GuiRenderer {
         let i = 0
         while (i < tabs.length()) {
             let label = "" + tabs[i]
-            let tw    = Gui.measureText(label, 2)[0] + padX * 2
+            let tw    = Gui.measureTextPx(label, px)[0] + padX * 2
             let isAct = (i == active)
             let hover = this.mouseX >= x && this.mouseX < x + tw && this.mouseY >= by && this.mouseY < by + barH
             if (isAct) { this.swRect(x, by, tw, barH - 1, this.colInput); }
@@ -3622,7 +3635,7 @@ export public class GuiRenderer {
             let tcol = this.colMuted
             if (isAct) { tcol = this.nodeColor(node, "Tabs", "color", this.colText); }
             else if (!disabled && hover) { tcol = this.colText; }
-            this.swText(x + padX, by + 9, label, 2, tcol)
+            this.swTextPx(x + padX, by + (barH - px) / 2, label, px, tcol)
             if (isAct) { this.swRect(x, by + barH - 3, tw, 3, accent); }   // subrayado del activo
             x = x + tw
             bounds.push(x)
@@ -3645,9 +3658,10 @@ export public class GuiRenderer {
         let open  = node.getProp("open") == true
         let disabled = node.getProp("disabled") == true
 
+        let px = this.nodePx(node, "Collapsible", 16)
         let bx = this.cx
         let by = this.cy
-        let headH = 32
+        let headH = px + 16
         let hw = this.colWidth
 
         let myOrd  = this.focusOrd
@@ -3673,7 +3687,7 @@ export public class GuiRenderer {
         }
 
         let cfam = this.setFam("Collapsible")
-        this.swText(bx + 28, by + 8, "" + title, 2, tcol)
+        this.swTextPx(bx + 28, by + (headH - px) / 2, "" + title, px, tcol)
         if (cfam) { this.swSetFont(""); }
         if (focused) { this.drawFocusRing(node, "Collapsible", bx, by, hw, headH); }
 
@@ -3719,13 +3733,14 @@ export public class GuiRenderer {
         let bx = this.cx
         let by = this.cy
         let bw = this.colWidth
-        // Tamaño respeta font-scale del .szs (antes fijo a 1 = 8px, se veía diminuto).
-        let scale = this.numProp("Textarea", "font-scale", 1)
-        let lineH = 12 * scale + 6
+        // Tamaño = font-size (px) del .szs; default 8px (= la vieja escala 1) para no
+        // cambiar la apariencia previa. font-scale sigue valiendo (×8).
+        let px = this.nodePx(node, "Textarea", 8)
+        let lineH = (px * 3) / 2 + 6                     // 18 a 8px, 30 a 16px (= 12*scale+6)
         // Fuente del campo (monoespaciada propia, sin heredar body); ancho medido.
         let fam = this.setMonoFam("Textarea")
-        let charW = 8 * scale
-        if (fam) { charW = Gui.measureText("M", scale)[0]; if (charW < 1) { charW = 8 * scale; } }
+        let charW = px
+        if (fam) { charW = Gui.measureTextPx("M", px)[0]; if (charW < 1) { charW = px; } }
 
         // Columnas que entran (monoespaciada → exacto; int/int = división entera).
         let maxCols = (bw - 12) / charW
@@ -3862,7 +3877,7 @@ export public class GuiRenderer {
             // Textarea sea monoespaciado. El caret vacío queda en el origen, sin desalinear.
             if (fam) { this.swSetFont(""); }
             let pfam = this.setFam("body")
-            this.swText(bx + 6, by + 6, "" + placeholder, scale, this.colMuted)
+            this.swTextPx(bx + 6, by + 6, "" + placeholder, px, this.colMuted)
             if (pfam) { this.swSetFont(""); }
             if (fam) { this.setMonoFam("Textarea"); }
         } else {
@@ -3925,7 +3940,7 @@ export public class GuiRenderer {
                         this.swRectAlpha(bx + 6 + (a - s) * charW, yrow - 1, (bsel - a) * charW, lineH - 2, this.colFocus, 110)
                     }
                 }
-                this.swText(bx + 6, yrow, segText[li], scale, tcol)
+                this.swTextPx(bx + 6, yrow, segText[li], px, tcol)
                 yrow  = yrow + lineH
                 li    = li + 1
                 drawn = drawn + 1
@@ -3938,7 +3953,7 @@ export public class GuiRenderer {
                 // Composición IME en curso (CJK): subrayada justo en el caret.
                 let pre = this.imePreedit
                 if (pre != null && pre != "") {
-                    this.swText(caretPx, crow, "" + pre, scale, tcol, 4)
+                    this.swTextPx(caretPx, crow, "" + pre, px, tcol, 4)
                     caretPx = caretPx + pre.length() * charW
                 }
                 if (Gui.time() % 1000 < 700) {
@@ -3977,9 +3992,10 @@ export public class GuiRenderer {
         let disabled = node.getProp("disabled") == true
         if (options == null) { options = []; }
 
+        let px     = this.nodePx(node, "RadioGroup", 16)
         let bx     = this.cx
         let startY = this.cy
-        let lineH  = 26
+        let lineH  = px + 10                              // 26 a 16px
 
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
@@ -3996,12 +4012,13 @@ export public class GuiRenderer {
         let i = 0
         while (i < options.length()) {
             let oy  = startY + i * lineH
+            let ccy = oy + lineH / 2                       // centro vertical de la fila
             let opt = options[i]
             let selected = ("" + opt) == ("" + value)
-            this.swCircle(bx + 10, oy + 11, 9, this.colBorder)    // contorno (radio 9)
-            this.swCircle(bx + 10, oy + 11, 7, this.colInput)     // interior (radio 7)
-            if (selected) { this.swCircle(bx + 10, oy + 11, 4, rgDot); }   // punto
-            this.swText(bx + 26, oy + 4, "" + opt, 2, rgText)
+            this.swCircle(bx + 10, ccy, 9, this.colBorder)    // contorno (radio 9)
+            this.swCircle(bx + 10, ccy, 7, this.colInput)     // interior (radio 7)
+            if (selected) { this.swCircle(bx + 10, ccy, 4, rgDot); }   // punto
+            this.swTextPx(bx + 26, oy + (lineH - px) / 2, "" + opt, px, rgText)
             i = i + 1
         }
         if (rfam) { this.swSetFont(""); }
@@ -4024,9 +4041,11 @@ export public class GuiRenderer {
         if (max == null) { max = 100; }
         if (value == null) { value = min; }
 
+        let px = this.nodePx(node, "Slider", 16)
         let bx = this.cx
         let by = this.cy
         let bh = 30
+        if (px + 8 > bh) { bh = px + 8 }                 // sube si el valor es grande
         let trackW = this.colWidth - 56
 
         let myOrd  = this.focusOrd
@@ -4044,12 +4063,12 @@ export public class GuiRenderer {
         let filled = (rel * trackW) / span
         let knobX  = bx + filled
 
-        let tyv = by + 13
+        let tyv = by + bh / 2 - 2
         let acc = this.nodeColor(node, "Slider", "background-color", this.colBtn)   // acento (fill+knob)
         this.swRect(bx, tyv, trackW, 4, this.colBorder)
         this.swRect(bx, tyv, filled, 4, acc)
-        this.swRect(knobX - 5, by + 5, 10, 18, acc)
-        this.swText(bx + trackW + 12, by + 7, "" + value, 2, this.nodeColor(node, "Slider", "color", this.colText))
+        this.swRect(knobX - 5, by + (bh - 18) / 2, 10, 18, acc)
+        this.swTextPx(bx + trackW + 12, by + (bh - px) / 2, "" + value, px, this.nodeColor(node, "Slider", "color", this.colText))
         if (focused) { this.drawFocusRing(node, "Slider", bx, by, this.colWidth, bh); }
 
         this.regions.push(["Slider", bx, by, trackW, bh, node])
@@ -4064,10 +4083,12 @@ export public class GuiRenderer {
         if (value == null) { value = 0; }
         if (max == null) { max = 100; }
 
+        let px = this.nodePx(node, "ProgressBar", 8)   // default 8px (= la vieja escala 1)
         let bx = this.cx
         let by = this.cy
         let bw = this.colWidth
         let bh = 22
+        if (px + 6 > bh) { bh = px + 6 }
 
         let span = max
         if (span <= 0) { span = 1; }
@@ -4079,7 +4100,7 @@ export public class GuiRenderer {
         this.setStates(false, hover, false, false)
         this.fillBox(node, "ProgressBar", bx, by, bw, bh, this.nodeColor(node, "ProgressBar", "background-color", this.colInput))
         this.fillBox(node, "ProgressBar", bx, by, (v * bw) / span, bh, this.colBtn)
-        if (label != null) { this.swText(bx + 8, by + 4, "" + label, 1, this.nodeColor(node, "ProgressBar", "color", this.colText)); }
+        if (label != null) { this.swTextPx(bx + 8, by + (bh - px) / 2, "" + label, px, this.nodeColor(node, "ProgressBar", "color", this.colText)); }
         this.cy = this.cy + bh + 12
     }
 
@@ -4109,7 +4130,8 @@ export public class GuiRenderer {
 
         let n = data.length()
         if (n == 0) {
-            this.swText(bx + 10, by + bh / 2 - 6, "sin datos", 1, this.colMuted)
+            let px = this.nodePx(node, "Chart", 16)
+            this.swTextPx(bx + 10, by + (bh - px) / 2, "sin datos", px, this.colMuted)
             this.cy = this.cy + bh + 12
             return
         }
@@ -4228,12 +4250,12 @@ export public class GuiRenderer {
         this.dashedRect(bx, by, bw, bh, bc, hi)
 
         // Etiqueta centrada, en fuente PROPORCIONAL (mide y dibuja con la misma → centra bien).
-        let scale = 2
+        let px = this.nodePx(node, "DropZone", 16)
         let dfam = this.setFam("body")
-        let tw = Gui.measureText("" + label, scale)[0]
+        let tw = Gui.measureTextPx("" + label, px)[0]
         let tx = bx + (bw - tw) / 2
-        let ty = by + (bh - 8 * scale) / 2
-        this.swText(tx, ty, "" + label, scale, tc)
+        let ty = by + (bh - px) / 2
+        this.swTextPx(tx, ty, "" + label, px, tc)
         if (dfam) { this.swSetFont(""); }
 
         this.regions.push(["DropZone", bx, by, bw, bh, node])
@@ -4269,10 +4291,11 @@ export public class GuiRenderer {
         let value    = node.getProp("value")
         let disabled = node.getProp("disabled") == true
 
+        let px = this.nodePx(node, "Dropdown", 16)
         let bx = this.cx
         let by = this.cy
         let bw = this.colWidth
-        let bh = 34
+        let bh = px + 18
 
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
@@ -4283,12 +4306,12 @@ export public class GuiRenderer {
 
         this.fillBox(node, "Dropdown", bx, by, bw, bh, this.nodeColor(node, "Dropdown", "background-color", this.colInput))
         let dfam = this.setFam("Dropdown")
-        this.swText(bx + 10, by + 9, "" + value, 2, this.nodeColor(node, "Dropdown", "color", this.colText))
+        this.swTextPx(bx + 10, by + (bh - px) / 2, "" + value, px, this.nodeColor(node, "Dropdown", "color", this.colText))
         if (dfam) { this.swSetFont(""); }
-        this.drawTriDown(bx + bw - 16, by + 14, 4, this.colMuted)
+        this.drawTriDown(bx + bw - 16, by + bh / 2 - 3, 4, this.colMuted)
         if (focused) { this.drawFocusRing(node, "Dropdown", bx, by, bw, bh); }
 
-        this.regions.push(["Dropdown", bx, by, bw, bh, node])
+        this.regions.push(["Dropdown", bx, by, bw, bh, node, px])   // px → optH del overlay (hit-test)
 
         if (focused && this.dropOpen) {
             this.hasOpenDrop  = true
@@ -4308,10 +4331,11 @@ export public class GuiRenderer {
         let opts = node.getProp("options")
         if (opts == null) { return; }
 
+        let px = this.nodePx(node, "Dropdown", 16)
         let dx = this.openDropX
         let dw = this.openDropW
         let oy0 = this.openDropY + this.openDropH
-        let optH = 30
+        let optH = px + 14
 
         let ofam = this.setFam("Dropdown")
         let i = 0
@@ -4321,7 +4345,7 @@ export public class GuiRenderer {
             if (i == this.dropHi) { bg = this.colBtnHov; }
             this.swRect(dx, oy, dw, optH, bg)
             this.swRect(dx, oy, dw, 1, this.colBorder)
-            this.swText(dx + 10, oy + 9, "" + opts[i], 2, this.colText)
+            this.swTextPx(dx + 10, oy + (optH - px) / 2, "" + opts[i], px, this.colText)
             i = i + 1
         }
         if (ofam) { this.swSetFont(""); }
@@ -4337,9 +4361,9 @@ export public class GuiRenderer {
 
     public void renderLink(any node) {
         let label    = this.collectText(node)
-        let scale    = 2
+        let px       = this.nodePx(node, "Link", 16)
         let fam      = this.setFam("Link")
-        let m        = Gui.measureText(label, scale)
+        let m        = Gui.measureTextPx(label, px)
         let lw       = m[0]
         let bx       = this.cx
         let by       = this.cy
@@ -4348,19 +4372,19 @@ export public class GuiRenderer {
         let myOrd  = this.focusOrd
         let focused = myOrd == this.focus && !disabled
         this.focusOrd = this.focusOrd + 1
-        let hover  = this.mouseX >= bx && this.mouseX < bx + lw && this.mouseY >= by && this.mouseY < by + 8 * scale + 4
+        let hover  = this.mouseX >= bx && this.mouseX < bx + lw && this.mouseY >= by && this.mouseY < by + px + 4
         let active = hover && this.mouseHeld && !disabled
         this.setStates(focused, hover, active, disabled)
 
         let col = this.nodeColor(node, "Link", "color", this.colLink)
-        this.swText(bx, by, label, scale, col)
+        this.swTextPx(bx, by, label, px, col)
         if (fam) { this.swSetFont(""); }
-        this.swRect(bx, by + 8 * scale + 1, lw, 1, col)
-        if (focused) { this.drawFocusRing(node, "Link", bx, by, lw, 8 * scale + 4); }
+        this.swRect(bx, by + px + 1, lw, 1, col)
+        if (focused) { this.drawFocusRing(node, "Link", bx, by, lw, px + 4); }
 
-        this.regions.push(["Link", bx, by, lw, 8 * scale + 4, node])
+        this.regions.push(["Link", bx, by, lw, px + 4, node])
         this.lastW = lw
-        this.cy = this.cy + 8 * scale + 12
+        this.cy = this.cy + px + 12
     }
 
     // Ancho natural (px) de un nodo, para decidir el auto-wrap del Row. Los elásticos
@@ -4377,7 +4401,7 @@ export public class GuiRenderer {
         if (tag == "Checkbox") {
             let lbl = node.getProp("label")
             if (lbl == null) { lbl = this.collectText(node); }
-            return 28 + Gui.measureText("" + lbl, 2)[0]
+            return 28 + Gui.measureTextPx("" + lbl, this.nodePx(node, "Checkbox", 16))[0]
         }
         if (tag == "h1") { return this.measureFor("h1", this.collectText(node), this.nodePx(node, "h1", 24)); }
         if (tag == "h2") { return this.measureFor("h2", this.collectText(node), this.nodePx(node, "h2", 16)); }
@@ -4393,9 +4417,14 @@ export public class GuiRenderer {
         let isPrim = node is string || node is int || node is decimal || node is bool
         if (isPrim) { return this.curPx + 4; }
         let tag = node.getTag()
-        if (tag == "Button") { return 40; }
-        if (tag == "Checkbox" || tag == "Switch") { return 22; }
-        if (tag == "Input" || tag == "Select" || tag == "Dropdown") { return 34; }
+        if (tag == "Button" || tag == "FileInput") { return this.nodePx(node, tag, 16) + 24; }
+        if (tag == "Checkbox" || tag == "Switch") {
+            let cpx = this.nodePx(node, tag, 16)
+            let base = 22
+            if (cpx > base) { base = cpx }
+            return base
+        }
+        if (tag == "Input" || tag == "Select" || tag == "Dropdown") { return this.nodePx(node, tag, 16) + 18; }
         if (tag == "Link" || tag == "Label") { return this.nodePx(node, tag, 16) + 4; }
         if (tag == "h1") { return this.nodePx(node, "h1", 24) + 4; }
         if (tag == "h2") { return this.nodePx(node, "h2", 16) + 4; }
@@ -4700,11 +4729,11 @@ export public class GuiRenderer {
         let bw = this.colWidth
         let cellW = bw / ncol
         // Texto legible con fuente real (proporcional, hereda body); tamaño y alto
-        // de fila desde font-scale (antes era scale 1 = 8px con la bitmap → ilegible).
-        let scale = this.numProp("Table", "font-scale", 2)
+        // de fila desde font-size (px); default 16.
+        let px    = this.nodePx(node, "Table", 16)
         let fam   = this.setFam("Table")
-        let rowH  = 8 * scale + 12
-        let ty    = (rowH - 8 * scale) / 2
+        let rowH  = px + 12
+        let ty    = (rowH - px) / 2
         if (ty < 2) { ty = 2; }
 
         let estRows = rows.length()
@@ -4720,7 +4749,7 @@ export public class GuiRenderer {
             while (c < ncol) {
                 let label = ""
                 if (c < columns.length()) { label = "" + columns[c]; }
-                this.swText(bx + c * cellW + 8, y + ty, this.fitCell(label, cellW - 16, scale), scale, 0xffffff)
+                this.swTextPx(bx + c * cellW + 8, y + ty, this.fitCell(label, cellW - 16, px), px, 0xffffff)
                 c = c + 1
             }
             y = y + rowH
@@ -4736,7 +4765,7 @@ export public class GuiRenderer {
             while (c2 < ncol) {
                 let cell = ""
                 if (c2 < row.length()) { cell = "" + row[c2]; }
-                this.swText(bx + c2 * cellW + 8, y + ty, this.fitCell(cell, cellW - 16, scale), scale, tblText)
+                this.swTextPx(bx + c2 * cellW + 8, y + ty, this.fitCell(cell, cellW - 16, px), px, tblText)
                 c2 = c2 + 1
             }
             y = y + rowH
@@ -4749,10 +4778,10 @@ export public class GuiRenderer {
     }
 
     // Recorta `text` (con la fuente activa) para que entre en `maxW` px.
-    public string fitCell(string text, int maxW, int scale) {
-        if (Gui.measureText(text, scale)[0] <= maxW) { return text; }
+    public string fitCell(string text, int maxW, int px) {
+        if (Gui.measureTextPx(text, px)[0] <= maxW) { return text; }
         let t = text
-        while (t.length() > 1 && Gui.measureText(t + "…", scale)[0] > maxW) {
+        while (t.length() > 1 && Gui.measureTextPx(t + "…", px)[0] > maxW) {
             t = t.substring(0, t.length() - 1)
         }
         return t + "…"
@@ -4770,18 +4799,19 @@ export public class GuiRenderer {
         else if (kind == "error") { col = 0xdc2626; }
         // El .szs pisa el color del `kind` (paridad con el nativo: UA por kind,
         // la hoja del app gana): Toast { background-color / color }, incl. :hover.
-        let thover = this.mouseX >= this.cx && this.mouseX < this.cx + this.colWidth && this.mouseY >= this.cy && this.mouseY < this.cy + 34
+        let px = this.nodePx(node, "Toast", 16)
+        let bh = px + 18
+        let thover = this.mouseX >= this.cx && this.mouseX < this.cx + this.colWidth && this.mouseY >= this.cy && this.mouseY < this.cy + bh
         this.setStates(false, thover, false, false)
         col = this.nodeColor(node, "Toast", "background-color", col)
 
         let bx = this.cx
         let by = this.cy
         let bw = this.colWidth
-        let bh = 34
         this.softShadow(bx, by, bw, bh)
         this.swRoundRect(bx, by, bw, bh, 6, col)
         let tfam = this.setFam("Toast")
-        this.swText(bx + 12, by + 9, "" + msg, 2, this.nodeColor(node, "Toast", "color", 0xffffff))
+        this.swTextPx(bx + 12, by + (bh - px) / 2, "" + msg, px, this.nodeColor(node, "Toast", "color", 0xffffff))
         if (tfam) { this.swSetFont(""); }
         this.cy = this.cy + bh + 12
     }
@@ -4833,10 +4863,11 @@ export public class GuiRenderer {
         let title  = node.getProp("title")
         if (title != null) {
             // Fuente real para el título (sin esto salía con la rejilla monoespaciada).
+            let px = this.nodePx(node, "Modal", 16)
             let mfam = this.setFam("Modal")
-            this.swText(innerX, topY, "" + title, 2, this.nodeColor(node, "Modal", "color", this.colText))
+            this.swTextPx(innerX, topY, "" + title, px, this.nodeColor(node, "Modal", "color", this.colText))
             if (mfam) { this.swSetFont(""); }
-            topY = topY + 28
+            topY = topY + px + 12
             this.swRect(innerX, topY, innerW, 1, this.colBorder)
             topY = topY + 12
         }
@@ -4894,9 +4925,9 @@ export public class GuiRenderer {
 
     public void drawTooltipOverlay() {
         let tip = this.tipText
-        let scale = 1
-        let tw = Gui.measureText(tip, scale)[0] + 12
-        let th = 20
+        let px = this.nodePx(this.tipNode, "Tooltip", 8)   // default 8px (= la vieja escala 1)
+        let tw = Gui.measureTextPx(tip, px)[0] + 12
+        let th = px + 12
         let tx = this.tipX + 12
         let ty = this.tipY + 18
         if (tx + tw > this.w) { tx = this.w - tw - 4; }
@@ -4911,7 +4942,7 @@ export public class GuiRenderer {
         this.swRoundRect(tx, ty, tw, th, trad, tbg)
         let tbord = this.nodeBorderColor(node, "Tooltip")
         if (tbord >= 0) { this.swRoundRectOutline(tx, ty, tw, th, trad, tbord) }
-        this.swText(tx + 6, ty + 5, tip, scale, this.nodeColor(node, "Tooltip", "color", this.colText))
+        this.swTextPx(tx + 6, ty + (th - px) / 2, tip, px, this.nodeColor(node, "Tooltip", "color", this.colText))
     }
 
     // Nombre de cursor para la posición del mouse (mano sobre interactivos, I-beam
