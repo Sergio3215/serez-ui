@@ -66,12 +66,27 @@ A component is a class that **extends `Window`** and returns JSX from `render()`
 - **Responsive by default**: the GUI reflows on resize, block text word-wraps, and content taller
   than the window scrolls with the mouse wheel. For structural changes read `app.breakpoint()`
   (`"sm"`/`"md"`/`"lg"`) inside `render()`.
+- **Pseudo-states everywhere** (v4.10): `:hover`, `:focus`, `:active` and `:disabled` accept **any**
+  property on **any** element, not a fixed subset — and `border-radius` resolves per node
+  (tag, class, id or state), so fills, outlines, containers, controls and images all round
+  consistently.
 - `app.useNativeRenderer(true)` (before `runGui`, core ≥ 9.2) opts into the core's native
-  layout/CSS/paint engine — same components, same `.szs`, much faster. With core ≥ 9.3 both
-  renderers are at visual parity: class selectors, color/`font-scale`/`opacity` inheritance,
-  multi-value `padding`, `width` in px/%, `overflow: scroll` clipping, `line-height`,
-  `white-space: nowrap`, custom `:font` families and `position: absolute` badges render the same
-  on both paths.
+  layout/CSS/paint engine — same components, same `.szs`, much faster. **With core ≥ 9.11 the two
+  renderers are at full CSS parity** (v4.21): on top of the earlier set (class selectors,
+  `color`/`font-scale`/`opacity` inheritance, multi-value `padding`, `width` in px/%,
+  `overflow: scroll`, `line-height`, `white-space: nowrap`, `:font` families and
+  `position: absolute`), the interpreted renderer caught up on:
+
+  | Group | Properties |
+  |---|---|
+  | Box | `margin`, `border-width`, `min-width`/`max-width`, `box-shadow` |
+  | Flex / grid | `justify-content`, `align-items`, `row-gap`, `display: grid`, `grid-template-rows` |
+  | Text | `font-size` in **real px** (text and interactive widgets), `letter-spacing`, `text-decoration`, `text-transform` |
+  | Paint | `background-image`, `z-index`, `position: relative`, `cursor` |
+  | Transform | `translate`, `rotate`, `scale` |
+
+  Real-px `font-size` and `transform` need the core primitives `Gui.nodeTextPx` and
+  `Gui.nodeTransform` (core ≥ 9.10 / ≥ 9.11); on an older core those rules simply don't apply.
 
 ## Documentation
 
