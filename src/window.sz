@@ -410,7 +410,27 @@ export public class Window {
     }
 
     // Hoja de estilos (.szs) para el render GUI. Llamar antes de runGui().
-    public void useStylesheet(any sheet) { this.__sheet = sheet }
+    //
+    // Avisa de las propiedades declaradas que ningún renderer mira. El parser es
+    // genérico a propósito, así que `float: left`, `animation: …` o un typo como
+    // `colour:` entran sin error y después no hacen nada: sin este aviso, la
+    // única señal es que la pantalla no cambia.
+    //
+    // Sale por `out` porque el lenguaje no expone stderr. Para silenciarlo,
+    // `useStylesheetQuiet(sheet)`.
+    public void useStylesheet(any sheet) {
+        this.__sheet = sheet
+        if (sheet != null) {
+            let ajenas = sheet.unknownProps()
+            if (ajenas.length() > 0) {
+                out "⚠ .szs: propiedades declaradas que este renderer ignora: " + ajenas.join(", ")
+            }
+        }
+    }
+
+    // Igual que useStylesheet pero sin el aviso (para tests y para cuando ya
+    // sabés que esas propiedades están de adorno).
+    public void useStylesheetQuiet(any sheet) { this.__sheet = sheet }
 
     // Fase 3 (experimental): usa el motor de render NATIVO del core (Gui.renderTree)
     // en vez del walk interpretado. Llamar antes de runGui(). Default off.

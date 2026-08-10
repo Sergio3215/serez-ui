@@ -1,0 +1,86 @@
+// szs_props_test.sz — Qué propiedades .szs se honran DE VERDAD, y qué pasa con
+// las que no.
+//
+// El parser de .szs es genérico a propósito: guarda cualquier `nombre: valor`.
+// Eso es cómodo, pero significa que `float: left`, `animation: spin 2s` o un
+// typo (`colour:`) entran sin un solo error y después no hacen nada — y la
+// única señal es que la pantalla no cambia. Este test fija las dos mitades:
+//
+//   1. la lista de propiedades soportadas resuelve de punta a punta
+//   2. lo que NO está soportado queda REPORTADO, en vez de morir en silencio
+//
+// Si algún día se agrega soporte para una propiedad nueva, hay que sumarla a
+// szsKnownProps() — y este test es el que lo va a recordar.
+//
+// Headless. Ejecutar (desde E:\01 Proyectos\Propio\):
+//   Serez-code\target\release\sz.exe serez-ui\apps\szs_props_test.sz
+
+import "serez-ui"
+
+class Checker {
+    public Checker() { this.pass = 0; this.fail = 0; }
+    public void check(string label, bool cond) {
+        if (cond) { this.pass = this.pass + 1; }
+        else      { this.fail = this.fail + 1; out "  FAIL  " + label; }
+    }
+    public void summary() { out ""; out "Resultado PROPS: " + this.pass + " PASS, " + this.fail + " FAIL"; }
+}
+
+let c = new Checker()
+
+// ── 1. Cada propiedad soportada resuelve y NO se reporta como ajena ─────────
+// Se declaran todas de una, con un valor plausible cada una, y se comprueba que
+// vuelven por resolveProp. Es lo que garantiza que la lista no tenga nombres
+// mal escritos: un typo acá haría que resolveProp devuelva null.
+
+let known = szsKnownProps()
+out "propiedades soportadas: " + known.length()
+
+// La hoja se ARMA desde la propia lista, en vez de leerla de un archivo: así el
+// test queda atado a szsKnownProps() (agregar una propiedad ahí la mete acá
+// sola) y no depende del directorio desde el que se lo ejecute.
+let src = r"div {"
+let bi = 0
+while (bi < known.length()) {
+    src = src + " " + known[bi] + ": 1;"
+    bi = bi + 1
+}
+src = src + r"}"
+let sheet = parseCss(src)
+
+let faltantes = 0
+let i = 0
+while (i < known.length()) {
+    let p = known[i]
+    if (sheet.resolveProp("div", p, []) == null) {
+        faltantes = faltantes + 1
+        out "  sin resolver: " + p
+    }
+    i = i + 1
+}
+c.check("las " + known.length() + " soportadas resuelven desde la hoja", faltantes == 0)
+c.check("y ninguna se reporta como ajena", sheet.unknownProps().length() == 0)
+
+// ── 2. Lo no soportado se reporta ───────────────────────────────────────────
+
+let raras = parseCss(r"div { float: left; animation: spin 2s; colour: red; color: #fff; }")
+let ajenas = raras.unknownProps()
+
+c.check("reporta float", ajenas.includes("float"))
+c.check("reporta animation", ajenas.includes("animation"))
+c.check("reporta el typo colour", ajenas.includes("colour"))
+c.check("NO reporta color, que si existe", !ajenas.includes("color"))
+c.check("son exactamente tres", ajenas.length() == 3)
+
+// El parser igual las guarda: el aviso es lo único que las distingue.
+c.check("una propiedad ajena se parsea igual", raras.resolveProp("div", "float", []) == "left")
+
+// Sin propiedades raras, la lista viene vacía (no se avisa de la nada).
+let limpia = parseCss(r"div { color: #fff; padding: 8; }")
+c.check("una hoja limpia no reporta nada", limpia.unknownProps().length() == 0)
+
+// No se repiten aunque estén declaradas en varias reglas.
+let repes = parseCss(r"div { float: left; } Button { float: right; }")
+c.check("no repite un nombre declarado dos veces", repes.unknownProps().length() == 1)
+
+c.summary()
