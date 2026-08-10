@@ -1,0 +1,5 @@
+/* 01 — condición reactiva sobre el estado */
+body (count == 0) { background-color: #0f172a; }
+body (count != 0) { background-color: #14532d; }
+h1 { color: #ffd166; }
+.chip { color: #ffffff; background-color: #2563eb; }

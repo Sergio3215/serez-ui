@@ -1,0 +1,5 @@
+/* 02 — map() de componentes + cadena de tres archivos */
+.section { padding: 8; }
+.section--title { color: #e2e8f0; }
+.item { gap: 6; }
+.chip { color: #16a34a; }

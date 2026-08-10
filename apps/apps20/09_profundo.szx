@@ -1,0 +1,19 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 09: descendiente de tres términos, cruzando archivos.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 09_profundo.szs.
+export public class Profundo:Window {
+    public Profundo() { super(); this.x = 1 }
+    public render() {
+        return (
+            <div class="app">
+                <Section title="S" rows={[<Item text="t" tag="c" />]} />
+            </div>
+        )
+    }
+}

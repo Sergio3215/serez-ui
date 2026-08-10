@@ -1,0 +1,19 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 12: width como media query.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 12_responsive.szs.
+export public class Responsive:Window {
+    public Responsive() { super(); this.x = 1 }
+    public render() {
+        return (
+            <div class="app">
+                <Field k="ancho" v="segun pantalla" />
+            </div>
+        )
+    }
+}

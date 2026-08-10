@@ -1,0 +1,20 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 01: condición reactiva sobre el estado.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 01_contador.szs.
+export public class Contador:Window {
+    public Contador() { super(); this.count = 0 }
+    public render() {
+        return (
+            <div class="app">
+                <h1>Contador</h1>
+                <Chip label={this.count} />
+            </div>
+        )
+    }
+}

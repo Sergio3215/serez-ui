@@ -1,0 +1,5 @@
+/* 20 — los cuatro niveles de la cascada en un mismo nodo */
+.chip { color: #111111; }
+.zona .chip { color: #222222; }
+.marcado { color: #333333; }
+#unico { color: #444444; }

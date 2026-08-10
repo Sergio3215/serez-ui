@@ -1,0 +1,19 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 15: borde y radio.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 15_borde.szs.
+export public class Borde:Window {
+    public Borde() { super(); this.x = 1 }
+    public render() {
+        return (
+            <div class="app">
+                <Stat n="5" label="con borde" />
+            </div>
+        )
+    }
+}

@@ -1,0 +1,22 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 19: dos descendientes distintos en una misma hoja.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 19_mixto.szs.
+export public class Mixto:Window {
+    public Mixto() { super(); this.n = 2 }
+    public render() {
+        return (
+            <div class="app">
+                <Row class="cabecera">
+                    <Stat n={this.n} label="total" />
+                </Row>
+                <Section title="Detalle" rows={[<Item text="fila" tag="x" />]} />
+            </div>
+        )
+    }
+}

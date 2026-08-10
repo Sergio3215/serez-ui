@@ -1,0 +1,19 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 11: class desde afuera se mergea con la del componente.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 11_clases.szs.
+export public class Clases:Window {
+    public Clases() { super(); this.x = 1 }
+    public render() {
+        return (
+            <div class="app">
+                <Chip label="uno" class="grande" />
+            </div>
+        )
+    }
+}

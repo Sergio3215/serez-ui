@@ -97,9 +97,9 @@ c.check("23 descendiente por CLASE del ancestro", r4.nodeRaw(cardIn.getChildren(
 let spIn = h("span", [], ["z"])
 let mainIn = h("div", [["id", "main"]], [spIn])
 mainIn = r4.stampAnc(mainIn, [])
-// Dos descendientes matchean el mismo span (#main span y * span): gana el
-// ULTIMO declarado en la hoja, como cualquier regla repetida.
-c.check("24 descendiente por ID del ancestro matchea", r4.nodeRaw(mainIn.getChildren()[0], "span", "color") == "#00ffff")
+// Dos descendientes matchean el mismo span (#main span = 101 y * span = 1):
+// gana el mas ESPECIFICO, no el ultimo declarado.
+c.check("24 descendiente por ID del ancestro gana al comodin", r4.nodeRaw(mainIn.getChildren()[0], "span", "color") == "#ffff00")
 
 let spSuelto = h("span", [], ["z"])
 let cualquiera = h("section", [], [spSuelto])

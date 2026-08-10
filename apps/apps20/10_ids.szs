@@ -1,0 +1,3 @@
+/* 10 — id sobre un componente importado */
+.chip { color: #64748b; }
+#destacado { color: #fbbf24; }

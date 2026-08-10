@@ -1,0 +1,19 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 17: render condicional con &&.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 17_condicional.szs.
+export public class Condicional:Window {
+    public Condicional() { super(); this.hay = true }
+    public render() {
+        return (
+            <div class="app">
+                {this.hay && (<Chip label="hay datos" />)}
+            </div>
+        )
+    }
+}

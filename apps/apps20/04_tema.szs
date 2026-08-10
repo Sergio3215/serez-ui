@@ -1,0 +1,9 @@
+/* 04 — @when / @else */
+@when (dark) {
+    body { background-color: #020617; }
+    h1 { color: #f1f5f9; }
+}
+@else {
+    body { background-color: #ffffff; }
+    h1 { color: #0f172a; }
+}

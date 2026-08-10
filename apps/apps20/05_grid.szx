@@ -1,0 +1,21 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 05: grid-template-columns.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 05_grid.szs.
+export public class Grid:Window {
+    public Grid() { super(); this.n = 3 }
+    public render() {
+        return (
+            <div class="app">
+                <Stat n="12" label="Altas" />
+                <Stat n="7" label="Bajas" />
+                <Stat n="93" label="Activos" />
+            </div>
+        )
+    }
+}

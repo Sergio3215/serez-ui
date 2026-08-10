@@ -1,0 +1,21 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 20: los cuatro niveles de la cascada en un mismo nodo.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 20_cascada.szs.
+export public class Cascada:Window {
+    public Cascada() { super(); this.x = 1 }
+    public render() {
+        return (
+            <div class="app">
+                <Row class="zona">
+                    <Chip label="uno" class="marcado" id="unico" />
+                </Row>
+            </div>
+        )
+    }
+}

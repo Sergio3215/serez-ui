@@ -1,0 +1,19 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 02: map() de componentes + cadena de tres archivos.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 02_lista.szs.
+export public class Lista:Window {
+    public Lista() { super(); this.items = ["uno", "dos", "tres"] }
+    public render() {
+        return (
+            <div class="app">
+                <Section title="Items" rows={this.items.map(fn(x){ return <Item text={x} tag="ok" /> })} />
+            </div>
+        )
+    }
+}

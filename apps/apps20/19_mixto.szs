@@ -1,0 +1,5 @@
+/* 19 — dos descendientes distintos en una misma hoja */
+.cabecera { display: flex; justify-content: space-between; }
+.cabecera .stat--n { color: #06b6d4; }
+.section--title { color: #e2e8f0; }
+.item .chip { color: #fbbf24; }

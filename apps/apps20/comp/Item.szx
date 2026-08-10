@@ -1,0 +1,15 @@
+import "serez-ui"
+import "Chip"
+
+// Item de lista: usa Chip, o sea que prueba la cadena de imports entre
+// componentes de archivos distintos.
+export public class Item:Component {
+    public render() {
+        return (
+            <Row class="item">
+                <span class="item--txt">{this.props.text}</span>
+                <Chip label={this.props.tag} />
+            </Row>
+        )
+    }
+}

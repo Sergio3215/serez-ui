@@ -1,0 +1,21 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 06: display:flex sin dirección = fila.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 06_fila.szs.
+export public class Fila:Window {
+    public Fila() { super(); this.x = 1 }
+    public render() {
+        return (
+            <div class="app">
+                <Chip label="a" />
+                <Chip label="b" />
+                <Chip label="c" />
+            </div>
+        )
+    }
+}

@@ -1,0 +1,21 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 08: selector descendiente por clase.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 08_anidado.szs.
+export public class Anidado:Window {
+    public Anidado() { super(); this.x = 1 }
+    public render() {
+        return (
+            <div class="app">
+                <Row class="barra">
+                    <Chip label="uno" />
+                </Row>
+            </div>
+        )
+    }
+}

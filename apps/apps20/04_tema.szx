@@ -1,0 +1,20 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 04: @when / @else.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 04_tema.szs.
+export public class Tema:Window {
+    public Tema() { super(); this.dark = true }
+    public render() {
+        return (
+            <div class="app">
+                <h1>Tema</h1>
+                <Field k="modo" v="oscuro" />
+            </div>
+        )
+    }
+}

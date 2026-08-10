@@ -1,0 +1,4 @@
+/* 13 — pseudo-estados */
+Button { background-color: #1e293b; color: #e2e8f0; }
+Button:hover { background-color: #2563eb; }
+Button:disabled { color: #475569; }

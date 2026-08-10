@@ -1,0 +1,4 @@
+/* 12 — width como media query */
+.app (width < 600) { flex-direction: column; }
+.app (width >= 600) { flex-direction: row; }
+.field--v { color: #e2e8f0; }

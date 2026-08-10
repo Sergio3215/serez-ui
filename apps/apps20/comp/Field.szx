@@ -1,0 +1,13 @@
+import "serez-ui"
+
+// Etiqueta + valor. Se usa en formularios, perfiles y tablas.
+export public class Field:Component {
+    public render() {
+        return (
+            <Row class="field">
+                <span class="field--k">{this.props.k}</span>
+                <span class="field--v">{this.props.v}</span>
+            </Row>
+        )
+    }
+}

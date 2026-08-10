@@ -1,0 +1,255 @@
+// apps20_test.sz — 20 apps distintas, cada una armada como se arma una de
+// verdad: componentes en archivos .szx separados (apps20/comp/) y su propia
+// hoja .szs.
+//
+// No son aserciones sobre resolveProp: cada app se construye, se le carga la
+// hoja, se estampa el árbol y se pregunta por el estilo YA RESUELTO del nodo
+// que importa. Es el camino que recorre el render, sin abrir ventana.
+//
+// Cada app ejercita un recurso distinto del CSS — la lista está en
+// apps20/_indice.txt. Además se comprueba que ninguna hoja declare cosas que el
+// renderer ignora, que es la forma de que "pulido" signifique algo.
+//
+// Ejecutar (desde el repo de serez-ui):
+//   ..\Serez-code\target\release\sz.exe apps\apps20_test.sz
+
+import "serez-ui"
+import "apps20/01_contador"
+import "apps20/02_lista"
+import "apps20/03_form"
+import "apps20/04_tema"
+import "apps20/05_grid"
+import "apps20/06_fila"
+import "apps20/07_columna"
+import "apps20/08_anidado"
+import "apps20/09_profundo"
+import "apps20/10_ids"
+import "apps20/11_clases"
+import "apps20/12_responsive"
+import "apps20/13_estados"
+import "apps20/14_tipografia"
+import "apps20/15_borde"
+import "apps20/16_oculto"
+import "apps20/17_condicional"
+import "apps20/18_vacio"
+import "apps20/19_mixto"
+import "apps20/20_cascada"
+
+class Checker {
+    public Checker() { this.pass = 0; this.fail = 0; }
+    public void check(string label, bool cond) {
+        if (cond) { this.pass = this.pass + 1; out "  PASS  " + label; }
+        else      { this.fail = this.fail + 1; out "  FAIL  " + label; }
+    }
+    public void summary() {
+        out ""
+        out "Resultado APPS-20: " + this.pass + " PASS, " + this.fail + " FAIL  (total " + (this.pass + this.fail) + ")"
+    }
+}
+let c = new Checker()
+
+// Monta una app: construye su árbol, le carga la hoja y deja todo listo para
+// preguntar estilos. Devuelve [arbolEstampado, renderer].
+fn any montar(any app, string hoja, any ctx) {
+    let sheet = parseCss(File.read("apps/apps20/" + hoja + ".szs"))
+    let r = new GuiRenderer()
+    r.setStyles(sheet, ctx)
+    let tree = app.render()
+    tree = r.stampAnc(tree, [])
+    return [tree, r, sheet]
+}
+
+// Baja por el árbol siguiendo índices de hijo: bajar(t, [0,1]) = primer hijo,
+// después su segundo hijo.
+fn any bajar(any nodo, any ruta) {
+    let n = nodo
+    let i = 0
+    while (i < ruta.length()) {
+        n = n.getChildren()[ruta[i]]
+        i = i + 1
+    }
+    return n
+}
+
+// ── 01 · condición reactiva sobre el estado ─────────────────────────────────
+let a1 = new Contador()
+let m1 = montar(a1, "01_contador", [["count", 0]])
+c.check("01 contador — con count 0 el fondo es el oscuro",
+        m1[2].resolveProp("body", "background-color", [["count", 0]]) == "#0f172a")
+c.check("01b contador — con count != 0 cambia",
+        m1[2].resolveProp("body", "background-color", [["count", 3]]) == "#14532d")
+
+// ── 02 · map() de componentes, cadena de tres archivos ──────────────────────
+let a2 = new Lista()
+let m2 = montar(a2, "02_lista", [])
+let sec = bajar(m2[0], [0])
+c.check("02 lista — la Section rindio sus tres Items",
+        sec.getChildren().length() == 4)
+c.check("02b lista — el Chip del tercer archivo llego con su color",
+        m2[1].nodeRaw(bajar(sec, [1, 1]), "span", "color") == "#16a34a")
+
+// ── 03 · variable sola como condición ───────────────────────────────────────
+let a3 = new Form()
+let m3 = montar(a3, "03_form", [["error", true]])
+c.check("03 form — el Field muestra su valor",
+        m3[1].nodeRaw(bajar(m3[0], [0, 1]), "span", "color") == "#f8fafc")
+c.check("03b form — la condición suelta aplica con la bandera en true",
+        m3[2].resolveProp(".app", "border-color", [["error", true]]) == "#ef4444")
+
+// ── 04 · @when / @else ──────────────────────────────────────────────────────
+let a4 = new Tema()
+let m4 = montar(a4, "04_tema", [["dark", true]])
+c.check("04 tema — la rama oscura",
+        m4[2].resolveProp("h1", "color", [["dark", true]]) == "#f1f5f9")
+c.check("04b tema — el @else cuando no",
+        m4[2].resolveProp("h1", "color", [["dark", false]]) == "#0f172a")
+
+// ── 05 · grid ───────────────────────────────────────────────────────────────
+let a5 = new Grid()
+let m5 = montar(a5, "05_grid", [])
+c.check("05 grid — las tres columnas declaradas",
+        m5[2].resolveProp(".app", "grid-template-columns", []) == "1fr 1fr 1fr")
+c.check("05b grid — el numero de la metrica toma su tamano",
+        m5[1].nodeRaw(bajar(m5[0], [0, 0]), "h2", "font-size") == "28px")
+
+// ── 06 · display:flex sin dirección = fila ──────────────────────────────────
+let a6 = new Fila()
+let m6 = montar(a6, "06_fila", [])
+c.check("06 fila — display flex declarado",
+        m6[2].resolveProp(".app", "display", []) == "flex")
+c.check("06b fila — sin flex-direction, la direccion resuelta es row",
+        resolveDirection(m6[2].resolveProp(".app", "display", []),
+                         m6[2].resolveProp(".app", "flex-direction", [])) == "row")
+
+// ── 07 · flex-direction explícito ───────────────────────────────────────────
+let a7 = new Columna()
+let m7 = montar(a7, "07_columna", [])
+c.check("07 columna — la direccion declarada manda",
+        resolveDirection(m7[2].resolveProp(".app", "display", []),
+                         m7[2].resolveProp(".app", "flex-direction", [])) == "column")
+
+// ── 08 · descendiente por clase ─────────────────────────────────────────────
+let a8 = new Anidado()
+let m8 = montar(a8, "08_anidado", [])
+c.check("08 anidado — el Chip dentro de .barra toma el color del descendiente",
+        m8[1].nodeRaw(bajar(m8[0], [0, 0]), "span", "color") == "#f97316")
+
+// ── 09 · descendiente de tres términos, cruzando archivos ───────────────────
+let a9 = new Profundo()
+let m9 = montar(a9, "09_profundo", [])
+c.check("09 profundo — .section .item .chip alcanza tres archivos abajo",
+        m9[1].nodeRaw(bajar(m9[0], [0, 1, 1]), "span", "color") == "#a855f7")
+
+// ── 10 · id sobre un componente importado ───────────────────────────────────
+let a10 = new Ids()
+let m10 = montar(a10, "10_ids", [])
+c.check("10 ids — el id gana sobre la clase del componente",
+        m10[1].nodeRaw(bajar(m10[0], [0]), "span", "color") == "#fbbf24")
+c.check("10b ids — el hermano sin id queda con la clase",
+        m10[1].nodeRaw(bajar(m10[0], [1]), "span", "color") == "#64748b")
+
+// ── 11 · class desde afuera ─────────────────────────────────────────────────
+let a11 = new Clases()
+let m11 = montar(a11, "11_clases", [])
+let chip11 = bajar(m11[0], [0])
+c.check("11 clases — la clase de afuera se mergeo con la propia",
+        chip11.getProp("class") == "chip grande")
+c.check("11b clases — y su regla pisa el tamano",
+        m11[1].nodeRaw(chip11, "span", "font-size") == "24px")
+
+// ── 12 · width como media query ─────────────────────────────────────────────
+let a12 = new Responsive()
+let m12 = montar(a12, "12_responsive", [])
+c.check("12 responsive — angosto apila en columna",
+        m12[2].resolveProp(".app", "flex-direction", [["width", 400]]) == "column")
+c.check("12b responsive — ancho pasa a fila",
+        m12[2].resolveProp(".app", "flex-direction", [["width", 900]]) == "row")
+
+// ── 13 · pseudo-estados ─────────────────────────────────────────────────────
+// El renderer se arma INLINE, no via montar(): indexar un array devuelve una
+// COPIA, así que `m[1].setStates(...)` mutaría un temporal y la lectura
+// siguiente no vería el estado. Semántica de valor.
+let a13 = new Estados()
+let r13 = new GuiRenderer()
+r13.setStyles(parseCss(File.read("apps/apps20/13_estados.szs")), [])
+let t13 = r13.stampAnc(a13.render(), [])
+let btn13 = bajar(t13, [0])
+r13.setStates(false, false, false, false)
+c.check("13 estados — sin estado, el fondo base",
+        r13.nodeRaw(btn13, "Button", "background-color") == "#1e293b")
+r13.setStates(false, true, false, false)
+c.check("13b estados — :hover pisa el fondo",
+        r13.nodeRaw(btn13, "Button", "background-color") == "#2563eb")
+
+// ── 14 · tipografía ─────────────────────────────────────────────────────────
+let a14 = new Tipografia()
+let m14 = montar(a14, "14_tipografia", [])
+c.check("14 tipografia — el h1 toma tamano y peso",
+        m14[1].nodeRaw(bajar(m14[0], [0]), "h1", "font-size") == "32px")
+c.check("14b tipografia — el parrafo su interlineado",
+        m14[1].nodeRaw(bajar(m14[0], [1]), "p", "line-height") == "20")
+
+// ── 15 · borde y radio ──────────────────────────────────────────────────────
+let a15 = new Borde()
+let m15 = montar(a15, "15_borde", [])
+c.check("15 borde — el radio llega al componente importado",
+        m15[1].nodeRaw(bajar(m15[0], [0]), "div", "border-radius") == "10")
+
+// ── 16 · display:none reactivo ──────────────────────────────────────────────
+let a16 = new Oculto()
+let m16 = montar(a16, "16_oculto", [])
+c.check("16 oculto — con la bandera en false el chip opcional se oculta",
+        m16[2].resolveProp(".opcional", "display", [["mostrar", false]]) == "none")
+c.check("16b oculto — con la bandera en true ya no",
+        m16[2].resolveProp(".opcional", "display", [["mostrar", true]]) == null)
+
+// ── 17 · render condicional con && ──────────────────────────────────────────
+let a17 = new Condicional()
+let m17 = montar(a17, "17_condicional", [])
+c.check("17 condicional — con la bandera en true el chip esta",
+        m17[0].getChildren().length() == 1)
+a17.hay = false
+let m17b = montar(a17, "17_condicional", [])
+c.check("17b condicional — en false no queda rastro",
+        m17b[0].getChildren().length() == 0)
+
+// ── 18 · lista vacía como falsy ─────────────────────────────────────────────
+let a18 = new Vacio()
+let m18 = montar(a18, "18_vacio", [])
+c.check("18 vacio — la lista vacia no rinde la Section",
+        m18[0].getChildren().length() == 1)
+c.check("18b vacio — y lo que sigue si esta",
+        bajar(m18[0], [0]).getProp("class") == "chip")
+
+// ── 19 · dos descendientes distintos en una hoja ────────────────────────────
+let a19 = new Mixto()
+let m19 = montar(a19, "19_mixto", [])
+c.check("19 mixto — .cabecera .stat--n",
+        m19[1].nodeRaw(bajar(m19[0], [0, 0, 0]), "h2", "color") == "#06b6d4")
+c.check("19b mixto — .item .chip en la otra rama del arbol",
+        m19[1].nodeRaw(bajar(m19[0], [1, 1, 1]), "span", "color") == "#fbbf24")
+
+// ── 20 · los cuatro niveles de la cascada ───────────────────────────────────
+let a20 = new Cascada()
+let m20 = montar(a20, "20_cascada", [])
+c.check("20 cascada — con clase e id presentes, gana el id",
+        m20[1].nodeRaw(bajar(m20[0], [0, 0]), "span", "color") == "#444444")
+
+// ── Pulido: ninguna hoja declara cosas que el renderer ignora ───────────────
+let hojas = ["01_contador", "02_lista", "03_form", "04_tema", "05_grid", "06_fila",
+             "07_columna", "08_anidado", "09_profundo", "10_ids", "11_clases",
+             "12_responsive", "13_estados", "14_tipografia", "15_borde", "16_oculto",
+             "17_condicional", "18_vacio", "19_mixto", "20_cascada"]
+let sucias = 0
+let hi = 0
+while (hi < hojas.length()) {
+    let sh = parseCss(File.read("apps/apps20/" + hojas[hi] + ".szs"))
+    if (sh.unknownProps().length() > 0 || sh.unknownSelectors().length() > 0) {
+        sucias = sucias + 1
+        out "    hoja con avisos: " + hojas[hi]
+    }
+    hi = hi + 1
+}
+c.check("las 20 hojas usan solo lo soportado (sin avisos)", sucias == 0)
+
+c.summary()

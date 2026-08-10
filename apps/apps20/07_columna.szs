@@ -1,0 +1,3 @@
+/* 07 — flex-direction explícito */
+.app { display: flex; flex-direction: column; gap: 4; }
+.chip { color: #cbd5e1; }

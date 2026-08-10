@@ -1,0 +1,20 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 03: variable sola como condición.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 03_form.szs.
+export public class Form:Window {
+    public Form() { super(); this.error = true }
+    public render() {
+        return (
+            <div class="app">
+                <Field k="Nombre" v="Ana" />
+                <Field k="Mail" v="ana@x.com" />
+            </div>
+        )
+    }
+}

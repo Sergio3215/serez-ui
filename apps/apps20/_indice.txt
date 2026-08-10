@@ -1,0 +1,20 @@
+01_contador  Contador  — condición reactiva sobre el estado
+02_lista  Lista  — map() de componentes + cadena de tres archivos
+03_form  Form  — variable sola como condición
+04_tema  Tema  — @when / @else
+05_grid  Grid  — grid-template-columns
+06_fila  Fila  — display:flex sin dirección = fila
+07_columna  Columna  — flex-direction explícito
+08_anidado  Anidado  — selector descendiente por clase
+09_profundo  Profundo  — descendiente de tres términos, cruzando archivos
+10_ids  Ids  — id sobre un componente importado
+11_clases  Clases  — class desde afuera se mergea con la del componente
+12_responsive  Responsive  — width como media query
+13_estados  Estados  — pseudo-estados
+14_tipografia  Tipografia  — tipografía
+15_borde  Borde  — borde y radio
+16_oculto  Oculto  — display:none reactivo
+17_condicional  Condicional  — render condicional con &&
+18_vacio  Vacio  — lista vacía como falsy
+19_mixto  Mixto  — dos descendientes distintos en una misma hoja
+20_cascada  Cascada  — los cuatro niveles de la cascada en un mismo nodo

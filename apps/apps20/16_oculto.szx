@@ -1,0 +1,20 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 16: display:none reactivo.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 16_oculto.szs.
+export public class Oculto:Window {
+    public Oculto() { super(); this.mostrar = false }
+    public render() {
+        return (
+            <div class="app">
+                <Chip label="siempre" />
+                <Chip label="a veces" class="opcional" />
+            </div>
+        )
+    }
+}

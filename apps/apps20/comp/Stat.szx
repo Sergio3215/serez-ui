@@ -1,0 +1,13 @@
+import "serez-ui"
+
+// Métrica: número grande + rótulo. Para dashboards.
+export public class Stat:Component {
+    public render() {
+        return (
+            <div class="stat">
+                <h2 class="stat--n">{this.props.n}</h2>
+                <span class="stat--l">{this.props.label}</span>
+            </div>
+        )
+    }
+}

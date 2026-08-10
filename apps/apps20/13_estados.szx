@@ -1,0 +1,19 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 13: pseudo-estados.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 13_estados.szs.
+export public class Estados:Window {
+    public Estados() { super(); this.x = 1 }
+    public render() {
+        return (
+            <div class="app">
+                <Button class="ok">Guardar</Button>
+            </div>
+        )
+    }
+}

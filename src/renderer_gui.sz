@@ -715,6 +715,26 @@ export public class GuiRenderer {
         return true
     }
 
+    // Especificidad de un selector, como en la web: id 100, clase 10, tag 1, el
+    // comodín 0, sumando los términos. `.barra .chip` = 20, `#uno` = 100,
+    // `Row Button` = 2. Con esto la cascada decide por peso y no por el orden en
+    // que el renderer mira las cosas.
+    public int especificidad(string sel) {
+        let terms = sel.trim().split(" ")
+        let total = 0
+        let i = 0
+        while (i < terms.length()) {
+            let t = terms[i].trim()
+            if (t.length() > 0 && t != ">") {
+                if (t.charAt(0) == "#")      { total = total + 100 }
+                else { if (t.charAt(0) == ".") { total = total + 10 }
+                else { if (t != "*")           { total = total + 1 } } }
+            }
+            i = i + 1
+        }
+        return total
+    }
+
     // Valor de una prop por selector descendiente, o null. Gana el ÚLTIMO que casa,
     // como cualquier regla de la hoja.
     public any descRaw(any node, string tag, string prop) {
@@ -863,12 +883,31 @@ export public class GuiRenderer {
         if (this.sheet == null) { return null; }
         let v = this.styleRaw(tag, prop)
         if (node == null) { return v; }
-        // Descendientes (`Row Button`) entre el tag y la clase: una cadena de tags
-        // es más específica que un tag suelto pero menos que una clase, que es el
-        // orden de la web (0,0,N < 0,1,0).
-        let dv = this.descRaw(node, tag, prop)
-        if (dv != null) { v = dv }
-        // Cascada por especificidad: tag < clase < id (el id gana, como en la web).
+        // Especificidad de verdad, no un orden fijo. Antes esto era una cadena de
+        // pisadas (tag, después clase, después id), que alcanza mientras cada
+        // selector tenga un solo término — pero con descendientes se rompe:
+        // `.barra .chip` son DOS clases (0,2,0) y le tiene que ganar a `.chip`
+        // (0,1,0), y con el orden fijo perdía siempre.
+        //
+        // Se puntúa como en la web (id 100, clase 10, tag 1, sumando términos) y
+        // gana el puntaje más alto; a igual puntaje, el último evaluado, que
+        // conserva el comportamiento previo entre selectores del mismo peso.
+        let mejor = 0 - 1
+        if (v != null) { mejor = 1 }
+
+        let dsel = 0
+        while (dsel < this.descSel.length()) {
+            let sel = "" + this.descSel[dsel]
+            if (this.descMatches(sel, node, tag)) {
+                let cand = this.styleRaw(sel, prop)
+                if (cand != null) {
+                    let sc = this.especificidad(sel)
+                    if (sc >= mejor) { v = cand; mejor = sc }
+                }
+            }
+            dsel = dsel + 1
+        }
+
         let cls = node.getProp("class")
         if (cls != null) {
             let parts = ("" + cls).trim().split(" ")
@@ -877,7 +916,7 @@ export public class GuiRenderer {
                 let c = parts[i].trim()
                 if (c.length() > 0) {
                     let cv = this.styleRaw("." + c, prop)
-                    if (cv != null) { v = cv }
+                    if (cv != null && 10 >= mejor) { v = cv; mejor = 10 }
                 }
                 i = i + 1
             }
@@ -889,7 +928,7 @@ export public class GuiRenderer {
             let idStr = ("" + id).trim()
             if (idStr.length() > 0) {
                 let iv = this.styleRaw("#" + idStr, prop)
-                if (iv != null) { v = iv }
+                if (iv != null && 100 >= mejor) { v = iv; mejor = 100 }
             }
         }
         // Pseudo-estados (:focus/:hover/:active/:disabled): cuando el elemento está en

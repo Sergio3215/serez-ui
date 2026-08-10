@@ -1,0 +1,8 @@
+import "serez-ui"
+
+// Hoja: sólo texto con una clase. No importa a nadie.
+export public class Chip:Component {
+    public render() {
+        return <span class="chip">{this.props.label}</span>
+    }
+}

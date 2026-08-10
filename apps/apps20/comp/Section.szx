@@ -1,0 +1,14 @@
+import "serez-ui"
+import "Item"
+
+// Tercer nivel: Section → Item → Chip. Recibe los items ya armados por la app.
+export public class Section:Component {
+    public render() {
+        return (
+            <div class="section">
+                <h3 class="section--title">{this.props.title}</h3>
+                {this.props.rows}
+            </div>
+        )
+    }
+}

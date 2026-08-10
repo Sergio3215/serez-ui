@@ -1,0 +1,20 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 18: lista vacía como falsy.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 18_vacio.szs.
+export public class Vacio:Window {
+    public Vacio() { super(); this.items = [] }
+    public render() {
+        return (
+            <div class="app">
+                {this.items && (<Section title="S" rows={[]} />)}
+                <Chip label="sin items" />
+            </div>
+        )
+    }
+}

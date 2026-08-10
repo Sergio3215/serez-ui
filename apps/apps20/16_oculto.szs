@@ -1,0 +1,3 @@
+/* 16 — display:none reactivo */
+.opcional (mostrar == false) { display: none; }
+.chip { color: #e2e8f0; }

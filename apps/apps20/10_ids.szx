@@ -1,0 +1,20 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 10: id sobre un componente importado.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 10_ids.szs.
+export public class Ids:Window {
+    public Ids() { super(); this.x = 1 }
+    public render() {
+        return (
+            <div class="app">
+                <Chip label="uno" id="destacado" />
+                <Chip label="dos" />
+            </div>
+        )
+    }
+}

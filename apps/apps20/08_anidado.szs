@@ -1,0 +1,3 @@
+/* 08 — selector descendiente por clase */
+.barra .chip { color: #f97316; }
+.chip { color: #111111; }

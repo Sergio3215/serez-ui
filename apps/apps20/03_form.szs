@@ -1,0 +1,5 @@
+/* 03 — variable sola como condición */
+.field { gap: 4; }
+.field--k { color: #94a3b8; }
+.field--v { color: #f8fafc; }
+.app (error) { border-color: #ef4444; }

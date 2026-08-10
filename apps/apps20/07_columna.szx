@@ -1,0 +1,20 @@
+import "serez-ui"
+import "comp/Chip"
+import "comp/Field"
+import "comp/Item"
+import "comp/Section"
+import "comp/Stat"
+
+// App 07: flex-direction explícito.
+// Los componentes viven en comp/*.szx, uno por archivo; la hoja en 07_columna.szs.
+export public class Columna:Window {
+    public Columna() { super(); this.x = 1 }
+    public render() {
+        return (
+            <div class="app">
+                <Chip label="a" />
+                <Chip label="b" />
+            </div>
+        )
+    }
+}

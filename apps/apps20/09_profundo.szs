@@ -1,0 +1,3 @@
+/* 09 — descendiente de tres términos, cruzando archivos */
+.section .item .chip { color: #a855f7; }
+.chip { color: #111111; }
