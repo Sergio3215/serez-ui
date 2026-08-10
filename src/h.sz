@@ -8,7 +8,7 @@
 //   - strings (texto plano)
 //   - VNode (elementos anidados)
 //   - arrays de lo anterior (resultado de .map() o de fragments) → se APLANAN
-//   - null → se descarta
+//   - null y booleanos → se descartan
 //
 // El aplanado permite escribir listas con .map() de forma natural:
 //   <ul>{items.map(fn(x){ return <li>{x}</li> })}</ul>
@@ -18,14 +18,23 @@
 
 import "vnode"
 
-// Aplana arrays anidados y descarta null. Recursivo: un fragment dentro de un
-// map produce anidación de más de un nivel.
+// Aplana arrays anidados y descarta null y booleanos. Recursivo: un fragment
+// dentro de un map produce anidación de más de un nivel.
+//
+// Los BOOLEANOS se descartan por el patrón condicional de siempre:
+//
+//     {this.props.editable && (<Row>…</Row>)}
+//
+// Cuando la bandera es false, `&&` devuelve false, y ese false llega acá como
+// un hijo más. Antes sólo se filtraba null, así que el booleano sobrevivía y
+// el renderer terminaba pintando "false" en pantalla. Descartar true/false deja
+// el idiom funcionando igual que en React.
 export fn any flattenChildren(any children) {
     let flat = []
     let i = 0
     while (i < children.length()) {
         let child = children[i]
-        if (child != null) {
+        if (child != null && type_of(child) != "bool") {
             if (type_of(child) == "array") {
                 let inner = flattenChildren(child)
                 let j = 0

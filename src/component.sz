@@ -142,6 +142,33 @@ export fn any __renderComponent(any comp, any props, any children) {
     // `this.props["class"]` y nunca llegaba a un nodo, así que `.x` no matcheaba.
     //   - class: se MERGEA (append) con la que el render ya haya puesto → aplican ambas.
     //   - id: se pone solo si el raíz no declaró uno (la identidad interna del render gana).
+    // Un fragment no se pinta, así que no puede llevar la clase: se la pasa a su
+    // ÚNICO hijo-elemento. Sin esto, envolver el render en `<></>` — algo que se
+    // hace sin pensarlo — silenciaba `<MiComp class="x">` por completo: la clase
+    // quedaba en this.props y no llegaba a ningún nodo, y `.x` no matcheaba nada.
+    // Con más de un hijo no se reenvía: la clase es una sola y aplicarla a todos
+    // los hermanos pintaría de más (React directamente no acepta class en un
+    // fragment; acá al menos el caso de uno solo se resuelve).
+    if (type_of(tree) == "VNode" && tree.getTag() == "__fragment__") {
+        let kids = tree.getChildren()
+        let elems = []
+        let ki = 0
+        while (ki < kids.length()) {
+            if (type_of(kids[ki]) == "VNode" && __isElementTag(kids[ki].getTag())) {
+                elems.push(ki)
+            }
+            ki = ki + 1
+        }
+        if (elems.length() == 1) {
+            let idx = elems[0]
+            let only = kids[idx]
+            only = __forwardAttr(only, props, "class", true)
+            only = __forwardAttr(only, props, "id", false)
+            kids[idx] = only
+            tree.setChildren(kids)
+        }
+    }
+
     // Solo a un nodo-elemento raíz (no fragment/texto: no se pintan como elemento).
     if (type_of(tree) == "VNode" && __isElementTag(tree.getTag())) {
         tree = __forwardAttr(tree, props, "class", true)

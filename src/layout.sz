@@ -11,6 +11,24 @@ fn textWidth(text) {
     return text.length() * 8;
 }
 
+// Dirección de un contenedor a partir de lo que DECLARÓ la hoja (null = no lo
+// declaró). La regla es la de CSS, y la misma que aplica el motor nativo del
+// core (render.rs: is_flex && !col_dir → fila):
+//
+//   flex-direction declarado      → eso, tal cual
+//   display: flex, sin dirección  → FILA
+//   nada declarado                → columna
+//
+// El intérprete caía siempre a "column", así que poner `display: flex` sobre un
+// div no hacía nada visible y había que acordarse de agregar `flex-direction:
+// row`. Lo que NO cambia es el contenedor que nunca declaró `display`: ese sigue
+// apilando en columna, que es de lo que dependen los layouts ya escritos.
+export fn string resolveDirection(any declaredDisplay, any declaredDir) {
+    if (declaredDir) { return "" + declaredDir; }
+    if (declaredDisplay == "flex") { return "row"; }
+    return "column";
+}
+
 fn getLayoutStyle(tag, stylesheet, ctx) {
     if (!stylesheet) {
         return {
@@ -26,9 +44,13 @@ fn getLayoutStyle(tag, stylesheet, ctx) {
         };
     }
 
+    let declaredDisplay = stylesheet.resolveProp(tag, "display", ctx);
+    let declaredDir = stylesheet.resolveProp(tag, "flex-direction", ctx);
+    let dir = resolveDirection(declaredDisplay, declaredDir);
+
     let style = {
-        display: stylesheet.resolveProp(tag, "display", ctx) || "flex",
-        flexDirection: stylesheet.resolveProp(tag, "flex-direction", ctx) || "column",
+        display: declaredDisplay || "flex",
+        flexDirection: dir,
         justifyContent: stylesheet.resolveProp(tag, "justify-content", ctx) || "flex-start",
         alignItems: stylesheet.resolveProp(tag, "align-items", ctx) || "stretch",
         gap: 0,

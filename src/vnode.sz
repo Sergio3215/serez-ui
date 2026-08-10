@@ -31,6 +31,12 @@ export public class VNode {
         return this.children
     }
 
+    // Reemplaza la lista de hijos. Necesario porque los arrays van por VALOR:
+    // `let k = n.getChildren(); k[0] = x` muta una copia y no toca el nodo.
+    public void setChildren(any kids) {
+        this.children = kids
+    }
+
     public any getProp(string name) {
         let i = 0
         while (i < this.props.length()) {
