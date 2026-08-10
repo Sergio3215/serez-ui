@@ -57,6 +57,14 @@ export fn any szsKnownProps() {
     ]
 }
 
+// Pseudo-clases que los renderers saben evaluar. Son ESTADOS de interacción y
+// nada más: ninguno de los dos motores tiene noción de posición entre hermanos,
+// así que `:first-child`, `:last-child`, `:nth-child(…)` y compañía se parsean
+// igual y no matchean nunca. `Stylesheet.unknownSelectors()` los delata.
+export fn any szsKnownPseudos() {
+    return ["hover", "focus", "active", "disabled", "active-focus"]
+}
+
 export fn bool cssIsWs(string c) {
     return c == " " || c == "\t" || c == "\n" || c == "\r"
 }
@@ -573,6 +581,42 @@ export public class Stylesheet {
             i = i + 1
         }
         return ajenas
+    }
+
+    // Selectores con una pseudo-clase que ningún renderer sabe evaluar.
+    //
+    // Mismo silencio que unknownProps() pero en el otro eje: `Button:first-child`
+    // se parsea y se guarda perfecto, y después no matchea nunca porque los
+    // motores sólo manejan estados de interacción. Sin esto, la regla existe,
+    // no da error y no pinta nada.
+    public any unknownSelectors() {
+        let conocidas = szsKnownPseudos()
+        let ajenos = []
+        let i = 0
+        while (i < this.selectors.length()) {
+            let sel = "" + this.selectors[i]
+            let col = cssIndexOf(sel, ":")
+            if (col >= 0) {
+                let pseudo = sel.substring(col + 1, sel.length())
+                let esConocida = false
+                let k = 0
+                while (k < conocidas.length()) {
+                    if (conocidas[k] == pseudo) { esConocida = true }
+                    k = k + 1
+                }
+                if (!esConocida) {
+                    let yaEsta = false
+                    let j = 0
+                    while (j < ajenos.length()) {
+                        if (ajenos[j] == sel) { yaEsta = true }
+                        j = j + 1
+                    }
+                    if (!yaEsta) { ajenos.push(sel) }
+                }
+            }
+            i = i + 1
+        }
+        return ajenos
     }
 
     // Fuentes declaradas con :font — el renderer las carga perezosamente.

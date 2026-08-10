@@ -83,4 +83,21 @@ c.check("una hoja limpia no reporta nada", limpia.unknownProps().length() == 0)
 let repes = parseCss(r"div { float: left; } Button { float: right; }")
 c.check("no repite un nombre declarado dos veces", repes.unknownProps().length() == 1)
 
+
+
+// ── 3. Pseudo-clases: sólo estados de interaccion ───────────────────────────
+// Ni el interpretado ni el nativo tienen noción de posición entre hermanos, así
+// que :first-child y compañía parsean y NO matchean nunca. Que queden avisadas
+// es lo unico que las distingue de un selector que si funciona.
+
+let conPseudo = parseCss(r"Button:hover { color: #0f0; } Button:first-child { color: #f00; } li:last-child { border: 0; } Button:focus { color: #00f; }")
+let selAjenos = conPseudo.unknownSelectors()
+
+c.check("reporta :first-child", selAjenos.includes("Button:first-child"))
+c.check("reporta :last-child", selAjenos.includes("li:last-child"))
+c.check("NO reporta :hover, que si funciona", !selAjenos.includes("Button:hover"))
+c.check("NO reporta :focus, que si funciona", !selAjenos.includes("Button:focus"))
+c.check("son exactamente dos", selAjenos.length() == 2)
+c.check("un selector sin pseudo nunca se reporta", parseCss(r"div { color: #fff; }").unknownSelectors().length() == 0)
+
 c.summary()

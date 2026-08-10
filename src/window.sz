@@ -425,6 +425,13 @@ export public class Window {
             if (ajenas.length() > 0) {
                 out "⚠ .szs: propiedades declaradas que este renderer ignora: " + ajenas.join(", ")
             }
+            // Mismo silencio, otro eje: una pseudo-clase que no sea de
+            // interacción (:first-child, :nth-child…) parsea bien y no matchea
+            // nunca — no hay noción de posición entre hermanos en ningún motor.
+            let selAjenos = sheet.unknownSelectors()
+            if (selAjenos.length() > 0) {
+                out "⚠ .szs: selectores con pseudo-clase no soportada (nunca van a matchear): " + selAjenos.join(", ")
+            }
         }
     }
 
