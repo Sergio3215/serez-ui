@@ -583,6 +583,33 @@ export public class Stylesheet {
         return ajenas
     }
 
+    // Selectores DESCENDIENTES (`Row Button`, `.card p`), que sólo aplican con
+    // el renderer nativo.
+    //
+    // El core los matchea de verdad — recorre la cadena de ancestros y hasta
+    // degrada `>` a descendiente — pero el renderer INTERPRETADO, que es el modo
+    // por defecto, resuelve por tag/clase/id sueltos y no lleva ancestros. O sea
+    // que la misma hoja pinta distinto según el modo, y en el default la regla
+    // no hace nada sin decir una palabra.
+    public any nativeOnlySelectors() {
+        let ajenos = []
+        let i = 0
+        while (i < this.selectors.length()) {
+            let sel = ("" + this.selectors[i]).trim()
+            if (cssIndexOf(sel, " ") >= 0) {
+                let yaEsta = false
+                let j = 0
+                while (j < ajenos.length()) {
+                    if (ajenos[j] == sel) { yaEsta = true }
+                    j = j + 1
+                }
+                if (!yaEsta) { ajenos.push(sel) }
+            }
+            i = i + 1
+        }
+        return ajenos
+    }
+
     // Selectores con una pseudo-clase que ningún renderer sabe evaluar.
     //
     // Mismo silencio que unknownProps() pero en el otro eje: `Button:first-child`

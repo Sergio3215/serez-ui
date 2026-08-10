@@ -432,6 +432,9 @@ export public class Window {
             if (selAjenos.length() > 0) {
                 out "⚠ .szs: selectores con pseudo-clase no soportada (nunca van a matchear): " + selAjenos.join(", ")
             }
+            // Los descendientes NO se avisan acá: dependen del modo de render, y
+            // useStylesheet() suele llamarse antes que useNativeRenderer(). El
+            // aviso va en runGui, cuando el modo ya está decidido.
         }
     }
 
@@ -1253,6 +1256,16 @@ export public class Window {
     // no-invocable ya NO oculta una función homónima en llamadas, pero mantener
     // los nombres largos sigue siendo buena higiene.
     public void runGui(string title, int width, int height) {
+        // Acá el modo de render ya está decidido, así que se puede avisar de los
+        // selectores descendientes: el core los matchea de verdad (recorre la
+        // cadena de ancestros), pero el renderer interpretado resuelve por
+        // tag/clase/id sueltos y los ignora sin decir nada.
+        if (!this.__native && this.__sheet != null) {
+            let soloNativo = this.__sheet.nativeOnlySelectors()
+            if (soloNativo.length() > 0) {
+                out "⚠ .szs: selectores descendientes que el renderer interpretado ignora — se aplican con useNativeRenderer(true): " + soloNativo.join(", ")
+            }
+        }
         Gui.open(title, width, height)
         let r = new GuiRenderer()
         this.__vw = width        // render() ya ve el ancho inicial (viewportWidth/breakpoint)
