@@ -1,0 +1,128 @@
+// notes_fixes_test.sz — Tres cosas que serez-ui no cumplía, reportadas 2026-08-10.
+//
+//   1. `flag && (<Row>…)` pintaba "false" cuando la bandera era false: h() sólo
+//      descartaba null, y el booleano sobrevivía como hijo.
+//   2. `<MiComp class="x">` no aplicaba nada si el componente devolvía un
+//      fragment: el reenvío de class/id exigía que la raíz fuera un elemento, y
+//      un `<></>` — que se pone sin pensarlo — lo silenciaba.
+//   3. `display: flex` sin `flex-direction` dejaba el contenedor en COLUMNA. En
+//      CSS eso es una fila, y el motor nativo del core ya lo resolvía como fila:
+//      el intérprete era el que se despegaba.
+//
+// Headless: no abre ventana.
+//
+// Ejecutar (desde E:\01 Proyectos\Propio\):
+//   Serez-code\target\release\sz.exe serez-ui\apps\notes_fixes_test.sz
+
+import "serez-ui"
+
+class Checker {
+    public Checker() { this.pass = 0; this.fail = 0; }
+    public void check(string label, bool cond) {
+        if (cond) { this.pass = this.pass + 1; out "  PASS  " + label; }
+        else      { this.fail = this.fail + 1; out "  FAIL  " + label; }
+    }
+    public void summary() { out ""; out "Resultado NOTAS: " + this.pass + " PASS, " + this.fail + " FAIL"; }
+}
+
+let c = new Checker()
+
+// ── 1. Render condicional ────────────────────────────────────────────────────
+// `flag && <X/>` funciona desde core 9.14: `&&` devuelve un OPERANDO (el
+// izquierdo si es falsy, si no el derecho) en vez de exigir booleanos de los dos
+// lados. Lo que aporta serez-ui es que el resultado falsy se descarte al armar
+// el árbol: false, null y el array vacío no dejan rastro.
+out "1) render condicional"
+
+let show = false
+let hidden = h("div", [], [show ? h("span", [], ["no"]) : null])
+let shown  = h("div", [], [true ? h("span", [], ["si"]) : null])
+
+c.check("ternario en false -> ningun hijo", hidden.getChildren().length() == 0)
+c.check("ternario en true  -> entra el hijo", shown.getChildren().length() == 1)
+
+// El idiom de JS, con bandera y con array
+let conFlag  = h("div", [], [true && h("span", [], ["si"])])
+let sinFlag  = h("div", [], [false && h("span", [], ["no"])])
+c.check("bandera && <X/> en true  -> entra el hijo", conFlag.getChildren().length() == 1)
+c.check("bandera && <X/> en false -> ningun hijo", sinFlag.getChildren().length() == 0)
+
+let items = [1, 2]
+let vacio = []
+let conItems = h("div", [], [items && h("span", [], ["hay"])])
+let sinItems = h("div", [], [vacio && h("span", [], ["no hay"])])
+c.check("lista con elementos && <X/> -> entra el hijo", conItems.getChildren().length() == 1)
+c.check("lista VACIA && <X/>         -> ningun hijo", sinItems.getChildren().length() == 0)
+
+// Y si un booleano llega igual como hijo (una interpolación de una bandera, o
+// una función que devuelve bool), se descarta en vez de pintarse como "false".
+let mixed = h("div", [], [h("span", [], ["a"]), false, h("span", [], ["b"]), true])
+c.check("los booleanos sueltos se descartan y el resto queda", mixed.getChildren().length() == 2)
+
+let nested = h("div", [], [[false, h("span", [], ["x"])]])
+c.check("tambien dentro de un array aplanado (map)", nested.getChildren().length() == 1)
+
+let frag = hFrag([false])
+c.check("un fragment con solo false queda vacio", frag.getChildren().length() == 0)
+
+// ── 2. class / id a traves de un fragment ────────────────────────────────────
+out ""
+out "2) class/id de <Comp> cuando la raiz es un fragment"
+
+// Raiz fragment con UN solo hijo-elemento: la clase tiene que llegarle.
+class FragOne:Component {
+    public FragOne() { super() }
+    public render() { return hFrag([h("span", [], ["x"])]); }
+}
+// Raiz fragment con DOS hijos-elemento: no se reenvia (una clase no puede
+// aplicarse a varios hermanos sin pintar de mas).
+class FragTwo:Component {
+    public FragTwo() { super() }
+    public render() { return hFrag([h("span", [], ["a"]), h("span", [], ["b"])]); }
+}
+// El hijo unico YA trae clase propia: se mergea, no se pisa.
+class FragBase:Component {
+    public FragBase() { super() }
+    public render() { return hFrag([h("span", [["class", "base"]], ["x"])]); }
+}
+
+let one = __renderComponent(new FragOne(), __makeProps([["class", "card"], ["id", "main"]]), [])
+let oneKid = one.getChildren()[0]
+c.check("la clase llega al unico hijo-elemento", oneKid.getProp("class") == "card")
+c.check("el id llega al unico hijo-elemento", oneKid.getProp("id") == "main")
+c.check("el fragment sigue sin llevar la clase encima", one.getProp("class") == null)
+
+let two = __renderComponent(new FragTwo(), __makeProps([["class", "card"]]), [])
+c.check("con dos hermanos no se reenvia a ninguno", two.getChildren()[0].getProp("class") == null)
+
+let based = __renderComponent(new FragBase(), __makeProps([["class", "card"]]), [])
+let basedKid = based.getChildren()[0]
+c.check("mergea con la clase que ya tenia el hijo", basedKid.getProp("class") == "base card")
+
+// Un elemento como raiz sigue funcionando igual que antes (no hay regresion).
+class Elem:Component {
+    public Elem() { super() }
+    public render() { return h("span", [], ["x"]); }
+}
+let el = __renderComponent(new Elem(), __makeProps([["class", "card"]]), [])
+c.check("una raiz-elemento sigue recibiendo la clase", el.getProp("class") == "card")
+
+// ── 3. display:flex sin flex-direction es FILA ───────────────────────────────
+out ""
+out "3) direccion por defecto de un contenedor"
+
+// resolveDirection(display, flex-direction) tal como los devuelve la hoja
+// (null = la hoja no declaró esa propiedad).
+c.check("display: flex sin direccion declarada  -> fila",    resolveDirection("flex", null) == "row")
+c.check("nada declarado                         -> columna", resolveDirection(null, null) == "column")
+c.check("display: flex + flex-direction: column -> columna", resolveDirection("flex", "column") == "column")
+c.check("flex-direction: row declarado solo     -> fila",    resolveDirection(null, "row") == "row")
+c.check("display: block no vuelve fila",                     resolveDirection("block", null) == "column")
+
+// Y de punta a punta, leyendo de una hoja .szs de verdad.
+let sheet = parseCss(r"div { display: flex; }")
+c.check("desde una hoja parseada: display:flex -> fila",
+        resolveDirection(sheet.resolveProp("div", "display", []),
+                         sheet.resolveProp("div", "flex-direction", [])) == "row")
+
+c.summary()
