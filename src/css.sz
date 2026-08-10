@@ -591,7 +591,7 @@ export public class Stylesheet {
     // por defecto, resuelve por tag/clase/id sueltos y no lleva ancestros. O sea
     // que la misma hoja pinta distinto según el modo, y en el default la regla
     // no hace nada sin decir una palabra.
-    public any nativeOnlySelectors() {
+    public any descendantSelectors() {
         let ajenos = []
         let i = 0
         while (i < this.selectors.length()) {

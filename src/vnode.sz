@@ -17,7 +17,15 @@ export public class VNode {
         // las recolecta recorriendo el vdom (ver Window.__allStyleVars). Se guarda
         // FUERA de props a propósito: así no interfiere con diff/render/atributos.
         this.svars    = null
+        // Cadena de ancestros para los selectores DESCENDIENTES (`Row Button`).
+        // La estampa el renderer en una pasada antes de pintar; cada entrada es
+        // "tag|clases|id" del ancestro, del más lejano al más cercano. Va acá y
+        // no en props para no tocar diff/render/atributos.
+        this.anc      = []
     }
+
+    public any getAnc()          { return this.anc }
+    public void setAnc(any a)    { this.anc = a }
 
     public string getTag() {
         return this.tag

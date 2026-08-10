@@ -36,6 +36,7 @@ export public class GuiRenderer {
         this.mouseHeld  = false
         this.__states   = []     // pseudo-estados activos del elemento en curso (:focus/:hover/:active/:disabled); los lee nodeRaw
         this.sheet      = null   // Stylesheet (.szs) opcional
+        this.descSel    = []     // selectores descendientes de la hoja (los calcula setStyles)
         this.ctx        = []     // contexto de estado [[nombre, valor]] para condiciones
         this.fullCtx    = []     // ctx + width/height inyectados (media queries .szs)
         this.scrollY    = 0      // desplazamiento vertical del scroll (px)
@@ -626,6 +627,142 @@ export public class GuiRenderer {
     public void setStyles(any sheet, any ctx) {
         this.sheet = sheet
         this.ctx   = ctx
+        // Selectores descendientes de la hoja, calculados UNA vez: nodeRaw los
+        // recorre por nodo y por propiedad, así que escanear la hoja entera ahí
+        // sería el cuello del frame.
+        this.descSel = []
+        if (sheet != null) { this.descSel = sheet.descendantSelectors() }
+    }
+
+    // ── Selectores descendientes (`Row Button`, `.card p`) ────────────────────
+    // El core ya los matchea recorriendo la cadena de ancestros; el interpretado
+    // no llevaba ancestros y los ignoraba, así que la misma hoja pintaba distinto
+    // según el modo. Se resuelve estampando la cadena sobre el vdom en una pasada
+    // (stampAnc) y matcheando acá contra lo estampado.
+
+    // Descriptor compacto de un nodo para la cadena: "tag|clases|id".
+    public string ancKey(any node, string tag) {
+        let cls = node.getProp("class")
+        let id  = node.getProp("id")
+        let c = ""
+        if (cls != null) { c = ("" + cls).trim() }
+        let d = ""
+        if (id != null) { d = ("" + id).trim() }
+        return tag + "|" + c + "|" + d
+    }
+
+    // ¿El término (`Row`, `.card`, `#main`, `*`) casa con un descriptor?
+    public bool ancTermMatches(string term, string key) {
+        if (term == "*") { return true; }
+        let bar1 = cssIndexOf(key, "|")
+        let tag  = key.substring(0, bar1)
+        let rest = key.substring(bar1 + 1, key.length())
+        let bar2 = cssIndexOf(rest, "|")
+        let cls  = rest.substring(0, bar2)
+        let id   = rest.substring(bar2 + 1, rest.length())
+
+        if (term.charAt(0) == ".") {
+            let want = term.substring(1, term.length())
+            let parts = cls.split(" ")
+            let i = 0
+            while (i < parts.length()) {
+                if (parts[i].trim() == want) { return true; }
+                i = i + 1
+            }
+            return false
+        }
+        if (term.charAt(0) == "#") {
+            return id == term.substring(1, term.length())
+        }
+        return tag == term
+    }
+
+    // ¿El selector descendiente casa con este nodo y su cadena de ancestros?
+    // Semántica de CSS: el ÚLTIMO término es el sujeto, y los anteriores deben
+    // aparecer entre los ancestros EN ORDEN, no necesariamente pegados. Se busca
+    // desde el ancestro más cercano hacia atrás, igual que selector_matches del core.
+    public bool descMatches(string sel, any node, string tag) {
+        let terms = sel.trim().split(" ")
+        let clean = []
+        let t = 0
+        while (t < terms.length()) {
+            let x = terms[t].trim()
+            if (x.length() > 0 && x != ">") { clean.push(x) }
+            t = t + 1
+        }
+        if (clean.length() < 2) { return false; }
+
+        let selfKey = this.ancKey(node, tag)
+        if (!this.ancTermMatches(clean[clean.length() - 1], selfKey)) { return false; }
+
+        let anc = node.getAnc()
+        let ai = anc.length() - 1
+        let ti = clean.length() - 2
+        while (ti >= 0) {
+            let encontrado = false
+            while (ai >= 0) {
+                if (this.ancTermMatches(clean[ti], "" + anc[ai])) {
+                    encontrado = true
+                    ai = ai - 1
+                    ti = ti - 1
+                    ai = ai
+                    break
+                }
+                ai = ai - 1
+            }
+            if (!encontrado) { return false; }
+        }
+        return true
+    }
+
+    // Valor de una prop por selector descendiente, o null. Gana el ÚLTIMO que casa,
+    // como cualquier regla de la hoja.
+    public any descRaw(any node, string tag, string prop) {
+        if (node == null) { return null; }
+        let v = null
+        let i = 0
+        while (i < this.descSel.length()) {
+            let sel = "" + this.descSel[i]
+            if (this.descMatches(sel, node, tag)) {
+                let cand = this.styleRaw(sel, prop)
+                if (cand != null) { v = cand }
+            }
+            i = i + 1
+        }
+        return v
+    }
+
+    // Estampa la cadena de ancestros sobre el vdom. Una pasada antes de pintar:
+    // así nodeRaw la lee del nodo y no hay que llevar una pila por los 10 sitios
+    // donde renderNode recursiona.
+    //
+    // DEVUELVE el nodo estampado y el llamador tiene que reasignarlo. No es un
+    // capricho: los objetos van por VALOR, así que getChildren() da una copia y
+    // pasar un hijo a este método lo copia otra vez — mutarlo adentro no tocaría
+    // el árbol. Hay que escribir de vuelta en cada nivel (read-modify-write).
+    public any stampAnc(any node, any chain) {
+        if (node == null) { return node; }
+        if (!(type_of(node) == "VNode")) { return node; }
+        let tag = node.getTag()
+        node.setAnc(chain)
+        let kids = node.getChildren()
+        if (kids.length() == 0) { return node; }
+        // Un fragment no es un elemento: no entra en la cadena (sus hijos cuelgan
+        // del mismo padre, como en el DOM).
+        let sub = chain
+        if (tag != "__fragment__" && tag != "__text__") {
+            sub = []
+            let ci = 0
+            while (ci < chain.length()) { sub.push(chain[ci]); ci = ci + 1 }
+            sub.push(this.ancKey(node, tag))
+        }
+        let k = 0
+        while (k < kids.length()) {
+            kids[k] = this.stampAnc(kids[k], sub)
+            k = k + 1
+        }
+        node.setChildren(kids)
+        return node
     }
 
     // Activa/desactiva el camino de render nativo (Fase 3).
@@ -726,6 +863,11 @@ export public class GuiRenderer {
         if (this.sheet == null) { return null; }
         let v = this.styleRaw(tag, prop)
         if (node == null) { return v; }
+        // Descendientes (`Row Button`) entre el tag y la clase: una cadena de tags
+        // es más específica que un tag suelto pero menos que una clase, que es el
+        // orden de la web (0,0,N < 0,1,0).
+        let dv = this.descRaw(node, tag, prop)
+        if (dv != null) { v = dv }
         // Cascada por especificidad: tag < clase < id (el id gana, como en la web).
         let cls = node.getProp("class")
         if (cls != null) {
@@ -3030,6 +3172,9 @@ export public class GuiRenderer {
         // externo, y todos por debajo del contenido (z >= 0).
         this.boxZ = 0 - 2
         this.swBegin()
+        // Cadena de ancestros para los selectores descendientes: una pasada antes
+        // de pintar, en el único punto por el que entra el árbol.
+        if (this.descSel.length() > 0) { vdom = this.stampAnc(vdom, []) }
         this.renderNode(vdom)
         this.contentH = this.cy + this.scrollY - this.pad   // alto total del contenido
         // El overlay del dropdown abierto se pinta al final, sobre todo lo demás.

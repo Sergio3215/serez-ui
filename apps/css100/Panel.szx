@@ -1,0 +1,15 @@
+import "serez-ui"
+import "Card"
+
+// Tercer nivel: Panel → Card → Badge, cada uno en su archivo. Prueba que la
+// cadena de imports aguanta más de un salto, no sólo uno.
+export public class Panel:Component {
+    public render() {
+        return (
+            <Row class="panel">
+                <Card title={this.props.a} tag="uno" />
+                <Card title={this.props.b} tag="dos" />
+            </Row>
+        )
+    }
+}

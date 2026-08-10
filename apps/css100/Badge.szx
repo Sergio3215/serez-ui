@@ -1,0 +1,8 @@
+import "serez-ui"
+
+// Componente hoja, en su propio archivo .szx. No importa a nadie.
+export public class Badge:Component {
+    public render() {
+        return <span class="badge">{this.props.text}</span>
+    }
+}

@@ -1,0 +1,262 @@
+// css_100_test.sz — Batería de 100 pruebas sobre el CSS (.szs) ya existente.
+//
+// El objetivo no es cubrir CSS entero: es fijar lo que HOY funciona, para que
+// deje de descubrirse a los golpes. Cada bloque prueba una parte de la cascada
+// y, donde corresponde, también el caso que NO debe aplicar — una regla que
+// matchea de más es tan mala como una que no matchea.
+//
+// Incluye componentes AISLADOS en archivos .szx separados (css100/), que se
+// importan entre sí en cadena: Panel → Card → Badge. Ese armado rompía hasta el
+// fix del core en stmt.rs (un módulo con `export` borraba al salir las clases
+// que él mismo había importado).
+//
+// Headless: no abre ventana. Ejecutar (desde E:\01 Proyectos\Propio\):
+//   Serez-code\target\release\sz.exe serez-ui\apps\css_100_test.sz
+
+import "serez-ui"
+import "css100/Panel"
+
+class Checker {
+    public Checker() { this.pass = 0; this.fail = 0; }
+    public void check(string label, bool cond) {
+        if (cond) { this.pass = this.pass + 1; }
+        else      { this.fail = this.fail + 1; out "  FAIL  " + label; }
+    }
+    public void summary() {
+        out ""
+        out "Resultado CSS-100: " + this.pass + " PASS, " + this.fail + " FAIL  (total " + (this.pass + this.fail) + ")"
+    }
+}
+let c = new Checker()
+
+// Renderer headless con una hoja dada.
+fn any rendererCon(any src) {
+    let r = new GuiRenderer()
+    r.setStyles(parseCss(src), [])
+    return r
+}
+
+// ── 1. Propiedades por tag ───────────────────────────────────────────────────
+let s1 = parseCss(r"div { color: #ffffff; background-color: #101020; padding: 8; width: 120; height: 40; border: 1; border-color: #334155; border-radius: 6; opacity: 80; font-size: 16px; }")
+c.check("1 color por tag", s1.resolveProp("div", "color", []) == "#ffffff")
+c.check("2 background-color", s1.resolveProp("div", "background-color", []) == "#101020")
+c.check("3 padding", s1.resolveProp("div", "padding", []) == "8")
+c.check("4 width", s1.resolveProp("div", "width", []) == "120")
+c.check("5 height", s1.resolveProp("div", "height", []) == "40")
+c.check("6 border", s1.resolveProp("div", "border", []) == "1")
+c.check("7 border-color", s1.resolveProp("div", "border-color", []) == "#334155")
+c.check("8 border-radius", s1.resolveProp("div", "border-radius", []) == "6")
+c.check("9 opacity", s1.resolveProp("div", "opacity", []) == "80")
+c.check("10 font-size", s1.resolveProp("div", "font-size", []) == "16px")
+c.check("11 prop no declarada da null", s1.resolveProp("div", "letter-spacing", []) == null)
+c.check("12 tag no declarado da null", s1.resolveProp("span", "color", []) == null)
+
+// ── 2. Cascada: tag < descendiente < clase < id ─────────────────────────────
+let r2 = rendererCon(r"Button { color: #111111; } Row Button { color: #222222; } .accent { color: #333333; } #uno { color: #444444; }")
+let bTag = h("Button", [], ["x"])
+let bCls = h("Button", [["class", "accent"]], ["x"])
+let bId  = h("Button", [["class", "accent"], ["id", "uno"]], ["x"])
+let bDesc = h("Button", [], ["x"])
+let rowD = h("Row", [], [bDesc])
+rowD = r2.stampAnc(rowD, [])
+let bDesc2 = rowD.getChildren()[0]
+
+c.check("13 tag suelto", r2.nodeRaw(bTag, "Button", "color") == "#111111")
+c.check("14 descendiente gana al tag", r2.nodeRaw(bDesc2, "Button", "color") == "#222222")
+c.check("15 clase gana al tag", r2.nodeRaw(bCls, "Button", "color") == "#333333")
+c.check("16 id gana a la clase", r2.nodeRaw(bId, "Button", "color") == "#444444")
+
+let r3 = rendererCon(r"Button { color: #111111; } .a { color: #aaaaaa; } .b { color: #bbbbbb; }")
+let dosCls = h("Button", [["class", "a b"]], ["x"])
+let dosInv = h("Button", [["class", "b a"]], ["x"])
+c.check("17 con dos clases gana la ultima declarada en la hoja", r3.nodeRaw(dosCls, "Button", "color") == "#bbbbbb")
+c.check("18 manda el ORDEN DEL ATRIBUTO: gana la ultima clase escrita", r3.nodeRaw(dosInv, "Button", "color") == "#aaaaaa")
+c.check("19 una clase inexistente no rompe", r3.nodeRaw(h("Button", [["class", "zz"]], ["x"]), "Button", "color") == "#111111")
+c.check("20 class vacia no rompe", r3.nodeRaw(h("Button", [["class", ""]], ["x"]), "Button", "color") == "#111111")
+
+// ── 3. Selectores descendientes ─────────────────────────────────────────────
+let r4 = rendererCon(r"Button { color: #000000; } Row Button { color: #ff0000; } div Row Button { color: #00ff00; } .card p { color: #0000ff; } #main span { color: #ffff00; } * span { color: #00ffff; }")
+
+let b1 = h("Button", [], ["x"])
+let rowIn = h("Row", [], [b1])
+let arbol = h("div", [], [rowIn])
+arbol = r4.stampAnc(arbol, [])
+let b1s = arbol.getChildren()[0].getChildren()[0]
+c.check("21 cadena de dos niveles matchea", r4.nodeRaw(b1s, "Button", "color") == "#00ff00")
+
+let bSolo = h("Button", [], ["x"])
+let soloRoot = h("div", [], [bSolo])
+soloRoot = r4.stampAnc(soloRoot, [])
+c.check("22 sin el ancestro del medio NO matchea la cadena larga", r4.nodeRaw(soloRoot.getChildren()[0], "Button", "color") == "#000000")
+
+let pIn = h("p", [], ["y"])
+let cardIn = h("div", [["class", "card"]], [pIn])
+cardIn = r4.stampAnc(cardIn, [])
+c.check("23 descendiente por CLASE del ancestro", r4.nodeRaw(cardIn.getChildren()[0], "p", "color") == "#0000ff")
+
+let spIn = h("span", [], ["z"])
+let mainIn = h("div", [["id", "main"]], [spIn])
+mainIn = r4.stampAnc(mainIn, [])
+// Dos descendientes matchean el mismo span (#main span y * span): gana el
+// ULTIMO declarado en la hoja, como cualquier regla repetida.
+c.check("24 descendiente por ID del ancestro matchea", r4.nodeRaw(mainIn.getChildren()[0], "span", "color") == "#00ffff")
+
+let spSuelto = h("span", [], ["z"])
+let cualquiera = h("section", [], [spSuelto])
+cualquiera = r4.stampAnc(cualquiera, [])
+c.check("25 el comodin * como ancestro matchea", r4.nodeRaw(cualquiera.getChildren()[0], "span", "color") != null)
+
+// Nietos: el descendiente NO exige que sea hijo directo.
+let r5 = rendererCon(r"Row Button { color: #ff0000; } Button { color: #000000; }")
+let nieto = h("Button", [], ["x"])
+let medio = h("div", [], [nieto])
+let rowN = h("Row", [], [medio])
+rowN = r5.stampAnc(rowN, [])
+c.check("26 matchea un NIETO, no solo un hijo directo", r5.nodeRaw(rowN.getChildren()[0].getChildren()[0], "Button", "color") == "#ff0000")
+
+let hermano = h("Button", [], ["x"])
+let otro = h("section", [], [hermano])
+otro = r5.stampAnc(otro, [])
+c.check("27 fuera del ancestro NO matchea", r5.nodeRaw(otro.getChildren()[0], "Button", "color") == "#000000")
+
+c.check("28 la hoja lista sus descendientes", parseCss(r"Row Button { color: #fff; } Button { color: #000; }").descendantSelectors().length() == 1)
+c.check("29 un selector simple no cuenta como descendiente", parseCss(r"Button { color: #000; }").descendantSelectors().length() == 0)
+c.check("30 dos descendientes distintos se listan aparte", parseCss(r"Row Button { color: #fff; } .card p { color: #000; }").descendantSelectors().length() == 2)
+
+// ── 4. Pseudo-estados ───────────────────────────────────────────────────────
+let r6 = rendererCon(r"Button { color: #111111; background-color: #222222; } Button:hover { color: #ff0000; } Button:focus { color: #00ff00; } Button:disabled { color: #888888; } .k:hover { color: #0000ff; }")
+let bE = h("Button", [], ["x"])
+
+r6.setStates(false, false, false, false)
+c.check("31 sin estado, la regla base", r6.nodeRaw(bE, "Button", "color") == "#111111")
+r6.setStates(false, true, false, false)
+c.check("32 :hover pisa", r6.nodeRaw(bE, "Button", "color") == "#ff0000")
+r6.setStates(true, false, false, false)
+c.check("33 :focus pisa", r6.nodeRaw(bE, "Button", "color") == "#00ff00")
+r6.setStates(false, false, false, true)
+c.check("34 :disabled pisa", r6.nodeRaw(bE, "Button", "color") == "#888888")
+r6.setStates(true, true, true, true)
+c.check("35 disabled es excluyente (no hover ni focus)", r6.nodeRaw(bE, "Button", "color") == "#888888")
+r6.setStates(false, true, false, false)
+c.check("36 :hover sobre una CLASE", r6.nodeRaw(h("Button", [["class", "k"]], ["x"]), "Button", "color") == "#0000ff")
+r6.setStates(false, false, false, false)
+c.check("37 una prop no tocada por el pseudo sobrevive", r6.nodeRaw(bE, "Button", "background-color") == "#222222")
+
+// ── 5. Condiciones reactivas ────────────────────────────────────────────────
+let cond = r"body (n == 0) { color: #000000; } body (n != 0) { color: #111111; } body (n > 5) { background-color: #222222; } body (n < 5) { background-color: #333333; } body (n >= 7) { border-color: #444444; } body (n <= 2) { border-color: #555555; } body (flag) { padding: 9; } body (txt == hola) { gap: 3; }"
+let s5a = parseCss(cond)
+c.check("38 == verdadero", s5a.resolveProp("body", "color", [["n", 0]]) == "#000000")
+c.check("39 == falso cae a la otra regla", s5a.resolveProp("body", "color", [["n", 1]]) == "#111111")
+c.check("40 > verdadero", s5a.resolveProp("body", "background-color", [["n", 9]]) == "#222222")
+c.check("41 < verdadero", s5a.resolveProp("body", "background-color", [["n", 1]]) == "#333333")
+c.check("42 >= en el limite", s5a.resolveProp("body", "border-color", [["n", 7]]) == "#444444")
+c.check("43 <= en el limite", s5a.resolveProp("body", "border-color", [["n", 2]]) == "#555555")
+c.check("44 variable sola truthy", s5a.resolveProp("body", "padding", [["flag", true]]) == "9")
+c.check("45 variable sola en false no aplica", s5a.resolveProp("body", "padding", [["flag", false]]) == null)
+c.check("46 variable sola en 0 no aplica", s5a.resolveProp("body", "padding", [["flag", 0]]) == null)
+c.check("47 comparacion de strings", s5a.resolveProp("body", "gap", [["txt", "hola"]]) == "3")
+c.check("48 string distinto no aplica", s5a.resolveProp("body", "gap", [["txt", "chau"]]) == null)
+c.check("49 variable ausente del ctx no aplica", s5a.resolveProp("body", "color", []) == null)
+
+let s5b = parseCss(r"div (a == 1 and b == 2) { color: #aaaaaa; } div (a == 9 or b == 2) { gap: 4; } div (not z) { padding: 5; }")
+c.check("50 and con las dos", s5b.resolveProp("div", "color", [["a", 1], ["b", 2]]) == "#aaaaaa")
+c.check("51 and con una sola no aplica", s5b.resolveProp("div", "color", [["a", 1], ["b", 9]]) == null)
+c.check("52 or con la segunda", s5b.resolveProp("div", "gap", [["a", 0], ["b", 2]]) == "4")
+c.check("53 or sin ninguna no aplica", s5b.resolveProp("div", "gap", [["a", 0], ["b", 0]]) == null)
+c.check("54 not sobre falsy aplica", s5b.resolveProp("div", "padding", [["z", false]]) == "5")
+c.check("55 not sobre truthy no aplica", s5b.resolveProp("div", "padding", [["z", true]]) == null)
+
+// ── 6. @when / @else ────────────────────────────────────────────────────────
+let s6 = parseCss(r"@when (modo == oscuro) { body { color: #eeeeee; } h1 { color: #ffffff; } } @else { body { color: #111111; } h1 { color: #000000; } }")
+c.check("56 @when aplica a body", s6.resolveProp("body", "color", [["modo", "oscuro"]]) == "#eeeeee")
+c.check("57 @when aplica a h1 del mismo bloque", s6.resolveProp("h1", "color", [["modo", "oscuro"]]) == "#ffffff")
+c.check("58 @else cuando no se cumple", s6.resolveProp("body", "color", [["modo", "claro"]]) == "#111111")
+c.check("59 @else tambien para h1", s6.resolveProp("h1", "color", [["modo", "claro"]]) == "#000000")
+c.check("60 sin la variable cae al @else", s6.resolveProp("body", "color", []) == "#111111")
+
+let s6b = parseCss(r"@when (w > 100) { div { gap: 1; } } @else (w > 50) { div { gap: 2; } } @else { div { gap: 3; } }")
+c.check("61 primera rama", s6b.resolveProp("div", "gap", [["w", 200]]) == "1")
+c.check("62 segunda rama (@else con condicion)", s6b.resolveProp("div", "gap", [["w", 75]]) == "2")
+c.check("63 rama final", s6b.resolveProp("div", "gap", [["w", 10]]) == "3")
+
+// ── 7. width / height como variables integradas ─────────────────────────────
+// width/height son variables de condicion como cualquier otra: el renderer las
+// inyecta en el ctx en cada render(). Aca se pasan a mano, que es lo mismo,
+// sin necesitar una ventana abierta.
+let s7 = parseCss(r"body (width < 600) { color: #111111; } body (width >= 600) { color: #222222; } body (height < 400) { gap: 7; }")
+c.check("64 width chico toma su rama", s7.resolveProp("body", "color", [["width", 400], ["height", 300]]) == "#111111")
+c.check("65 width grande toma la otra", s7.resolveProp("body", "color", [["width", 900], ["height", 700]]) == "#222222")
+c.check("66 height tambien condiciona", s7.resolveProp("body", "gap", [["width", 400], ["height", 300]]) == "7")
+
+// ── 8. styleVars ────────────────────────────────────────────────────────────
+class VentanaConVars:Window {
+    public VentanaConVars() { super(); this.count = 0; this.alert = false }
+    public any styleVars() { return [["count", this.count], ["alert", this.alert]] }
+    public any render() { return h("div", [], ["x"]) }
+}
+let w8 = new VentanaConVars()
+let vars = w8.styleVars()
+c.check("67 styleVars devuelve pares", vars.length() == 2)
+c.check("68 primer par es [nombre, valor]", vars[0][0] == "count")
+c.check("69 el valor sale del estado", vars[0][1] == 0)
+w8.count = 5
+c.check("70 al cambiar el estado cambia la variable", w8.styleVars()[0][1] == 5)
+
+class CompConVars:Component {
+    public CompConVars() { super() }
+    public any styleVars() { return [["unread", this.props["unread"]]] }
+    public any render() { return h("span", [], ["b"]) }
+}
+let nodoCV = __renderComponent(new CompConVars(), __makeProps([["unread", 3]]), [])
+c.check("71 el Component estampa sus styleVars en el nodo", nodoCV.getStyleVars() != null)
+c.check("72 y salen de props", nodoCV.getStyleVars()[0][1] == 3)
+let ctxTotal = w8.__allStyleVars(h("div", [], [nodoCV]))
+c.check("73 la Window recolecta las del arbol", ctxTotal.length() >= 3)
+
+// ── 9. Componentes aislados en archivos .szx ────────────────────────────────
+// Panel → Card → Badge, cada uno en su propio .szx. Esto fallaba antes del fix.
+let panel = __renderComponent(new Panel(), __makeProps([["a", "Uno"], ["b", "Dos"]]), [])
+c.check("74 Panel renderiza", panel != null)
+c.check("75 su raiz es el Row que declara", panel.getTag() == "Row")
+c.check("76 con la clase de su render", panel.getProp("class") == "panel")
+let cards = panel.getChildren()
+c.check("77 rinde los dos Card", cards.length() == 2)
+c.check("78 el Card produce su div", cards[0].getTag() == "div")
+c.check("79 con su clase propia", cards[0].getProp("class") == "card")
+let dentroCard = cards[0].getChildren()
+c.check("80 el Card tiene titulo y badge", dentroCard.length() == 2)
+c.check("81 el titulo lleva su clase", dentroCard[0].getProp("class") == "card--title")
+c.check("82 el prop title llego al h3", dentroCard[0].getChildren()[0] == "Uno")
+c.check("83 el Badge (tercer archivo) rindio", dentroCard[1].getTag() == "span")
+c.check("84 con su clase", dentroCard[1].getProp("class") == "badge")
+c.check("85 y con el prop que le paso Card", dentroCard[1].getChildren()[0] == "uno")
+c.check("86 el segundo Card tiene su propio titulo", cards[1].getChildren()[0].getChildren()[0] == "Dos")
+c.check("87 y su propio tag en el badge", cards[1].getChildren()[1].getChildren()[0] == "dos")
+
+// class/id desde afuera sobre un componente importado
+let cardConClase = __renderComponent(new Card(), __makeProps([["title", "T"], ["tag", "x"], ["class", "resaltado"], ["id", "c1"]]), [])
+c.check("88 la clase de afuera se mergea con la propia", cardConClase.getProp("class") == "card resaltado")
+c.check("89 el id de afuera llega", cardConClase.getProp("id") == "c1")
+
+// El CSS alcanza a un componente importado, incluso por descendiente
+let r9 = rendererCon(r".panel .card { color: #ff0000; } .badge { color: #00ff00; } h3 { color: #0000ff; }")
+let panelSt = r9.stampAnc(panel, [])
+let card0 = panelSt.getChildren()[0]
+c.check("90 descendiente .panel .card sobre un componente importado", r9.nodeRaw(card0, "div", "color") == "#ff0000")
+c.check("91 clase del componente hoja", r9.nodeRaw(card0.getChildren()[1], "span", "color") == "#00ff00")
+c.check("92 tag interno del componente", r9.nodeRaw(card0.getChildren()[0], "h3", "color") == "#0000ff")
+
+// ── 10. Construccion del arbol ──────────────────────────────────────────────
+c.check("93 null como hijo se descarta", h("div", [], [null, h("span", [], ["a"])]).getChildren().length() == 1)
+c.check("94 false como hijo se descarta", h("div", [], [false, h("span", [], ["a"])]).getChildren().length() == 1)
+c.check("95 el idiom lista && nodo", h("div", [], [[] && h("span", [], ["a"])]).getChildren().length() == 0)
+c.check("96 con lista no vacia si entra", h("div", [], [[1] && h("span", [], ["a"])]).getChildren().length() == 1)
+c.check("97 los arrays se aplanan", h("div", [], [[h("span", [], ["a"]), h("span", [], ["b"])]]).getChildren().length() == 2)
+c.check("98 un fragment agrupa sin nodo propio", hFrag([h("span", [], ["a"]), h("span", [], ["b"])]).getChildren().length() == 2)
+
+// ── 11. Lo que la hoja NO soporta queda reportado ───────────────────────────
+let raras = parseCss(r"div { float: left; animation: x; color: #fff; } li:first-child { color: #000; }")
+c.check("99 las propiedades ajenas se reportan", raras.unknownProps().length() == 2)
+c.check("100 las pseudo-clases inexistentes se reportan", raras.unknownSelectors().length() == 1)
+
+c.summary()

@@ -1,0 +1,16 @@
+import "serez-ui"
+import "Badge"
+
+// Componente que USA a otro componente de un archivo hermano. Es el caso que
+// rompía: hasta el fix del core, Badge desaparecía al terminar de cargarse este
+// módulo y `Card.render()` moría con "Unknown class or interface 'Badge'".
+export public class Card:Component {
+    public render() {
+        return (
+            <div class="card">
+                <h3 class="card--title">{this.props.title}</h3>
+                <Badge text={this.props.tag} />
+            </div>
+        )
+    }
+}

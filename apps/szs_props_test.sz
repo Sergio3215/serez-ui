@@ -108,12 +108,12 @@ c.check("un selector sin pseudo nunca se reporta", parseCss(r"div { color: #fff;
 // resultado distinto segun el modo: por eso se avisan en runGui.
 
 let desc = parseCss(r"Row Button { color: #f00; } .card p { color: #0f0; } Button { color: #111; }")
-let soloNativo = desc.nativeOnlySelectors()
+let soloNativo = desc.descendantSelectors()
 
 c.check("reporta Row Button", soloNativo.includes("Row Button"))
 c.check("reporta .card p", soloNativo.includes(".card p"))
 c.check("NO reporta un selector simple", !soloNativo.includes("Button"))
 c.check("son exactamente dos", soloNativo.length() == 2)
-c.check("una hoja sin descendientes no reporta nada", parseCss(r"div { color: #fff; }").nativeOnlySelectors().length() == 0)
+c.check("una hoja sin descendientes no reporta nada", parseCss(r"div { color: #fff; }").descendantSelectors().length() == 0)
 
 c.summary()
