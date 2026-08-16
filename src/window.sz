@@ -229,7 +229,7 @@ export public class Window {
 
     // Override en subclases — produce el árbol VNode
     public any render() {
-        return h("div", [], [])
+        return __h("div", [], [])
     }
 
     // Override opcional — se llama una vez por frame en el loop GUI (incluso sin

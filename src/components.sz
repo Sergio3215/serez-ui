@@ -9,21 +9,21 @@
 //   Input([["value", name], ["placeholder", "Nombre"], ["onChange", onName]], [])
 //
 // En .szx se escriben como tags y el traductor los convierte a estas llamadas:
-//   <Button onClick={save}>Guardar</Button>      → h("Button", ..., ["Guardar"])
-//   <Input value={name} placeholder="Nombre" />  → h("Input", ..., [])
+//   <Button onClick={save}>Guardar</Button>      → __h("Button", ..., ["Guardar"])
+//   <Input value={name} placeholder="Nombre" />  → __h("Input", ..., [])
 //
 // La estructura (div, h1, p, span, hr, ul, li...) son tags HTML primitivos que
 // el Renderer maneja directamente. El layout es responsabilidad del CSS.
 //
-// ── Todos construyen con h(), no con `new VNode` ─────────────────────────────
-// h() pasa los children por flattenChildren(), que aplana los arrays anidados y
+// ── Todos construyen con __h(), no con `new VNode` ───────────────────────────
+// __h() pasa los children por flattenChildren(), que aplana los arrays anidados y
 // descarta null y booleanos. Los 26 armaban el VNode a mano y se lo salteaban,
 // así que adentro de un built-in los dos idioms de React quedaban crudos:
 //
 //     <Col>{items.map(...)}</Col>          → un hijo que es un ARRAY anidado
 //     <Modal>{vacio && (<Aviso/>)}</Modal>  → un hijo `bool` que el renderer pintaba
 //
-// Funcionaban dentro de un <div> (que sí pasa por h()) y no dentro de un Row,
+// Funcionaban dentro de un <div> (que sí pasa por __h()) y no dentro de un Row,
 // Col o Modal — una diferencia invisible desde el JSX. Ahora se comportan igual.
 // Los datos de Table, Chart, RadioGroup y Tabs viajan por PROPS, que no se
 // aplanan: el cambio sólo toca los children.
@@ -39,7 +39,7 @@ import "h"
 //
 //   <Button onClick={() => count = count + 1}>Incrementar</Button>
 export fn any Button(any props, any children) {
-    return h("Button", props, children)
+    return __h("Button", props, children)
 }
 
 // ── Input ───────────────────────────────────────────────────────────────────--
@@ -54,7 +54,7 @@ export fn any Button(any props, any children) {
 //
 //   <Input value={name} placeholder="Tu nombre" onChange={onName} />
 export fn any Input(any props, any children) {
-    return h("Input", props, children)
+    return __h("Input", props, children)
 }
 
 // ── Select ──────────────────────────────────────────────────────────────────--
@@ -68,7 +68,7 @@ export fn any Input(any props, any children) {
 //
 //   <Select value={mode} options={["fast", "normal", "slow"]} onChange={setMode} />
 export fn any Select(any props, any children) {
-    return h("Select", props, children)
+    return __h("Select", props, children)
 }
 
 // ── Checkbox ─────────────────────────────────────────────────────────────────--
@@ -82,7 +82,7 @@ export fn any Select(any props, any children) {
 //
 //   <Checkbox checked={agreed} label="Acepto los términos" onChange={setAgreed} />
 export fn any Checkbox(any props, any children) {
-    return h("Checkbox", props, children)
+    return __h("Checkbox", props, children)
 }
 
 // ── Textarea ────────────────────────────────────────────────────────────────--
@@ -97,7 +97,7 @@ export fn any Checkbox(any props, any children) {
 //
 //   <Textarea value={bio} placeholder="Tu biografía..." rows={5} onChange={setBio} />
 export fn any Textarea(any props, any children) {
-    return h("Textarea", props, children)
+    return __h("Textarea", props, children)
 }
 
 // ── RadioGroup ────────────────────────────────────────────────────────────────
@@ -112,7 +112,7 @@ export fn any Textarea(any props, any children) {
 //
 //   <RadioGroup value={size} options={["S", "M", "L"]} onChange={setSize} />
 export fn any RadioGroup(any props, any children) {
-    return h("RadioGroup", props, children)
+    return __h("RadioGroup", props, children)
 }
 
 // ── Slider ──────────────────────────────────────────────────────────────────--
@@ -129,7 +129,7 @@ export fn any RadioGroup(any props, any children) {
 //
 //   <Slider value={vol} min={0} max={100} step={5} onChange={setVol} />
 export fn any Slider(any props, any children) {
-    return h("Slider", props, children)
+    return __h("Slider", props, children)
 }
 
 // ── ProgressBar ───────────────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ export fn any Slider(any props, any children) {
 //
 //   <ProgressBar value={done} max={total} label="Cargando..." />
 export fn any ProgressBar(any props, any children) {
-    return h("ProgressBar", props, children)
+    return __h("ProgressBar", props, children)
 }
 
 // ── Dropdown ──────────────────────────────────────────────────────────────────
@@ -157,7 +157,7 @@ export fn any ProgressBar(any props, any children) {
 //
 //   <Dropdown value={lang} options={["es", "en", "fr"]} onChange={setLang} />
 export fn any Dropdown(any props, any children) {
-    return h("Dropdown", props, children)
+    return __h("Dropdown", props, children)
 }
 
 // ── Label ─────────────────────────────────────────────────────────────────────
@@ -165,7 +165,7 @@ export fn any Dropdown(any props, any children) {
 //
 //   <Label>Nombre</Label>
 export fn any Label(any props, any children) {
-    return h("Label", props, children)
+    return __h("Label", props, children)
 }
 
 // ── Link ──────────────────────────────────────────────────────────────────────
@@ -178,7 +178,7 @@ export fn any Label(any props, any children) {
 //
 //   <Link href="https://serez" onClick={open}>Abrir</Link>
 export fn any Link(any props, any children) {
-    return h("Link", props, children)
+    return __h("Link", props, children)
 }
 
 // ── Row / Col ───────────────────────────────────────────────────────────────--
@@ -188,11 +188,11 @@ export fn any Link(any props, any children) {
 //
 //   <Row><Button>Sí</Button><Button>No</Button></Row>
 export fn any Row(any props, any children) {
-    return h("Row", props, children)
+    return __h("Row", props, children)
 }
 
 export fn any Col(any props, any children) {
-    return h("Col", props, children)
+    return __h("Col", props, children)
 }
 
 // ── Image ─────────────────────────────────────────────────────────────────────
@@ -211,7 +211,7 @@ export fn any Col(any props, any children) {
 //   <Image src="assets/logo.png" width={120} />
 //   let r = fetch(url, [["binary", true]]); <Image src={url} bytes={r} width={200} />
 export fn any Image(any props, any children) {
-    return h("Image", props, children)
+    return __h("Image", props, children)
 }
 
 // ── Table ─────────────────────────────────────────────────────────────────────
@@ -224,7 +224,7 @@ export fn any Image(any props, any children) {
 //
 //   <Table columns={["Header", "Value"]} rows={[["Content-Type","application/json"]]} />
 export fn any Table(any props, any children) {
-    return h("Table", props, children)
+    return __h("Table", props, children)
 }
 
 // ── Modal ───────────────────────────────────────────────────────────────────--
@@ -241,7 +241,7 @@ export fn any Table(any props, any children) {
 //       <Row><Button onClick={ok}>Sí</Button><Button onClick={no}>No</Button></Row>
 //   </Modal>
 export fn any Modal(any props, any children) {
-    return h("Modal", props, children)
+    return __h("Modal", props, children)
 }
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
@@ -253,7 +253,7 @@ export fn any Modal(any props, any children) {
 //
 //   <Tooltip tip="Copia la respuesta"><Button onClick={copy}>Copiar</Button></Tooltip>
 export fn any Tooltip(any props, any children) {
-    return h("Tooltip", props, children)
+    return __h("Tooltip", props, children)
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -266,7 +266,7 @@ export fn any Tooltip(any props, any children) {
 //
 //   <Toast message="Copiado" kind="success" />
 export fn any Toast(any props, any children) {
-    return h("Toast", props, children)
+    return __h("Toast", props, children)
 }
 
 // ── Chart ───────────────────────────────────────────────────────────────────--
@@ -284,7 +284,7 @@ export fn any Toast(any props, any children) {
 //
 //   <Chart data={[3,7,2,9,5]} type="area" height={180} dots={true} />
 export fn any Chart(any props, any children) {
-    return h("Chart", props, children)
+    return __h("Chart", props, children)
 }
 
 // ── DropZone ────────────────────────────────────────────────────────────────--
@@ -302,7 +302,7 @@ export fn any Chart(any props, any children) {
 // Nota: winit no da la posición del drop → con varios DropZone, el drop se enruta
 // al que esté bajo el mouse, o al primero. La app necesita permiso File para leer.
 export fn any DropZone(any props, any children) {
-    return h("DropZone", props, children)
+    return __h("DropZone", props, children)
 }
 
 // ── FileInput ───────────────────────────────────────────────────────────────--
@@ -322,7 +322,7 @@ export fn any DropZone(any props, any children) {
 //
 //   <FileInput value={ruta} exts="json" onChange={(p) => setRuta(p)} />
 export fn any FileInput(any props, any children) {
-    return h("FileInput", props, children)
+    return __h("FileInput", props, children)
 }
 
 // ── Switch / Toggle ─────────────────────────────────────────────────────────--
@@ -337,10 +337,10 @@ export fn any FileInput(any props, any children) {
 //
 //   <Switch checked={dark} onChange={setDark} label="Modo oscuro" />
 export fn any Switch(any props, any children) {
-    return h("Switch", props, children)
+    return __h("Switch", props, children)
 }
 export fn any Toggle(any props, any children) {
-    return h("Switch", props, children)
+    return __h("Switch", props, children)
 }
 
 // ── Tabs ────────────────────────────────────────────────────────────────────--
@@ -357,7 +357,7 @@ export fn any Toggle(any props, any children) {
 //   <Tabs tabs={["Info","Config","Logs"]} active={tab} onChange={setTab} />
 //   { tab == 0 ? <Info/> : tab == 1 ? <Config/> : <Logs/> }
 export fn any Tabs(any props, any children) {
-    return h("Tabs", props, children)
+    return __h("Tabs", props, children)
 }
 
 // ── Collapsible / Accordion ─────────────────────────────────────────────────--
@@ -376,10 +376,10 @@ export fn any Tabs(any props, any children) {
 //       <p>Hidden until expanded.</p>
 //   </Collapsible>
 export fn any Collapsible(any props, any children) {
-    return h("Collapsible", props, children)
+    return __h("Collapsible", props, children)
 }
 export fn any Accordion(any props, any children) {
-    return h("Collapsible", props, children)
+    return __h("Collapsible", props, children)
 }
 
 // ── Registro de built-ins ───────────────────────────────────────────────────--

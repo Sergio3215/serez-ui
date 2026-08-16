@@ -231,7 +231,7 @@ needed on the target machine) with [serez-pack](https://serezcode.org/docs/serez
 serez-ui/
   index.sz             public entry — re-exports the whole API
   src/
-    vnode.sz h.sz      Virtual DOM node + hyperscript
+    vnode.sz h.sz      Virtual DOM node + el primitivo del translator (interno)
     diff.sz patch.sz   diffing + patching
     state.sz effect.sz memo.sz   hooks
     window.sz          Window base class + the GUI/TUI event loops (runGui/runTui)

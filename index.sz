@@ -35,7 +35,8 @@
 //   El layout y el estilo son responsabilidad del CSS (.szs).
 //
 // ── Virtual DOM ──────────────────────────────────────────────────────────────
-//   h(tag, props, children)  — crea un VNode (aplana hijos: arrays, null, bools)
+//   (El VNode lo arma el translator; `h()` es su primitivo y está DEPRECADO —
+//    no se escribe a mano, se escribe JSX en un .szx.)
 //   VNode                    — nodo del Virtual DOM
 //   diff(old, new)           — DETECTOR de cambio, no parcheador incremental:
 //                              si devuelve algo, el renderer repinta todo.
