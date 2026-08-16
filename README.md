@@ -246,6 +246,6 @@ serez-ui/
     layout.sz          flexbox layout engine
   tools/
     translate.sz       .szx → .sz translator (run a .szx directly with `sz file.szx`)
-  apps/                demos (counter, form, todo, gui_form, …)
+  apps/                demos y suites (.szx con JSX; no se publican en el paquete)
   Propuesta.md         design contract
 ```
