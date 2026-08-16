@@ -3,7 +3,13 @@
 React-style UI library for [Serez-Code](https://serezcode.org). 24 built-in components, a
 transparent Virtual DOM, and hooks — the **same component** runs in the terminal (TUI) or in a real
 native window (GUI). Written in pure `.sz`; the JSX layer (`.szx`) compiles away entirely (no web
-runtime). Requires Serez-Code **≥ 7.2.0**.
+runtime). Requires Serez-Code **≥ 9.16.0**.
+
+> **The version floor is real, not a formality.** On an older core the library still *loads*, but
+> `useEffect` silently misbehaves (`deps []` re-runs on every update and cleanups never run — fixed
+> by the nested-receiver writeback in core 9.16), and components living in separate `.szx` files
+> fail at render time with `Unknown class or interface` (fixed in core 9.15). Check with
+> `sz --version`.
 
 ```sz
 import "serez-ui"
@@ -48,7 +54,15 @@ A component is a class that **extends `Window`** and returns JSX from `render()`
   supplies no arguments but your method takes some. Requires a core with method references
   (older cores *ran* the method on read instead of referencing it).
 - `onKey(evt)` / `onMouse(evt)` / `onFrame()` — optional overrides for raw input and per-frame
-  work (poll progress, auto-dismiss a `Toast`, animate).
+  work (poll progress, auto-dismiss a `Toast`, animate). `onKey` fires in **both** loops (v4.26;
+  before that it only reached TUI apps): `evt.code` is a key name (`"Enter"`, `"Esc"`, `"Tab"`) or
+  a single character, the same shape in the terminal and in a window, so one handler covers both.
+  In GUI it runs *alongside* the focused widget, not instead of it — the widget still receives the
+  keystroke.
+- **Conditional and list children work anywhere** (v4.26): `{cond && <X/>}` and `{items.map(...)}`
+  behave identically inside a built-in (`Row`, `Col`, `Modal`, …) and inside a plain tag. Until
+  4.26 the built-ins skipped child flattening, so a false condition left a stray `false` painted on
+  screen and a `.map()` left a nested array — only inside a built-in, which made it look random.
 - **Run it**: `app.runGui(title, w, h)` (native window) or `app.runTui()` (terminal). The event
   loop is a method of your component, so `this` stays your live top-level app.
 - **JSX**: it lives in `.szx` files; `sz apps/counter.szx` translates to plain `.sz` and runs in
@@ -144,6 +158,24 @@ The full reference lives on the Serez-Code site:
   The same core-parity note applies under `useNativeRenderer(true)`.
 - **[Build a GUI app](https://serezcode.org/guides/gui-app)** — step-by-step tutorial from
   `sz install` to a working desktop app.
+
+## Known limits
+
+Worth knowing before you design around them:
+
+- **`key` is accepted and ignored.** Reconciliation compares children **by index**. Writing
+  `key={x.id}` costs nothing and does nothing. The reason it isn't wired up: the diff is a *change
+  detector*, not an incremental patcher — the renderer repaints the whole tree whenever the patch
+  list is non-empty, and nothing ever reads a patch's contents. Under key matching a pure reorder
+  produces *no* patches, so the screen would stop repainting. Keys only pay off once the renderer
+  applies patches; see the header of `src/diff.sz`.
+- **A closure created in a constructor keeps a cell to that object.** Registering effects or
+  callbacks in the constructor works (core ≥ 9.16), but if the component is later *copied* — pushed
+  into an array, stored in another object's field, or returned from a function — the copy is a
+  different object and the closure still writes to the original. Build it, bind it to a variable,
+  and use it from there.
+- **Instances of `Component` are ephemeral**, recreated every frame. Keep state in the parent
+  `Window` and pass it down as props; a `Component`'s own fields do not survive a re-render.
 
 ## Permissions
 

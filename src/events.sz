@@ -26,6 +26,24 @@ export fn void fireEvent(any vdom, string eventName, any evt) {
     }
 }
 
+// Evento de teclado sintetizado por el loop GUI.
+//
+// En TUI el evento lo produce el core (`Terminal.readEvent()` devuelve un objeto
+// con .type y .code) y llega tal cual a onKey. En GUI no hay un evento
+// equivalente: el core expone `Gui.keysPressed()` (nombres de teclas especiales)
+// y `Gui.charsTyped()` (texto). Esta clase los envuelve con LA MISMA FORMA, así
+// un `onKey(evt)` escrito para la terminal lee `evt.code` y funciona igual en una
+// ventana nativa — que es la promesa de "el mismo componente en TUI y GUI".
+//
+//   evt.type → siempre "key"
+//   evt.code → "Enter", "Esc", "Tab", "Up"…  o un carácter suelto ("5", "a")
+export public class KeyEvent {
+    public KeyEvent(string t, string c) {
+        this.type = t
+        this.code = c
+    }
+}
+
 // Mapea un KeyEvent al nombre de evento serez-ui correspondiente
 export fn string keyEventName(any evt) {
     let code = evt.code

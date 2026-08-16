@@ -1,39 +1,49 @@
-// serez-ui v0.7 — UI library for Serez-Code (TUI + GUI + Flexbox Layout)
+// serez-ui — librería de UI estilo React para Serez-Code (TUI + GUI)
 //
-// Modelo React/JSX: componentes que extienden Window, hooks (useState/useEffect),
-// Virtual DOM transparente. Los .szx (JSX) se traducen a .sz con tools/translate.sz.
+// Requiere el core >= 9.16.0 (ver el README: en uno anterior useEffect falla en
+// silencio y los componentes en archivos .szx separados no resuelven).
+//
+// Modelo React/JSX: componentes que extienden Window, hooks, Virtual DOM
+// transparente. Los .szx (JSX) se traducen a .sz con tools/translate.sz — correr
+// `sz app.szx` traduce y ejecuta en un paso.
 //
 // Usage:  import "serez-ui"
 //
-// ── Built-in components (v0.5) ───────────────────────────────────────────────
-//   Button(props, children)  — botón interactivo. props: onClick, disabled
-//   Input(props, children)   — campo de formulario. props: value, placeholder,
-//                              type ("text"|"password"), onChange, disabled
-//   En .szx:  <Button onClick={fn}>texto</Button>   <Input value={v} />
+// ── Window: la clase base y el loop ──────────────────────────────────────────
+//   class MiApp:Window { public MiApp() { super() }  public render() { ... } }
+//   app.runGui(titulo, w, h)  — ventana nativa    app.runTui()  — terminal
+//   Overrides: render() · styleVars() · onKey(evt) · onMouse(evt) · onFrame()
+//              renderPanel(id) para ventanas secundarias (openPanel/closePanel)
 //
-// La estructura usa tags HTML primitivos que el Renderer dibuja directamente:
+// ── Component: piezas reutilizables ──────────────────────────────────────────
+//   class Fila:Component { public render() { ... this.props.x ... } }
+//   Recibe props y children; las instancias son EFÍMERAS (una por frame), así que
+//   el estado vive en la Window de arriba y baja por props.
+//
+// ── Hooks ────────────────────────────────────────────────────────────────────
+//   useState(initial)        — StateCell con valor inicial
+//   useEffect(fn, deps)      — EffectCell; deps [] = sólo al montar, null = siempre
+//                              (registrar con this.addEffect(...))
+//   memo(render_fn)          — MemoCell para evitar recalcular
+//
+// ── Componentes built-in (24) ────────────────────────────────────────────────
+//   Button Input Textarea Select Dropdown Checkbox RadioGroup Slider ProgressBar
+//   Label Link Row Col Image Table Modal Tooltip Toast Chart Switch/Toggle Tabs
+//   Collapsible/Accordion FileInput DropZone
+//   Más los tags primitivos que el renderer dibuja directo:
 //   div, h1, h2, h3, p, span, hr, ul, li, section, form
-//   El layout (apilar/columnas) es responsabilidad del CSS (v0.6).
+//   El layout y el estilo son responsabilidad del CSS (.szs).
 //
-// ── Window + State (v0.3) ────────────────────────────────────────────────────
-//   Window                   — clase base para todos los componentes
-//   useState(initial)        — crea un StateCell con valor inicial
-//   useEffect(fn, deps)      — crea un EffectCell para efectos secundarios
-//   memo(render_fn)          — crea un MemoCell para evitar re-renders
-//
-// ── Virtual DOM (v0.2) ────────────────────────────────────────────────────────
-//   h(tag, props, children)  — crea un VNode
+// ── Virtual DOM ──────────────────────────────────────────────────────────────
+//   h(tag, props, children)  — crea un VNode (aplana hijos: arrays, null, bools)
 //   VNode                    — nodo del Virtual DOM
-//   diff(old, new)           — compara dos árboles, retorna patches
-//   Patch                    — operación de actualización
+//   diff(old, new)           — DETECTOR de cambio, no parcheador incremental:
+//                              si devuelve algo, el renderer repinta todo.
+//                              Ver el encabezado de src/diff.sz antes de tocarlo.
 //
-// ── TUI Renderer + Event Loop (v0.4) ──────────────────────────────────────────
-//   Renderer                 — dibuja un árbol VNode en la terminal
-//   EventLoop(app)           — ciclo render → evento → re-render
-//
-// ── JSX Translator ───────────────────────────────────────────────────────────
-//   tools/translate.sz     — convierte .szx a .sz
-//   tools/szx.ps1/.sh      — wrapper: traduce y ejecuta en un paso
+// ── Estilo ───────────────────────────────────────────────────────────────────
+//   app.useStylesheet(parseCss(File.read("app.szs")))   — CSS con lógica
+//   app.useNativeRenderer(true)                          — motor del core, más rápido
 
 // Virtual DOM
 import "src/vnode"

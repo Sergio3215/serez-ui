@@ -1,9 +1,37 @@
 // diff — compara dos árboles VNode y produce un array de Patch
 //
-// Estrategia (v0.2.0 — simple):
+// Estrategia:
 //   - Si los tags difieren → replace completo
 //   - Si los tags son iguales → comparar props y children
-//   - Children: comparar por índice (sin key optimization aún)
+//   - Children: comparar por ÍNDICE
+//
+// ── QUÉ HACE CON ESTO LA LIBRERÍA (leer antes de tocar) ──────────────────────
+//
+// El diff es un DETECTOR DE CAMBIO, no un parcheador incremental. Nadie lee
+// nunca `patch.type` ni `patch.data`: los dos únicos consumidores son
+//
+//   window.sz:1481  (GUI)  → `this.update()` y descarta el resultado
+//   window.sz:1645  (TUI)  → `if (patches.length() > 0) { r.render(vdom) }`
+//
+// o sea que sólo importa si la lista está VACÍA o no; cuando no lo está se
+// redibuja el árbol entero. Los constructores de patch.sz existen para darle
+// forma a esa señal, no para aplicarse.
+//
+// ── Por qué la reconciliación por KEY sigue desactivada ──────────────────────
+//
+// Más abajo hay una rama completa que compara por clave, y funciona, pero
+// `VNode.key` nunca se llena a propósito (ni h() ni el traductor promueven la
+// prop `key`), así que el camino no se usa. NO alcanza con conectarlo:
+//
+// con el diff por índice, reordenar hijos produce diferencias en cada posición
+// → hay patches → se redibuja. Con el diff por key, un reordenamiento PURO
+// (mismos hijos, otro orden) encuentra match para todos, no genera ni inserts
+// ni removes, y la lista de patches queda VACÍA → la pantalla NO se redibuja.
+// Conectar `key` hoy cambiaría una lista correcta por una lista congelada.
+//
+// Las keys recién rinden cuando el renderer APLIQUE los patches en vez de
+// repintar todo; ese día hay que conectar la prop y, además, emitir un patch de
+// reordenamiento cuando una clave cambia de posición.
 
 import "vnode"
 import "patch"

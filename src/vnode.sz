@@ -4,7 +4,10 @@
 //   tag      → nombre del elemento ("div", "Button", "h1", ...)
 //   props    → array de pares [nombre, valor]  ej. [["onClick", fn], ["id", "main"]]
 //   children → array de VNode o string (texto plano)
-//   key      → clave opcional para optimizar diff de listas
+//   key      → RESERVADO. Hoy queda siempre en null: la prop `key` del JSX no se
+//               promueve acá. La reconciliación es por índice y conectarlo sería
+//               una regresión — ver el encabezado de diff.sz. Escribir
+//               `key={x.id}` en el JSX no rompe nada, simplemente no hace nada.
 
 export public class VNode {
     public VNode(string tag, any props, any children) {

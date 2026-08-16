@@ -363,8 +363,46 @@ export public class Window {
         }
     }
 
-    // Override en subclases para manejar eventos de teclado
+    // Override en subclases para manejar eventos de teclado.
+    // Se despacha en los DOS caminos: en TUI desde handleTuiEvent, en GUI desde
+    // handleGuiKeys (antes sólo llegaba en TUI, así que una app de ventana no
+    // tenía forma de recibir una tecla suelta).
     public void onKey(any evt) {}
+
+    // Despacha las teclas del frame a onKey(). Es la mitad GUI de handleTuiEvent:
+    // convierte lo que expone el core —`keys` = nombres de teclas especiales de
+    // Gui.keysPressed(), `typed` = el texto de Gui.charsTyped()— en eventos con la
+    // misma forma que los de la terminal (.type/.code), y llama al override.
+    //
+    // Corre DESPUÉS de handleGuiInput, que ya repartió las teclas al widget con
+    // foco: onKey ve la tecla además del widget, no en vez de él. Es el mismo
+    // orden que en TUI, donde onKey también corre junto a los handlers del vdom.
+    //
+    // A diferencia de handleTuiEvent, acá NO se hace fireEvent sobre el vdom:
+    // en GUI el reparto por foco ya lo hace handleGuiInput, y disparar además
+    // onPressEnter/onPressKey en TODO el árbol activaría widgets que no tienen
+    // el foco. Lo que se cumple es el override del componente.
+    //
+    // Devuelve true si hubo alguna tecla (el loop lo suma a `changed` para
+    // re-renderizar: onKey suele mutar estado).
+    public bool handleGuiKeys(any keys, string typed) {
+        let any_key = false
+        let i = 0
+        while (i < keys.length()) {
+            this.onKey(new KeyEvent("key", keys[i]))
+            any_key = true
+            i = i + 1
+        }
+        // Los caracteres imprimibles llegan por charsTyped(), uno por evento, para
+        // que `evt.code` sea siempre UNA tecla — igual que en la terminal.
+        let j = 0
+        while (j < typed.length()) {
+            this.onKey(new KeyEvent("key", typed[j]))
+            any_key = true
+            j = j + 1
+        }
+        return any_key
+    }
 
     // Override en subclases para manejar eventos de mouse
     public void onMouse(any evt) {}
@@ -1376,9 +1414,12 @@ export public class Window {
             let shift   = Gui.keyDown("Shift")
             let changed = false
             let keysNow = Gui.keysPressed()
+            let typedNow = Gui.charsTyped()
             if (!sbHandled) {
-                changed = this.handleGuiInput(r, m[0], m[1], pressed, Gui.charsTyped(), keysNow, Gui.keysRepeated(), shift)
+                changed = this.handleGuiInput(r, m[0], m[1], pressed, typedNow, keysNow, Gui.keysRepeated(), shift)
             }
+            // Las teclas también le llegan al componente (onKey), como en TUI.
+            if (this.handleGuiKeys(keysNow, typedNow)) { changed = true }
 
             if (this.__reqTaScroll) {
                 r.scrollToTa(this.__reqTaRg, this.__reqTaMy, this.__taDragOff)
@@ -1555,8 +1596,15 @@ export public class Window {
                     let saved = this.__swapInInput(pi)
                     this.__mouseDown = Gui.mouseDown()
                     let pm2 = Gui.mouse()
+                    let pkeys  = Gui.keysPressed()
+                    let ptyped = Gui.charsTyped()
                     let pchanged = this.handleGuiInput(pr, pm2[0], pm2[1], Gui.mousePressed(),
-                        Gui.charsTyped(), Gui.keysPressed(), Gui.keysRepeated(), Gui.keyDown("Shift"))
+                        ptyped, pkeys, Gui.keysRepeated(), Gui.keyDown("Shift"))
+                    // onKey también desde un panel: el componente es UNO solo, así
+                    // que su override recibe las teclas caiga donde caiga el foco
+                    // del SO. No se duplica con la principal — el teclado sólo
+                    // llega al acumulador de la ventana enfocada.
+                    if (this.handleGuiKeys(pkeys, ptyped)) { pchanged = true }
                     // Scroll interno de Textarea pedido DESDE el panel.
                     if (this.__reqTaScroll) {
                         pr.scrollToTa(this.__reqTaRg, this.__reqTaMy, this.__taDragOff)

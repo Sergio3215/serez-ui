@@ -1,7 +1,9 @@
 // Patch — operación de actualización del Virtual DOM
 //
-// El diff produce un array de Patch que el renderer aplica
-// para actualizar solo lo que cambió.
+// OJO: hoy el renderer NO aplica estos patches. El diff se usa como detector de
+// cambio (si la lista viene no vacía, se redibuja el árbol completo) y nadie lee
+// `type` ni `data`. Los tipos de abajo describen la intención del diseño, no lo
+// que ocurre en pantalla. Ver el encabezado de diff.sz.
 //
 // Tipos:
 //   "replace"         → reemplazar nodo completo
