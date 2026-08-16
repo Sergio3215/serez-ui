@@ -34,7 +34,17 @@ export fn any flattenChildren(any children) {
     let i = 0
     while (i < children.length()) {
         let child = children[i]
-        if (child != null && type_of(child) != "bool") {
+        // El STRING VACÍO tampoco es un hijo. Sale del mismo idiom condicional:
+        //
+        //     {this.error && (<p class="error">{this.error}</p>)}
+        //
+        // con `error` en "" el `&&` devuelve "" (el operando falsy, que acá es
+        // un string), y ese "" quedaba como nodo de texto: invisible en pantalla
+        // pero un hijo más, que corre los índices de todos sus hermanos. React
+        // no renderiza nada para "". Los NÚMEROS sí se conservan — `{0}` es un
+        // cero que se quiere mostrar, igual que en React.
+        let vacio = type_of(child) == "string" && child.length() == 0
+        if (child != null && type_of(child) != "bool" && !vacio) {
             if (type_of(child) == "array") {
                 let inner = flattenChildren(child)
                 let j = 0
@@ -51,16 +61,100 @@ export fn any flattenChildren(any children) {
     return flat
 }
 
-export fn any h(string tag, any props, any children) {
-    return new VNode(tag, props, flattenChildren(children))
+// ── Los nombres que EMITE el traductor llevan `__` ───────────────────────────
+//
+// El traductor mete estas llamadas adentro de cada render(), así que sus nombres
+// quedan ocupados en el archivo del usuario sin que él los haya escrito. Con el
+// nombre corto, un inocente `let h = 42` rompía TODO el render con
+// "Attempt to call a non-function" apuntando a una línea generada — imposible de
+// adivinar. `h`, `hText` y `hFrag` siguen exportados como alias para el código
+// escrito a mano y para no romper nada, pero el código generado usa `__h`.
+
+// Normaliza los props que un desarrollador de React escribe por reflejo.
+//
+//   className → class
+//
+// El CSS de `.szs` matchea sobre `class`. Con `className` la regla no matcheaba
+// NADA y no había ningún error: el estilo simplemente no aparecía, que es la
+// peor forma de fallar. Se renombra al construir el nodo, así vale igual en JSX,
+// en los 26 built-in y en un `h()` escrito a mano.
+//
+// (`style` tampoco existe —el estilo va en la hoja— pero ese aviso lo da
+// Window.mount() recorriendo el árbol una sola vez, en vez de chequear acá en
+// cada nodo de cada frame.)
+export fn any normalizeProps(any props) {
+    let res = []
+    let i = 0
+    while (i < props.length()) {
+        let par = props[i]
+        let nombre = par[0]
+        if (nombre == "className") { nombre = "class" }
+        res.push([nombre, par[1]])
+        i = i + 1
+    }
+    return res
 }
 
-// hText — crea un nodo de solo texto (shorthand)
-export fn any hText(string text) {
+// Junta los "chunks" de props que emite el traductor cuando el tag usa
+// `{...spread}`. Cada chunk es una lista de pares `[nombre, valor]` o un dict —
+// así `{...this.props}` funciona directo, que es como se reenvían props en React.
+// El orden manda: lo último pisa a lo anterior.
+export fn any __mergeProps(any chunks) {
+    let res = []
+    let i = 0
+    while (i < chunks.length()) {
+        let ch = chunks[i]
+        let pares = []
+        if (type_of(ch) == "dict") {
+            let ks = ch.keys()
+            let k = 0
+            while (k < ks.length()) { pares.push([ks[k], ch[ks[k]]]); k = k + 1 }
+        } else {
+            pares = ch
+        }
+        let j = 0
+        while (j < pares.length()) {
+            let par = pares[j]
+            let encontrado = false
+            let m = 0
+            while (m < res.length()) {
+                if (res[m][0] == par[0]) { res[m] = par; encontrado = true }
+                m = m + 1
+            }
+            if (!encontrado) { res.push(par) }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return res
+}
+
+export fn any __h(string tag, any props, any children) {
+    return new VNode(tag, normalizeProps(props), flattenChildren(children))
+}
+
+// __hText — nodo de solo texto (shorthand)
+export fn any __hText(string text) {
     return new VNode("__text__", [], [text])
 }
 
-// hFrag — agrupa hijos sin un elemento raíz (equivalente a Fragment)
-export fn any hFrag(any children) {
+// __hFrag — agrupa hijos sin un elemento raíz (equivalente a Fragment)
+export fn any __hFrag(any children) {
     return new VNode("__fragment__", [], flattenChildren(children))
+}
+
+// ── Alias cortos (uso a mano) ────────────────────────────────────────────────
+// Cómodos para escribir un árbol sin JSX. Ojo: si declarás una variable con uno
+// de estos nombres, la pisás para el resto del archivo.
+
+export fn any h(string tag, any props, any children) {
+    return __h(tag, props, children)
+}
+
+export fn any hText(string text) {
+    return __hText(text)
+}
+
+export fn any hFrag(any children) {
+    return __hFrag(children)
 }

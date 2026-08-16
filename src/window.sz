@@ -34,6 +34,8 @@ export public class Window {
         this.vdom     = null
         this.mounted  = false
         this.effects  = []
+        // ¿Ya avisamos que `style` no se aplica? Ver __avisarStyle.
+        this.__styleAvisado = false
         this.__focus    = 0      // índice del enfocable activo (loops GUI)
         this.__caret    = 0      // posición del cursor en el campo de texto enfocado
         this.__selAnchor = -1    // otro extremo de la selección (-1 = sin selección)
@@ -310,8 +312,32 @@ export public class Window {
     public any mount() {
         this.vdom    = this.render()
         this.mounted = true
+        this.__avisarStyle(this.vdom)
         this.runEffects()
         return this.vdom
+    }
+
+    // Un `style="..."` en el JSX no se aplica: serez-ui estiliza con hojas .szs.
+    // Tragárselo en silencio es la peor opción para alguien que viene de React,
+    // donde `style` es lo primero que se prueba. Se recorre el árbol UNA vez, al
+    // montar (no por frame), y se avisa una sola vez por componente.
+    public void __avisarStyle(any nodo) {
+        if (this.__styleAvisado) { return; }
+        if (nodo == null) { return; }
+        let prim = nodo is string || nodo is int || nodo is decimal || nodo is bool
+        if (prim) { return; }
+        if (nodo.getProp("style") != null) {
+            this.__styleAvisado = true
+            out "⚠ serez-ui: `style` no se aplica — el estilo va en una hoja .szs: app.useStylesheet(parseCss(File.read(\"app.szs\"))). Ver el README."
+            return
+        }
+        let hijos = nodo.getChildren()
+        let i = 0
+        while (i < hijos.length()) {
+            this.__avisarStyle(hijos[i])
+            if (this.__styleAvisado) { return; }
+            i = i + 1
+        }
     }
 
     // Re-renderiza y retorna patches del diff con el árbol anterior

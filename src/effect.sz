@@ -11,14 +11,31 @@ export public class EffectCell {
         this.ran      = false
     }
 
+    // Los deps VIVOS se resuelven en cada corrida.
+    //
+    // En React `useEffect(fn, [x])` se vuelve a evaluar en cada render, así que
+    // `[x]` siempre trae el valor actual. Acá el efecto se registra UNA vez
+    // (`addEffect`), así que un array literal queda congelado en el valor que
+    // tenía al registrarlo: `deps [this.id]` se quedaba en `[1]` para siempre y
+    // el tercer modo de useEffect —"corré cuando esto cambie"— no funcionaba, en
+    // silencio. Pasando una FUNCIÓN que devuelve el array, se evalúa cada vez.
+    //
+    //   useEffect(fn, [this.id])        → congelado (sólo sirve si nunca cambia)
+    //   useEffect(fn, () => [this.id])  → vivo, es el equivalente real de React
+    public any depsAhora() {
+        if (type_of(this.deps) == "function") { return this.deps(); }
+        return this.deps
+    }
+
     public void run() {
+        let actuales = this.depsAhora()
         let should = false
         if (!this.ran) {
             should = true
-        } else if (this.deps == null) {
+        } else if (actuales == null) {
             should = true
         } else {
-            should = this.depsChanged()
+            should = this.depsChangedCon(actuales)
         }
 
         if (should) {
@@ -29,7 +46,7 @@ export public class EffectCell {
             if (result != null) {
                 this.cleanup = result
             }
-            this.prevDeps = this.deps
+            this.prevDeps = actuales
             this.ran = true
         }
     }
@@ -48,15 +65,19 @@ export public class EffectCell {
         this.prevDeps = null
     }
 
-    public bool depsChanged() {
+    public bool depsChangedCon(any actuales) {
         if (this.prevDeps == null) { return true; }
-        if (this.prevDeps.length() != this.deps.length()) { return true; }
+        if (this.prevDeps.length() != actuales.length()) { return true; }
         let i = 0
-        while (i < this.deps.length()) {
-            if (this.deps[i] != this.prevDeps[i]) { return true; }
+        while (i < actuales.length()) {
+            if (actuales[i] != this.prevDeps[i]) { return true; }
             i = i + 1
         }
         return false
+    }
+
+    public bool depsChanged() {
+        return this.depsChangedCon(this.depsAhora())
     }
 }
 

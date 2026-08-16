@@ -3,13 +3,14 @@
 React-style UI library for [Serez-Code](https://serezcode.org). 24 built-in components, a
 transparent Virtual DOM, and hooks — the **same component** runs in the terminal (TUI) or in a real
 native window (GUI). Written in pure `.sz`; the JSX layer (`.szx`) compiles away entirely (no web
-runtime). Requires Serez-Code **≥ 9.16.0**.
+runtime). Requires Serez-Code **≥ 9.17.0**.
 
-> **The version floor is real, not a formality.** On an older core the library still *loads*, but
-> `useEffect` silently misbehaves (`deps []` re-runs on every update and cleanups never run — fixed
-> by the nested-receiver writeback in core 9.16), and components living in separate `.szx` files
-> fail at render time with `Unknown class or interface` (fixed in core 9.15). Check with
-> `sz --version`.
+> **The version floor is real, not a formality.** On an older core the library still *loads* and
+> then misbehaves without saying so: a `Window` subclass without a constructor dies at `mount()`
+> with `has no field or method named 'effects'` (implicit `super()` landed in core 9.17),
+> `useEffect` re-runs `deps []` on every update and never runs cleanups (fixed in 9.16), and
+> components living in separate `.szx` files fail at render time with `Unknown class or interface`
+> (fixed in 9.15). Check with `sz --version`.
 
 ```sz
 import "serez-ui"
@@ -158,6 +159,38 @@ The full reference lives on the Serez-Code site:
   The same core-parity note applies under `useNativeRenderer(true)`.
 - **[Build a GUI app](https://serezcode.org/guides/gui-app)** — step-by-step tutorial from
   `sz install` to a working desktop app.
+
+## Coming from React?
+
+Most of what you already type works. These are the differences worth knowing on
+day one:
+
+| React | serez-ui |
+|---|---|
+| `className="x"` | `class="x"` — `className` is accepted and renamed for you |
+| `style={{color:'red'}}` | not supported; styling lives in a `.szs` sheet (you get a warning if you try) |
+| `useState` | state is a plain field: `this.count = 0`, mutate it in a handler |
+| `useEffect(fn, [x])` | `useEffect(fn, () => [x])` — deps go as a **function**, see below |
+| `key={id}` | accepted and ignored (reconciliation is by index) |
+| `{/* comment */}` | works |
+| `{...props}` | works, including `{...this.props}` |
+| `<><A/><B/></>` | works |
+| `constructor` optional | optional too — the parent constructor chains on its own (core ≥ 9.16) |
+
+**Why deps are a function.** In React the whole component body re-runs on every
+render, so `[x]` is re-evaluated each time. Here an effect is registered **once**
+with `addEffect`, so an array literal freezes at the value it had then — the
+"run when x changes" mode silently never fired. Passing `() => [x]` re-evaluates
+it on every pass, which is the behaviour you expect:
+
+```jsx
+this.addEffect(useEffect(() => {
+    this.buscar(this.id)
+}, () => [this.id]))     // ← función, no array
+```
+
+**Where state lives.** A `Window` holds the state; `Component`s are presentational
+and take props. That is the one structural habit to change — see the limits below.
 
 ## Known limits
 

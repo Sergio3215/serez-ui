@@ -257,6 +257,11 @@ fn any read_props(string src, int i) {
     let props = []
     let n = src.length()
     let dq = "\""
+    // Chunks para el spread: cada uno es o un literal de pares o una expresión
+    // que produce pares/dict. Se arman SOLO si aparece un `{...}`; sin spread la
+    // salida es exactamente la de antes (un literal de array).
+    let chunks = []
+    let hay_spread = false
 
     while (i < n) {
         i = skip_ws(src, i)
@@ -264,6 +269,25 @@ fn any read_props(string src, int i) {
 
         let c = src.charAt(i)
         if (c == ">" || c == "/") { break; }
+
+        // {...expr} — reenvío de props, el idiom de React para pasar todo junto.
+        // Antes `read_name` devolvía "" en la llave, se cortaba el bucle y el
+        // resto del tag terminaba metido adentro del array de children como
+        // texto: código generado que no compilaba.
+        if (c == "\{") {
+            let sp_res = read_brace_expr(src, i)
+            let sp = sp_res[0].trim()
+            i = parseInt(sp_res[1])
+            if (sp.startsWith("...")) {
+                hay_spread = true
+                if (props.length() > 0) {
+                    chunks.push("[" + props.join(", ") + "]")
+                    props = []
+                }
+                chunks.push(transform(sp.substring(3, sp.length()).trim()))
+            }
+            continue
+        }
 
         // Leer nombre del prop
         let name_res = read_name(src, i)
@@ -304,6 +328,11 @@ fn any read_props(string src, int i) {
         }
     }
 
+    if (hay_spread) {
+        if (props.length() > 0) { chunks.push("[" + props.join(", ") + "]") }
+        // __mergeProps respeta el orden: lo último pisa a lo anterior, como React.
+        return ["__mergeProps([" + chunks.join(", ") + "])", i]
+    }
     return ["[" + props.join(", ") + "]", i]
 }
 
@@ -345,7 +374,7 @@ fn any parse_element(string src, int i) {
         if (is_builtin_tag(tag)) {
             return [tag + "(" + props_str + ", [])", i]
         }
-        return ["h(" + dq + tag + dq + ", " + props_str + ", [])", i]
+        return ["__h(" + dq + tag + dq + ", " + props_str + ", [])", i]
     }
 
     // Saltar '>'
@@ -382,7 +411,11 @@ fn any parse_element(string src, int i) {
             let expr_res = read_brace_expr(src, i)
             let expr = expr_res[0].trim()
             i = parseInt(expr_res[1])
-            if (expr.length() > 0) {
+            // {/* comentario */} no es un hijo, es una nota. Sin esto se emitía
+            // el comentario como un elemento más del array de children y el
+            // archivo entero no compilaba.
+            let es_comentario = (expr.startsWith("/*") && expr.endsWith("*/")) || expr.startsWith("//")
+            if (expr.length() > 0 && !es_comentario) {
                 children.push(transform(expr))
             }
             continue
@@ -402,7 +435,7 @@ fn any parse_element(string src, int i) {
 
     let kids = "[" + children.join(", ") + "]"
     if (is_frag) {
-        return ["hFrag(" + kids + ")", i]
+        return ["__hFrag(" + kids + ")", i]
     }
     if (is_user_component(tag)) {
         return ["__renderComponent(new " + tag + "(), __makeProps(" + props_str + "), " + kids + ")", i]
@@ -410,7 +443,7 @@ fn any parse_element(string src, int i) {
     if (is_builtin_tag(tag)) {
         return [tag + "(" + props_str + ", " + kids + ")", i]
     }
-    return ["h(" + dq + tag + dq + ", " + props_str + ", " + kids + ")", i]
+    return ["__h(" + dq + tag + dq + ", " + props_str + ", " + kids + ")", i]
 }
 
 // ── Transformador principal ───────────────────────────────────────────────────
@@ -425,6 +458,31 @@ fn string transform(string src) {
 
     while (i < n) {
         let c = src.charAt(i)
+
+        // ── Comentarios: se copian TAL CUAL, sin buscar JSX adentro ─────────
+        //
+        // Un `<div>` mencionado en un comentario se parseaba como si fuera un
+        // elemento de verdad: el traductor se comía desde ahí hasta donde
+        // encontrara el cierre, y el archivo salía destrozado con un error que
+        // apuntaba a la línea de la CLASE, no a la del comentario. Justo lo que
+        // tiene cualquier archivo didáctico ("los tags <div>, <h1>…").
+        if (!in_str && c == "/" && i + 1 < n && src.charAt(i + 1) == "/") {
+            while (i < n && src.charAt(i) != "\n") {
+                result = result + src.charAt(i)
+                i = i + 1
+            }
+            continue
+        }
+        if (!in_str && c == "/" && i + 1 < n && src.charAt(i + 1) == "*") {
+            result = result + c
+            i = i + 1
+            while (i < n) {
+                result = result + src.charAt(i)
+                if (src.charAt(i) == "/" && src.charAt(i - 1) == "*") { i = i + 1; break; }
+                i = i + 1
+            }
+            continue
+        }
 
         // Rastrear strings para no parsear JSX dentro de ellas
         if (!in_str && (c == dq || c == "'")) {
