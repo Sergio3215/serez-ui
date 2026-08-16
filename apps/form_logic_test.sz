@@ -2,6 +2,7 @@
 // sin arrancar el EventLoop (simula pulsaciones e inspecciona el VDOM).
 
 import "serez-ui"
+import "fixtures/LoginForm"
 
 // Evento de tecla falso: onKey solo lee .code
 class FakeKey {
@@ -10,40 +11,6 @@ class FakeKey {
     }
 }
 
-class LoginForm:Window {
-    public LoginForm() {
-        super()
-        this.name     = ""
-        this.password = ""
-        this.active   = 0
-        this.status   = ""
-    }
-
-    public void onKey(any evt) {
-        let code = evt.code
-        if (code == "Tab") { this.active = 1 - this.active; return; }
-        if (code == "Backspace") {
-            if (this.active == 0 && this.name.length() > 0) {
-                this.name = this.name.substring(0, this.name.length() - 1)
-            }
-            if (this.active == 1 && this.password.length() > 0) {
-                this.password = this.password.substring(0, this.password.length() - 1)
-            }
-            return
-        }
-        if (code.length() == 1) {
-            if (this.active == 0) { this.name = this.name + code }
-            else { this.password = this.password + code }
-        }
-    }
-
-    public render() {
-        let canSubmit = this.name.length() > 0
-        return (
-            h("div", [], [h("h1", [], ["Login"]), h("Input", [["value", this.name], ["placeholder", "user"]], []), h("Input", [["value", this.password], ["placeholder", "pass"], ["type", "password"]], []), h("Button", [["disabled", !canSubmit]], ["Enviar"])])
-        )
-    }
-}
 
 let app = new LoginForm()
 app.mount()

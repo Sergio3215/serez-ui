@@ -14,6 +14,7 @@
 //   Serez-code\target\release\sz.exe serez-ui\apps\css_100_test.sz
 
 import "serez-ui"
+import "fixtures/CssNodos"
 import "css100/Panel"
 
 class Checker {
@@ -53,11 +54,13 @@ c.check("12 tag no declarado da null", s1.resolveProp("span", "color", []) == nu
 
 // ── 2. Cascada: tag < descendiente < clase < id ─────────────────────────────
 let r2 = rendererCon(r"Button { color: #111111; } Row Button { color: #222222; } .accent { color: #333333; } #uno { color: #444444; }")
-let bTag = h("Button", [], ["x"])
-let bCls = h("Button", [["class", "accent"]], ["x"])
-let bId  = h("Button", [["class", "accent"], ["id", "uno"]], ["x"])
-let bDesc = h("Button", [], ["x"])
-let rowD = h("Row", [], [bDesc])
+fn any sueltos() { let f = new CssSueltos(); f.mount(); return f.getVDom().getChildren() }
+fn any arbolN(int i) { let f = new CssArboles(); f.mount(); return f.getVDom().getChildren()[i] }
+let __s = sueltos()
+let bTag = __s[0]
+let bCls = __s[1]
+let bId  = __s[2]
+let rowD = arbolN(0)
 rowD = r2.stampAnc(rowD, [])
 let bDesc2 = rowD.getChildren()[0]
 
@@ -67,55 +70,46 @@ c.check("15 clase gana al tag", r2.nodeRaw(bCls, "Button", "color") == "#333333"
 c.check("16 id gana a la clase", r2.nodeRaw(bId, "Button", "color") == "#444444")
 
 let r3 = rendererCon(r"Button { color: #111111; } .a { color: #aaaaaa; } .b { color: #bbbbbb; }")
-let dosCls = h("Button", [["class", "a b"]], ["x"])
-let dosInv = h("Button", [["class", "b a"]], ["x"])
+let dosCls = __s[3]
+let dosInv = __s[4]
 c.check("17 con dos clases gana la ultima declarada en la hoja", r3.nodeRaw(dosCls, "Button", "color") == "#bbbbbb")
 c.check("18 manda el ORDEN DEL ATRIBUTO: gana la ultima clase escrita", r3.nodeRaw(dosInv, "Button", "color") == "#aaaaaa")
-c.check("19 una clase inexistente no rompe", r3.nodeRaw(h("Button", [["class", "zz"]], ["x"]), "Button", "color") == "#111111")
-c.check("20 class vacia no rompe", r3.nodeRaw(h("Button", [["class", ""]], ["x"]), "Button", "color") == "#111111")
+c.check("19 una clase inexistente no rompe", r3.nodeRaw(__s[5], "Button", "color") == "#111111")
+c.check("20 class vacia no rompe", r3.nodeRaw(__s[6], "Button", "color") == "#111111")
 
 // ── 3. Selectores descendientes ─────────────────────────────────────────────
 let r4 = rendererCon(r"Button { color: #000000; } Row Button { color: #ff0000; } div Row Button { color: #00ff00; } .card p { color: #0000ff; } #main span { color: #ffff00; } * span { color: #00ffff; }")
 
-let b1 = h("Button", [], ["x"])
-let rowIn = h("Row", [], [b1])
-let arbol = h("div", [], [rowIn])
+let arbol = arbolN(1)
 arbol = r4.stampAnc(arbol, [])
 let b1s = arbol.getChildren()[0].getChildren()[0]
 c.check("21 cadena de dos niveles matchea", r4.nodeRaw(b1s, "Button", "color") == "#00ff00")
 
-let bSolo = h("Button", [], ["x"])
-let soloRoot = h("div", [], [bSolo])
+let soloRoot = arbolN(2)
 soloRoot = r4.stampAnc(soloRoot, [])
 c.check("22 sin el ancestro del medio NO matchea la cadena larga", r4.nodeRaw(soloRoot.getChildren()[0], "Button", "color") == "#000000")
 
-let pIn = h("p", [], ["y"])
-let cardIn = h("div", [["class", "card"]], [pIn])
+let cardIn = arbolN(3)
 cardIn = r4.stampAnc(cardIn, [])
 c.check("23 descendiente por CLASE del ancestro", r4.nodeRaw(cardIn.getChildren()[0], "p", "color") == "#0000ff")
 
-let spIn = h("span", [], ["z"])
-let mainIn = h("div", [["id", "main"]], [spIn])
+let mainIn = arbolN(4)
 mainIn = r4.stampAnc(mainIn, [])
 // Dos descendientes matchean el mismo span (#main span = 101 y * span = 1):
 // gana el mas ESPECIFICO, no el ultimo declarado.
 c.check("24 descendiente por ID del ancestro gana al comodin", r4.nodeRaw(mainIn.getChildren()[0], "span", "color") == "#ffff00")
 
-let spSuelto = h("span", [], ["z"])
-let cualquiera = h("section", [], [spSuelto])
+let cualquiera = arbolN(5)
 cualquiera = r4.stampAnc(cualquiera, [])
 c.check("25 el comodin * como ancestro matchea", r4.nodeRaw(cualquiera.getChildren()[0], "span", "color") != null)
 
 // Nietos: el descendiente NO exige que sea hijo directo.
 let r5 = rendererCon(r"Row Button { color: #ff0000; } Button { color: #000000; }")
-let nieto = h("Button", [], ["x"])
-let medio = h("div", [], [nieto])
-let rowN = h("Row", [], [medio])
+let rowN = arbolN(6)
 rowN = r5.stampAnc(rowN, [])
 c.check("26 matchea un NIETO, no solo un hijo directo", r5.nodeRaw(rowN.getChildren()[0].getChildren()[0], "Button", "color") == "#ff0000")
 
-let hermano = h("Button", [], ["x"])
-let otro = h("section", [], [hermano])
+let otro = arbolN(7)
 otro = r5.stampAnc(otro, [])
 c.check("27 fuera del ancestro NO matchea", r5.nodeRaw(otro.getChildren()[0], "Button", "color") == "#000000")
 
@@ -125,7 +119,7 @@ c.check("30 dos descendientes distintos se listan aparte", parseCss(r"Row Button
 
 // ── 4. Pseudo-estados ───────────────────────────────────────────────────────
 let r6 = rendererCon(r"Button { color: #111111; background-color: #222222; } Button:hover { color: #ff0000; } Button:focus { color: #00ff00; } Button:disabled { color: #888888; } .k:hover { color: #0000ff; }")
-let bE = h("Button", [], ["x"])
+let bE = __s[8]
 
 r6.setStates(false, false, false, false)
 c.check("31 sin estado, la regla base", r6.nodeRaw(bE, "Button", "color") == "#111111")
@@ -138,7 +132,7 @@ c.check("34 :disabled pisa", r6.nodeRaw(bE, "Button", "color") == "#888888")
 r6.setStates(true, true, true, true)
 c.check("35 disabled es excluyente (no hover ni focus)", r6.nodeRaw(bE, "Button", "color") == "#888888")
 r6.setStates(false, true, false, false)
-c.check("36 :hover sobre una CLASE", r6.nodeRaw(h("Button", [["class", "k"]], ["x"]), "Button", "color") == "#0000ff")
+c.check("36 :hover sobre una CLASE", r6.nodeRaw(__s[7], "Button", "color") == "#0000ff")
 r6.setStates(false, false, false, false)
 c.check("37 una prop no tocada por el pseudo sobrevive", r6.nodeRaw(bE, "Button", "background-color") == "#222222")
 
@@ -189,11 +183,6 @@ c.check("65 width grande toma la otra", s7.resolveProp("body", "color", [["width
 c.check("66 height tambien condiciona", s7.resolveProp("body", "gap", [["width", 400], ["height", 300]]) == "7")
 
 // ── 8. styleVars ────────────────────────────────────────────────────────────
-class VentanaConVars:Window {
-    public VentanaConVars() { super(); this.count = 0; this.alert = false }
-    public any styleVars() { return [["count", this.count], ["alert", this.alert]] }
-    public any render() { return h("div", [], ["x"]) }
-}
 let w8 = new VentanaConVars()
 let vars = w8.styleVars()
 c.check("67 styleVars devuelve pares", vars.length() == 2)
@@ -202,15 +191,12 @@ c.check("69 el valor sale del estado", vars[0][1] == 0)
 w8.count = 5
 c.check("70 al cambiar el estado cambia la variable", w8.styleVars()[0][1] == 5)
 
-class CompConVars:Component {
-    public CompConVars() { super() }
-    public any styleVars() { return [["unread", this.props["unread"]]] }
-    public any render() { return h("span", [], ["b"]) }
-}
-let nodoCV = __renderComponent(new CompConVars(), __makeProps([["unread", 3]]), [])
+let __pv = new PortaVars()
+__pv.mount()
+let nodoCV = __pv.getVDom().getChildren()[0]
 c.check("71 el Component estampa sus styleVars en el nodo", nodoCV.getStyleVars() != null)
 c.check("72 y salen de props", nodoCV.getStyleVars()[0][1] == 3)
-let ctxTotal = w8.__allStyleVars(h("div", [], [nodoCV]))
+let ctxTotal = w8.__allStyleVars(__pv.getVDom())
 c.check("73 la Window recolecta las del arbol", ctxTotal.length() >= 3)
 
 // ── 9. Componentes aislados en archivos .szx ────────────────────────────────
@@ -247,12 +233,15 @@ c.check("91 clase del componente hoja", r9.nodeRaw(card0.getChildren()[1], "span
 c.check("92 tag interno del componente", r9.nodeRaw(card0.getChildren()[0], "h3", "color") == "#0000ff")
 
 // ── 10. Construccion del arbol ──────────────────────────────────────────────
-c.check("93 null como hijo se descarta", h("div", [], [null, h("span", [], ["a"])]).getChildren().length() == 1)
-c.check("94 false como hijo se descarta", h("div", [], [false, h("span", [], ["a"])]).getChildren().length() == 1)
-c.check("95 el idiom lista && nodo", h("div", [], [[] && h("span", [], ["a"])]).getChildren().length() == 0)
-c.check("96 con lista no vacia si entra", h("div", [], [[1] && h("span", [], ["a"])]).getChildren().length() == 1)
-c.check("97 los arrays se aplanan", h("div", [], [[h("span", [], ["a"]), h("span", [], ["b"])]]).getChildren().length() == 2)
-c.check("98 un fragment agrupa sin nodo propio", hFrag([h("span", [], ["a"]), h("span", [], ["b"])]).getChildren().length() == 2)
+let __chf = new CssHijos()
+__chf.mount()
+let __ch = __chf.getVDom().getChildren()
+c.check("93 null como hijo se descarta", __ch[0].getChildren().length() == 1)
+c.check("94 false como hijo se descarta", __ch[1].getChildren().length() == 1)
+c.check("95 el idiom lista && nodo", __ch[2].getChildren().length() == 0)
+c.check("96 con lista no vacia si entra", __ch[3].getChildren().length() == 1)
+c.check("97 los arrays se aplanan", __ch[4].getChildren().length() == 2)
+c.check("98 un fragment agrupa sin nodo propio", __ch[5].getChildren().length() == 2)
 
 // ── 11. Lo que la hoja NO soporta queda reportado ───────────────────────────
 let raras = parseCss(r"div { float: left; animation: x; color: #fff; } li:first-child { color: #000; }")

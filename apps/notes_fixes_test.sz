@@ -1,6 +1,6 @@
 // notes_fixes_test.sz — Tres cosas que serez-ui no cumplía, reportadas 2026-08-10.
 //
-//   1. `flag && (<Row>…)` pintaba "false" cuando la bandera era false: h() sólo
+//   1. `flag && (<Row>…)` pintaba "false" cuando la bandera era false: el nodo sólo
 //      descartaba null, y el booleano sobrevivía como hijo.
 //   2. `<MiComp class="x">` no aplicaba nada si el componente devolvía un
 //      fragment: el reenvío de class/id exigía que la raíz fuera un elemento, y
@@ -15,6 +15,7 @@
 //   Serez-code\target\release\sz.exe serez-ui\apps\notes_fixes_test.sz
 
 import "serez-ui"
+import "fixtures/NotesNodos"
 
 class Checker {
     public Checker() { this.pass = 0; this.fail = 0; }
@@ -34,35 +35,37 @@ let c = new Checker()
 // el árbol: false, null y el array vacío no dejan rastro.
 out "1) render condicional"
 
-let show = false
-let hidden = h("div", [], [show ? h("span", [], ["no"]) : null])
-let shown  = h("div", [], [true ? h("span", [], ["si"]) : null])
+let __nn = new NotesNodos()
+__nn.mount()
+let __k = __nn.getVDom().getChildren()
+let hidden = __k[0]
+let shown  = __k[1]
 
 c.check("ternario en false -> ningun hijo", hidden.getChildren().length() == 0)
 c.check("ternario en true  -> entra el hijo", shown.getChildren().length() == 1)
 
 // El idiom de JS, con bandera y con array
-let conFlag  = h("div", [], [true && h("span", [], ["si"])])
-let sinFlag  = h("div", [], [false && h("span", [], ["no"])])
+let conFlag = __k[2]
+let sinFlag = __k[3]
 c.check("bandera && <X/> en true  -> entra el hijo", conFlag.getChildren().length() == 1)
 c.check("bandera && <X/> en false -> ningun hijo", sinFlag.getChildren().length() == 0)
 
-let items = [1, 2]
-let vacio = []
-let conItems = h("div", [], [items && h("span", [], ["hay"])])
-let sinItems = h("div", [], [vacio && h("span", [], ["no hay"])])
+let conItems = __k[4]
+let sinItems = __k[5]
 c.check("lista con elementos && <X/> -> entra el hijo", conItems.getChildren().length() == 1)
 c.check("lista VACIA && <X/>         -> ningun hijo", sinItems.getChildren().length() == 0)
 
 // Y si un booleano llega igual como hijo (una interpolación de una bandera, o
 // una función que devuelve bool), se descarta en vez de pintarse como "false".
-let mixed = h("div", [], [h("span", [], ["a"]), false, h("span", [], ["b"]), true])
+let mixed = __k[6]
 c.check("los booleanos sueltos se descartan y el resto queda", mixed.getChildren().length() == 2)
 
-let nested = h("div", [], [[false, h("span", [], ["x"])]])
+let nested = __k[7]
 c.check("tambien dentro de un array aplanado (map)", nested.getChildren().length() == 1)
 
-let frag = hFrag([false])
+let __ff = new FragFalso()
+__ff.mount()
+let frag = __ff.getVDom()
 c.check("un fragment con solo false queda vacio", frag.getChildren().length() == 0)
 
 // ── 2. class / id a traves de un fragment ────────────────────────────────────
@@ -70,21 +73,9 @@ out ""
 out "2) class/id de <Comp> cuando la raiz es un fragment"
 
 // Raiz fragment con UN solo hijo-elemento: la clase tiene que llegarle.
-class FragOne:Component {
-    public FragOne() { super() }
-    public render() { return hFrag([h("span", [], ["x"])]); }
-}
 // Raiz fragment con DOS hijos-elemento: no se reenvia (una clase no puede
 // aplicarse a varios hermanos sin pintar de mas).
-class FragTwo:Component {
-    public FragTwo() { super() }
-    public render() { return hFrag([h("span", [], ["a"]), h("span", [], ["b"])]); }
-}
 // El hijo unico YA trae clase propia: se mergea, no se pisa.
-class FragBase:Component {
-    public FragBase() { super() }
-    public render() { return hFrag([h("span", [["class", "base"]], ["x"])]); }
-}
 
 let one = __renderComponent(new FragOne(), __makeProps([["class", "card"], ["id", "main"]]), [])
 let oneKid = one.getChildren()[0]
@@ -100,10 +91,6 @@ let basedKid = based.getChildren()[0]
 c.check("mergea con la clase que ya tenia el hijo", basedKid.getProp("class") == "base card")
 
 // Un elemento como raiz sigue funcionando igual que antes (no hay regresion).
-class Elem:Component {
-    public Elem() { super() }
-    public render() { return h("span", [], ["x"]); }
-}
 let el = __renderComponent(new Elem(), __makeProps([["class", "card"]]), [])
 c.check("una raiz-elemento sigue recibiendo la clase", el.getProp("class") == "card")
 

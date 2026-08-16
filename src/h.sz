@@ -146,31 +146,16 @@ export fn any __hFrag(any children) {
     return new VNode("__fragment__", [], flattenChildren(children))
 }
 
-// ── DEPRECADOS ───────────────────────────────────────────────────────────────
+// `h`, `hText` y `hFrag` NO existen.
 //
-// `h`, `hText` y `hFrag` son el PRIMITIVO al que el translator reduce el JSX.
-// No se escriben a mano: el modelo público de serez-ui es JSX en un `.szx`.
+// Eran el primitivo del translator expuesto con nombre corto. Nadie los escribe
+// a mano: el modelo público de serez-ui es JSX en un `.szx`, y lo que el
+// traductor emite son `__h` / `__hText` / `__hFrag`, que llevan `__` justamente
+// para no ocupar nombres en el archivo del usuario.
 //
 //     ✗  return h("div", [], [h("h1", [], ["Hola"])])
 //     ✓  return (<div><h1>Hola</h1></div>)
 //
-// Siguen exportados sólo para no romper código viejo. El código generado ya no
-// los usa (emite `__h` / `__hFrag`), así que además dejaron de ocupar nombres
-// cortos en el archivo del usuario.
-//
 // Si estás escribiendo un test o un harness en `.sz` —que no pasa por el
-// translator y por lo tanto no admite JSX— la salida NO es llamar a `h()`: es
-// sacar el fixture a un `.szx` e importarlo. Ver apps/idioms/ y el encabezado de
-// apps/react_idioms_test.sz.
-
-export fn any h(string tag, any props, any children) {
-    return __h(tag, props, children)
-}
-
-export fn any hText(string text) {
-    return __hText(text)
-}
-
-export fn any hFrag(any children) {
-    return __hFrag(children)
-}
+// translator y por lo tanto no admite JSX— la salida NO es llamar al primitivo:
+// es sacar el fixture a un `.szx` e importarlo. Ver apps/idioms/.

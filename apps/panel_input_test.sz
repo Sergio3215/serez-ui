@@ -8,6 +8,7 @@
 //   Serez-code\target\release\sz.exe serez-ui\apps\panel_input_test.sz
 
 import "serez-ui"
+import "fixtures/PanelApp"
 
 class Checker {
     public Checker() { this.pass = 0; this.fail = 0 }
@@ -26,48 +27,6 @@ class StubR {
     public int getModalRegStart() { return 0 }
 }
 
-class App:Window {
-    public App() {
-        super()
-        this.mainTxt  = "abc"
-        this.panelTxt = ""
-        this.panelLang = "es"
-    }
-    // Siembra el estado de un "panel" sin abrir ventana Gui (espejo de lo que
-    // openPanel hace además de Gui.openWindow).
-    public void seedPanel(int fakeId) {
-        this.__panelIds.push(fakeId)
-        this.__panelRs.push(null)
-        this.__panelPrev.push(false)
-        this.__pFocus.push(0)
-        this.__pCaret.push(0)
-        this.__pSel.push(0 - 1)
-        this.__pDropOpen.push(false)
-        this.__pDropHi.push(0)
-        this.__pDragIdx.push(0 - 1)
-        this.__pDragSel.push(false)
-        this.__pPressX.push(0 - 1)
-        this.__pTaDragOff.push(0)
-        this.__pUndo.push([])
-        this.__pRedo.push([])
-        this.__pUndoFocus.push(0 - 1)
-    }
-    public any render() {
-        return h("div", [], [
-            Input([["value", this.mainTxt], ["onChange", (v) => { this.mainTxt = v }]], []),
-            Button([["onClick", () => {}]], ["m"])
-        ])
-    }
-    // vdom del panel CACHEADO en el objeto (como hace mount() con el principal):
-    // construirlo desde una fn top-level pasando `app` por parámetro ataría los
-    // closures a una COPIA (objetos por valor) y el onChange mutaría la copia.
-    public void updatePanel() {
-        this.__pv = h("div", [], [
-            Input([["value", this.panelTxt], ["onChange", (v) => { this.panelTxt = v }]], []),
-            Dropdown([["value", this.panelLang], ["options", ["es", "en"]], ["onChange", (v) => { this.panelLang = v }]], [])
-        ])
-    }
-}
 
 fn any mainRegs(any app) {
     let c = app.getVDom().getChildren()

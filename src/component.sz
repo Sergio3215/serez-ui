@@ -119,7 +119,7 @@ export fn any __forwardAttr(any tree, any props, string name, bool merge) {
 
 // __renderComponent(new MiComp(), props, children) → VNode
 // Inyecta props/children en la instancia y devuelve su árbol renderizado.
-// El resultado se inserta como un child más; h() lo aplana si hace falta.
+// El resultado se inserta como un child más; el aplanado lo hace __h.
 //
 // Si el Component override styleVars() (variables .szs derivadas de props), las
 // ESTAMPA en el VNode devuelto: la Window raíz las recolecta recorriendo el vdom
@@ -133,7 +133,7 @@ export fn any __renderComponent(any comp, any props, any children) {
     if (vars.length() > 0) {
         // El árbol debe ser un VNode para poder estampar; si el componente devolvió
         // texto o un array crudo, lo envolvemos en un fragment (transparente al render).
-        if (type_of(tree) != "VNode") { tree = hFrag([tree]); }
+        if (type_of(tree) != "VNode") { tree = __hFrag([tree]); }
         tree.setStyleVars(vars)
     }
     // Reenvía `class`/`id` de los props del componente al VNode raíz que produce,

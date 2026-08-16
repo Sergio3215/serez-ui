@@ -4,6 +4,7 @@
 //   Serez-code\target\release\sz.exe serez-ui\apps\components_test.sz
 
 import "serez-ui"
+import "fixtures/LoginTree"
 
 class Checker {
     public Checker() {
@@ -51,7 +52,9 @@ t.check("div NO es built-in", !isBuiltinComponent("div"))
 
 out ""
 out "=== Composicion en arbol VDOM ==="
-let tree = h("div", [], [h("h1", [], ["Login"]), Input([["value", ""], ["placeholder", "user"]], []), Button([["disabled", true]], ["Enviar"])])
+let __lt = new LoginTree()
+__lt.mount()
+let tree = __lt.getVDom()
 t.check("raiz div con 3 hijos", tree.getTag() == "div" && tree.getChildren().length() == 3)
 t.check("hijo 1 es Input", tree.getChildren()[1].getTag() == "Input")
 t.check("hijo 2 es Button", tree.getChildren()[2].getTag() == "Button")

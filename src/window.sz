@@ -1316,7 +1316,7 @@ export public class Window {
 
     // Arranca la app en una ventana nativa. Bloquea hasta cerrar (Esc o la X).
     // Nota histórica: estos parámetros se llaman width/height porque un param `h`
-    // shadoweaba la función `h()` (hyperscript). Desde core ≥ 7.3 un binding
+    // shadoweaba la función del hyperscript. Desde core ≥ 7.3 un binding
     // no-invocable ya NO oculta una función homónima en llamadas, pero mantener
     // los nombres largos sigue siendo buena higiene.
     public void runGui(string title, int width, int height) {

@@ -20,7 +20,7 @@
 // ── Por qué la reconciliación por KEY sigue desactivada ──────────────────────
 //
 // Más abajo hay una rama completa que compara por clave, y funciona, pero
-// `VNode.key` nunca se llena a propósito (ni h() ni el traductor promueven la
+// `VNode.key` nunca se llena a propósito (ni __h() ni el traductor promueven la
 // prop `key`), así que el camino no se usa. NO alcanza con conectarlo:
 //
 // con el diff por índice, reordenar hijos produce diferencias en cada posición
@@ -100,7 +100,7 @@ export fn any diff(any old_node, any new_node) {
     }
 
     // Valores primitivos (string, int, decimal, bool)
-    // Los hijos JSX pueden ser valores directos: h("h1", [], ["texto", 42])
+    // Los hijos JSX pueden ser valores directos: <h1>{"texto"}{42}</h1>
     let old_prim = old_node is string || old_node is int || old_node is decimal || old_node is bool
     let new_prim = new_node is string || new_node is int || new_node is decimal || new_node is bool
     if (old_prim || new_prim) {
