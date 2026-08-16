@@ -161,6 +161,14 @@ fn bool is_method_decl(string t) {
     // `} catch (e) {`, `} while (…)` — cuyo primer token es "}" (no un keyword) y
     // que de otro modo se confundirían con un método y recibirían "public ".
     if (t.startsWith("\}")) { return false; }
+    // Ni con '{'. Una línea que abre con llave es un hijo JSX en expresión
+    // — `{vacia && (<Aviso/>)}`, `{(<span>x</span>)}` — nunca un método. Sin
+    // esta guarda el head queda en `{vacia &&`, que no tiene '.', '=', ',' ni
+    // '<' y cuyo primer token no es keyword: pasaba por declaración y se le
+    // inyectaba "public " ADENTRO del JSX, que después salía como un nodo de
+    // texto suelto en pantalla. `{this.x && …}` se salvaba de casualidad, por
+    // el punto.
+    if (t.startsWith("\{")) { return false; }
     let p = t.indexOf("(")
     if (p < 0) { return false; }
     if (!t.includes("\{")) { return false; }
