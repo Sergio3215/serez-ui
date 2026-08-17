@@ -216,6 +216,10 @@ Worth knowing before you design around them:
 - **The full set is there** (v4.31): `useState`, `useRef`, `useReducer`, `useMemo`, `useCallback`
   and `useContext` — all methods on `Component`, all backed by the same store. Context is published
   from the root with `app.provide(name, value)`; no Provider element in the tree.
+- **Named state as an alternative to hooks** (v4.33): `this.state("n", 0)` reads and
+  `this.setState("n", v)` writes. Same store, but keyed by **name instead of call order** — so
+  unlike `useState`, these are legal inside an `if` or a loop. Use whichever reads better; they
+  interoperate.
 - **`useRef` returns `[read, write]`**, not a `.current` box: a mutable field would be a copy under
   value semantics. `read()` consults the store when called, so a handler always sees the latest —
   which is the difference that makes it a ref and not a snapshot.

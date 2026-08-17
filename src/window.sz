@@ -407,21 +407,28 @@ export public class Window {
     // lista con `.map()` mantiene el estado de cada fila aunque se reordene.
     //
     // op: 0 = leer (con inicial), 1 = escribir.
-    public any __hookPort(any slot, int op, int k, any v) {
+    // La fila de un slot es una lista de pares [clave, valor]. La clave es un
+    // NOMBRE, no una posición: los hooks por orden usan "#0", "#1"…, y el estado
+    // con nombre usa el nombre que le dio el desarrollador. Por eso
+    // state()/setState() se pueden llamar adentro de un `if` y useState no.
+    public any __hookPort(any slot, int op, any k, any v) {
         // op 2 = leer un valor de contexto por nombre (v). No usa slot ni k: el
         // contexto es global al árbol, no por componente.
         if (op == 2) { return this.context("" + v) }
         let idx = this.__slotIndex(slot)
         let fila = this.__hooks[idx][1]
-        if (op == 0) {
-            if (k >= fila.length()) {
-                fila.push(v)
+        let i = 0
+        while (i < fila.length()) {
+            if (fila[i][0] == k) {
+                if (op == 0) { return fila[i][1] }
+                fila[i] = [k, v]
                 this.__hooks[idx] = [slot, fila]
+                return v
             }
-            return this.__hooks[idx][1][k]
+            i = i + 1
         }
-        while (k >= fila.length()) { fila.push(null) }
-        fila[k] = v
+        // primera vez: en lectura siembra el inicial, en escritura crea la clave
+        fila.push([k, v])
         this.__hooks[idx] = [slot, fila]
         return v
     }

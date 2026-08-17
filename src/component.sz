@@ -51,7 +51,7 @@ export public class Component:Window {
     //
     // El slot se prefija con el propio para que dos instancias del mismo
     // componente padre no le pisen el estado a sus hijos.
-    public any __hookPort(any slot, int op, int k, any v) {
+    public any __hookPort(any slot, int op, any k, any v) {
         let port = this.__port
         if (port == null) { return super.__hookPort(slot, op, k, v) }
         return port("" + this.__slot + "/" + slot, op, k, v)
@@ -83,8 +83,40 @@ export public class Component:Window {
             return [inicial, (v) => {}]
         }
         let s = this.__slot
-        let valor = port(s, 0, k, inicial)
-        return [valor, (v) => { port(s, 1, k, v) }]
+        let clave = "#" + k
+        let valor = port(s, 0, clave, inicial)
+        return [valor, (v) => { port(s, 1, clave, v) }]
+    }
+
+    // ── Estado con NOMBRE: state / setState ──────────────────────────────────
+    //
+    // La alternativa a useState cuando querés que el componente se lea como algo
+    // autónomo, sin la ceremonia del par [valor, setter]:
+    //
+    //   class Contador:Component {
+    //       render() {
+    //           let n = this.state("n", 0)
+    //           return (<Button onClick={() => { this.setState("n", n + 1) }}>{n}</Button>)
+    //       }
+    //   }
+    //
+    // La diferencia real con useState no es la sintaxis: la clave es el NOMBRE,
+    // no el orden de llamada. Por eso esto SÍ se puede poner adentro de un `if`
+    // o de un bucle, que es la regla que React tiene que prohibir.
+    //
+    // Funciona por lo mismo que useState —el valor vive en el store del dueño—
+    // y desde un handler se llega por `this`: la instancia está muerta, pero el
+    // puerto que guarda es un closure y un closure copiado conserva su celda.
+    public any state(string nombre, any inicial) {
+        let port = this.__port
+        if (port == null) { return inicial }
+        return port(this.__slot, 0, nombre, inicial)
+    }
+
+    public void setState(string nombre, any valor) {
+        let port = this.__port
+        if (port == null) { return; }
+        port(this.__slot, 1, nombre, valor)
     }
 
     // ── useRef: una caja que persiste y NO es una foto ───────────────────────
@@ -104,8 +136,9 @@ export public class Component:Window {
         let port = this.__port
         if (port == null) { return [() => { return inicial }, (v) => {}] }
         let s = this.__slot
-        port(s, 0, k, inicial)
-        return [() => { return port(s, 0, k, inicial) }, (v) => { port(s, 1, k, v) }]
+        let clave = "#" + k
+        port(s, 0, clave, inicial)
+        return [() => { return port(s, 0, clave, inicial) }, (v) => { port(s, 1, clave, v) }]
     }
 
     // ── useReducer: el mismo estado, con las transiciones en un solo lugar ───
@@ -132,10 +165,11 @@ export public class Component:Window {
         let port = this.__port
         if (port == null) { return calcular() }
         let s = this.__slot
-        let guardado = port(s, 0, k, null)
+        let clave = "#" + k
+        let guardado = port(s, 0, clave, null)
         if (guardado != null && __mismosDeps(guardado[0], deps)) { return guardado[1] }
         let valor = calcular()
-        port(s, 1, k, [deps, valor])
+        port(s, 1, clave, [deps, valor])
         return valor
     }
 
