@@ -1,6 +1,6 @@
 {
   "name": "serez-ui",
-  "version": "4.33.0",
+  "version": "4.34.0",
   "description": "React-style UI library for Serez-Code: build native GUI and terminal (TUI) apps from one JSX codebase. Virtual DOM with dirty-skip re-rendering, hooks (Window/State/Effects), unified focus and keyboard navigation, clipboard, file drag-and-drop with gestures, responsive layout (autosize, breakpoints, Row auto-wrap), and native file dialogs. 24 built-in components — Button, Input, Textarea, Select, Dropdown, Checkbox, RadioGroup, Slider, ProgressBar, Label, Link, Row/Col, Image, Table, Modal, Tooltip, Toast, Chart, Switch, Tabs, FileInput, DropZone, Collapsible. Styling via .szs, a CSS-with-logic dialect covering typography (real px font-size, weights, letter-spacing, text-transform), the box model (padding, margin, borders, radius, shadows, background images), flex and grid layout, transforms (translate/rotate/scale), z-index and positioning, pseudo-states (:hover/:focus/:active/:disabled), plus reactive conditions and @when/@else blocks driven by app state. Also ships a retained-mode scene renderer and an experimental native renderer (useNativeRenderer).",
   "main": "index.sz",
   "author": "Sergio3215",

@@ -416,6 +416,8 @@ export public class Window {
         // contexto es global al árbol, no por componente.
         if (op == 2) { return this.context("" + v) }
         let idx = this.__slotIndex(slot)
+        // op 3 = la fila entera, para rearmar `this.state` del componente.
+        if (op == 3) { return this.__hooks[idx][1] }
         let fila = this.__hooks[idx][1]
         let i = 0
         while (i < fila.length()) {

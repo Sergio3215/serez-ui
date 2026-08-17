@@ -67,6 +67,12 @@ fn bool is_user_component(string tag) {
 // sobre instancias, no sobre dicts. props es un dict, así que reescribimos
 // `.props.<ident>` a `.props["<ident>"]`. Se respeta el ident-seguido-de-'(' por
 // si fuera un método (no se reescribe). Strings se saltan.
+// Reescribe `.props.x` y `.state.x` a acceso por clave. Los dos son DICTS, y
+// serez-code solo soporta dot-access sobre instancias. Asi el desarrollador
+// escribe las dos formas indistintamente:
+//
+//     this.state.n        →  this.state["n"]
+//     this.state["n"]     →  se deja como esta
 fn string rewrite_props(string code) {
     let result = ""
     let i = 0
@@ -76,6 +82,8 @@ fn string rewrite_props(string code) {
     let dq = "\""
     let marker = ".props."
     let mlen = marker.length()
+    let marker2 = ".state."
+    let mlen2 = marker2.length()
 
     while (i < n) {
         let c = code.charAt(i)
@@ -92,6 +100,22 @@ fn string rewrite_props(string code) {
             result = result + c
             i = i + 1
             continue
+        }
+
+        if (c == "." && i + mlen2 <= n && code.substring(i, i + mlen2) == marker2) {
+            let j2 = i + mlen2
+            let id2 = ""
+            while (j2 < n && is_alnum(code.charAt(j2))) {
+                id2 = id2 + code.charAt(j2)
+                j2 = j2 + 1
+            }
+            // `.state.` seguido de un identificador que NO es una llamada: es una
+            // lectura de estado. Si va seguido de '(' es un metodo y se respeta.
+            if (id2.length() > 0 && !(j2 < n && code.charAt(j2) == "(")) {
+                result = result + ".state[" + dq + id2 + dq + "]"
+                i = j2
+                continue
+            }
         }
 
         if (c == "." && i + mlen <= n && code.substring(i, i + mlen) == marker) {

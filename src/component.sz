@@ -33,6 +33,9 @@ export public class Component:Window {
         this.__port   = null
         this.__slot   = 0
         this.__hook   = 0
+        // Foto del estado propio para este render. La rearma __renderComponent
+        // desde el store del dueño; se escribe con setState, nunca a mano.
+        this.state    = __makeProps([])
     }
 
     // Llamado por el framework (vía __renderComponent) tras instanciar.
@@ -88,35 +91,34 @@ export public class Component:Window {
         return [valor, (v) => { port(s, 1, clave, v) }]
     }
 
-    // ── Estado con NOMBRE: state / setState ──────────────────────────────────
-    //
-    // La alternativa a useState cuando querés que el componente se lea como algo
-    // autónomo, sin la ceremonia del par [valor, setter]:
+    // ── Estado propio: this.state (lectura) + setState (escritura) ───────────
     //
     //   class Contador:Component {
     //       render() {
-    //           let n = this.state("n", 0)
+    //           let n = this.state.n ?? 0
     //           return (<Button onClick={() => { this.setState("n", n + 1) }}>{n}</Button>)
     //       }
     //   }
     //
-    // La diferencia real con useState no es la sintaxis: la clave es el NOMBRE,
-    // no el orden de llamada. Por eso esto SÍ se puede poner adentro de un `if`
-    // o de un bucle, que es la regla que React tiene que prohibir.
+    // `this.state` es un DICT con el estado de ESTE componente, rearmado en cada
+    // render desde el store del dueño. Se lee de las dos formas — el traductor
+    // reescribe `.state.n` a `.state["n"]`, igual que ya hacía con props:
     //
-    // Funciona por lo mismo que useState —el valor vive en el store del dueño—
-    // y desde un handler se llega por `this`: la instancia está muerta, pero el
-    // puerto que guarda es un closure y un closure copiado conserva su celda.
-    public any state(string nombre, any inicial) {
-        let port = this.__port
-        if (port == null) { return inicial }
-        return port(this.__slot, 0, nombre, inicial)
-    }
-
+    //     this.state.n        this.state["n"]
+    //
+    // Escribir es siempre `setState(nombre, valor)`: asignar al dict sería
+    // escribir en una copia, porque la instancia es efímera. El valor persiste
+    // porque `setState` va por el puerto hasta el dueño, que sí vive.
+    //
+    // La clave es el NOMBRE, no el orden de llamada, así que esto se puede usar
+    // adentro de un `if` o de un bucle.
     public void setState(string nombre, any valor) {
         let port = this.__port
         if (port == null) { return; }
         port(this.__slot, 1, nombre, valor)
+        // Mantener la foto local en sincronía para que un segundo setState en el
+        // mismo render lea lo que acaba de escribir.
+        this.state[nombre] = valor
     }
 
     // ── useRef: una caja que persiste y NO es una foto ───────────────────────
@@ -189,6 +191,21 @@ export public class Component:Window {
         if (port == null) { return null }
         return port("__ctx", 2, 0, nombre)
     }
+}
+
+// Pasa la fila del store ([[clave, valor], ...]) a un dict, salteando las claves
+// internas de los hooks por orden ("#0", "#1"…): `this.state` sólo muestra el
+// estado con nombre, que es el que el desarrollador escribió.
+export fn any __filaADict(any fila) {
+    let d <string, any> = ()
+    if (fila == null) { return d }
+    let i = 0
+    while (i < fila.length()) {
+        let k = "" + fila[i][0]
+        if (!k.startsWith("#")) { d[k] = fila[i][1] }
+        i = i + 1
+    }
+    return d
 }
 
 // ¿Dos listas de deps son iguales? null en cualquiera fuerza el recálculo.
@@ -309,6 +326,9 @@ export fn any __renderComponent(any comp, any props, any children, any base = 0,
     comp.__port = port
     comp.__slot = slot
     comp.__hook = 0
+    // Rearmar la foto de `this.state` desde el store del dueño (op 3 = la fila
+    // entera). Sin esto el componente no vería lo que él mismo guardó antes.
+    if (port != null) { comp.state = __filaADict(port(slot, 3, "", null)) }
     let tree = comp.render()
     let vars = comp.styleVars()
     if (vars.length() > 0) {
