@@ -244,8 +244,10 @@ c.check("97 los arrays se aplanan", __ch[4].getChildren().length() == 2)
 c.check("98 un fragment agrupa sin nodo propio", __ch[5].getChildren().length() == 2)
 
 // ── 11. Lo que la hoja NO soporta queda reportado ───────────────────────────
-let raras = parseCss(r"div { float: left; animation: x; color: #fff; } li:first-child { color: #000; }")
+let raras = parseCss(r"div { float: left; animation: x; color: #fff; } p:checked { color: #000; }")
 c.check("99 las propiedades ajenas se reportan", raras.unknownProps().length() == 2)
+// :first-child dejo de estar aca: desde 4.35 matchea de verdad. El aviso queda
+// para las pseudo-clases que siguen sin existir.
 c.check("100 las pseudo-clases inexistentes se reportan", raras.unknownSelectors().length() == 1)
 
 c.summary()

@@ -37,6 +37,9 @@ export public class GuiRenderer {
         this.__states   = []     // pseudo-estados activos del elemento en curso (:focus/:hover/:active/:disabled); los lee nodeRaw
         this.sheet      = null   // Stylesheet (.szs) opcional
         this.descSel    = []     // selectores descendientes de la hoja (los calcula setStyles)
+        this.compSel    = []     // selectores compuestos sin espacio (p.a, .a.b)
+        this.sibSel     = []     // selectores de hermano (h1 + p, h1 ~ p)
+        this.posSel     = []     // selectores con pseudo-clase de posición
         this.ctx        = []     // contexto de estado [[nombre, valor]] para condiciones
         this.fullCtx    = []     // ctx + width/height inyectados (media queries .szs)
         this.scrollY    = 0      // desplazamiento vertical del scroll (px)
@@ -632,6 +635,17 @@ export public class GuiRenderer {
         // sería el cuello del frame.
         this.descSel = []
         if (sheet != null) { this.descSel = sheet.descendantSelectors() }
+        // Selectores COMPUESTOS sin espacio (`p.a`, `.a.b`, `#main.activo`): no
+        // son descendientes, pero tampoco los encuentra el lookup por string
+        // exacto de nodeRaw, que sólo prueba tag, `.clase` y `#id` sueltos.
+        this.compSel = []
+        if (sheet != null) { this.compSel = sheet.compoundSelectors() }
+        this.sibSel = []
+        this.posSel = []
+        if (sheet != null) {
+            this.sibSel = sheet.siblingSelectors()
+            this.posSel = sheet.positionSelectors()
+        }
     }
 
     // ── Selectores descendientes (`Row Button`, `.card p`) ────────────────────
@@ -651,7 +665,54 @@ export public class GuiRenderer {
         return tag + "|" + c + "|" + d
     }
 
-    // ¿El término (`Row`, `.card`, `#main`, `*`) casa con un descriptor?
+    // Parte un término COMPUESTO en sus piezas simples.
+    //
+    //   "p.a.b"   → ["p", ".a", ".b"]
+    //   ".a#main" → [".a", "#main"]
+    //   "Button"  → ["Button"]
+    //
+    // Antes un término era una sola cosa (tag, clase o id) y `p.a` no matcheaba
+    // nada: `ancTermMatches` miraba charAt(0), veía una letra y comparaba el
+    // término ENTERO contra el tag, así que buscaba un tag llamado "p.a".
+    public any partirTermino(string term) {
+        let piezas = []
+        let actual = ""
+        let i = 0
+        while (i < term.length()) {
+            let c = term.charAt(i)
+            if ((c == "." || c == "#") && actual.length() > 0) {
+                piezas.push(actual)
+                actual = c
+            } else {
+                actual = actual + c
+            }
+            i = i + 1
+        }
+        if (actual.length() > 0) { piezas.push(actual) }
+        return piezas
+    }
+
+    // ¿Una pieza simple (`Row`, `.card`, `#main`, `*`) casa con el descriptor?
+    public bool piezaMatches(string pieza, string tag, string cls, string id) {
+        if (pieza == "*") { return true; }
+        if (pieza.charAt(0) == ".") {
+            let want = pieza.substring(1, pieza.length())
+            let parts = cls.split(" ")
+            let i = 0
+            while (i < parts.length()) {
+                if (parts[i].trim() == want) { return true; }
+                i = i + 1
+            }
+            return false
+        }
+        if (pieza.charAt(0) == "#") {
+            return id == pieza.substring(1, pieza.length())
+        }
+        return tag == pieza
+    }
+
+    // ¿El término casa con un descriptor "tag|clases|id"? Un término COMPUESTO
+    // (`p.a`, `.a.b`, `#main.activo`) exige que casen TODAS sus piezas.
     public bool ancTermMatches(string term, string key) {
         if (term == "*") { return true; }
         let bar1 = cssIndexOf(key, "|")
@@ -661,20 +722,86 @@ export public class GuiRenderer {
         let cls  = rest.substring(0, bar2)
         let id   = rest.substring(bar2 + 1, rest.length())
 
-        if (term.charAt(0) == ".") {
-            let want = term.substring(1, term.length())
-            let parts = cls.split(" ")
-            let i = 0
-            while (i < parts.length()) {
-                if (parts[i].trim() == want) { return true; }
-                i = i + 1
-            }
-            return false
+        let piezas = this.partirTermino(term)
+        let i = 0
+        while (i < piezas.length()) {
+            if (!this.piezaMatches(piezas[i], tag, cls, id)) { return false; }
+            i = i + 1
         }
-        if (term.charAt(0) == "#") {
-            return id == term.substring(1, term.length())
+        return true
+    }
+
+    // ── Pseudo-clases de POSICIÓN ────────────────────────────────────────────
+    // Se resuelven con el sitio que estampó stampAnc. Devuelve [pieza, ok]:
+    // la pieza sin la pseudo, y si la condición se cumple.
+    public any quitarPosicion(string pieza, any node) {
+        let dp = cssIndexOf(pieza, ":")
+        if (dp < 0) { return [pieza, true] }
+        let base  = pieza.substring(0, dp)
+        let pseudo = pieza.substring(dp + 1, pieza.length())
+        if (base.length() == 0) { base = "*" }
+        let pos = node.getPos()
+        let tot = node.getHermanos()
+        if (pseudo == "first-child") { return [base, pos == 1] }
+        if (pseudo == "last-child")  { return [base, pos == tot && tot > 0] }
+        if (pseudo == "only-child")  { return [base, tot == 1] }
+        if (pseudo.startsWith("nth-child(")) {
+            let dentro = pseudo.substring(10, pseudo.length() - 1).trim()
+            if (dentro == "odd")  { return [base, pos % 2 == 1] }
+            if (dentro == "even") { return [base, pos % 2 == 0] }
+            return [base, pos == parseInt(dentro)]
         }
-        return tag == term
+        // No es de posición (es un pseudo-estado): que lo resuelva el otro camino.
+        return [pieza, true]
+    }
+
+    // ¿Casa el término contra ESTE nodo, resolviendo las pseudo-clases de
+    // posición contra el sitio estampado?
+    public bool termMatchesNodo(string term, any node, string tag) {
+        let piezas = this.partirTermino(term)
+        let i = 0
+        while (i < piezas.length()) {
+            let r = this.quitarPosicion(piezas[i], node)
+            if (!r[1]) { return false; }
+            if (!this.piezaMatches("" + r[0], tag, this.clasesDe(node), this.idDe(node))) { return false; }
+            i = i + 1
+        }
+        return true
+    }
+
+    public string clasesDe(any node) {
+        let c = node.getProp("class")
+        if (c == null) { return "" }
+        return ("" + c).trim()
+    }
+    public string idDe(any node) {
+        let d = node.getProp("id")
+        if (d == null) { return "" }
+        return ("" + d).trim()
+    }
+
+    // ── Combinadores de HERMANO (`h1 + p`, `h1 ~ p`) ──────────────────────────
+    // El sujeto es el último término; el anterior tiene que casar con un hermano
+    // que venga ANTES: el inmediato para `+`, cualquiera para `~`.
+    public bool hermanoMatches(string sel, any node, string tag) {
+        let esAdy = cssIndexOf(sel, "+") >= 0
+        let sep = "~"
+        if (esAdy) { sep = "+" }
+        let partes = sel.split(sep)
+        if (partes.length() != 2) { return false; }
+        let izq = partes[0].trim()
+        let der = partes[1].trim()
+        if (izq.length() == 0 || der.length() == 0) { return false; }
+        if (!this.termMatchesNodo(der, node, tag)) { return false; }
+        let prevs = node.getPrevs()
+        if (prevs.length() == 0) { return false; }
+        if (esAdy) { return this.ancTermMatches(izq, "" + prevs[prevs.length() - 1]) }
+        let i = 0
+        while (i < prevs.length()) {
+            if (this.ancTermMatches(izq, "" + prevs[i])) { return true; }
+            i = i + 1
+        }
+        return false
     }
 
     // ¿El selector descendiente casa con este nodo y su cadena de ancestros?
@@ -683,11 +810,25 @@ export public class GuiRenderer {
     // desde el ancestro más cercano hacia atrás, igual que selector_matches del core.
     public bool descMatches(string sel, any node, string tag) {
         let terms = sel.trim().split(" ")
+        // `clean` son los términos; `directo[i]` dice si el término i tiene que
+        // ser el padre INMEDIATO del i+1 (venía separado por '>').
+        //
+        // Antes el '>' se descartaba y `.caja > Button` matcheaba un NIETO: no
+        // fallaba, mentía. Ahora se conserva la relación.
         let clean = []
+        let directo = []
+        let pendiente = false
         let t = 0
         while (t < terms.length()) {
             let x = terms[t].trim()
-            if (x.length() > 0 && x != ">") { clean.push(x) }
+            if (x == ">") { pendiente = true }
+            else {
+                if (x.length() > 0) {
+                    clean.push(x)
+                    directo.push(pendiente)
+                    pendiente = false
+                }
+            }
             t = t + 1
         }
         if (clean.length() < 2) { return false; }
@@ -699,15 +840,19 @@ export public class GuiRenderer {
         let ai = anc.length() - 1
         let ti = clean.length() - 2
         while (ti >= 0) {
+            // Si el término SIGUIENTE venía precedido por '>', éste tiene que ser
+            // el padre inmediato: se prueba sólo contra el ancestro más cercano,
+            // sin seguir buscando hacia atrás.
+            let exigeDirecto = directo[ti + 1]
             let encontrado = false
             while (ai >= 0) {
                 if (this.ancTermMatches(clean[ti], "" + anc[ai])) {
                     encontrado = true
                     ai = ai - 1
                     ti = ti - 1
-                    ai = ai
                     break
                 }
+                if (exigeDirecto) { return false; }
                 ai = ai - 1
             }
             if (!encontrado) { return false; }
@@ -726,9 +871,17 @@ export public class GuiRenderer {
         while (i < terms.length()) {
             let t = terms[i].trim()
             if (t.length() > 0 && t != ">") {
-                if (t.charAt(0) == "#")      { total = total + 100 }
-                else { if (t.charAt(0) == ".") { total = total + 10 }
-                else { if (t != "*")           { total = total + 1 } } }
+                // Un término compuesto suma TODAS sus piezas: `p.a` es (0,1,1)=11,
+                // y por eso le gana a `.a` (10) y a `p` (1), como en la web.
+                let piezas = this.partirTermino(t)
+                let pz = 0
+                while (pz < piezas.length()) {
+                    let x = piezas[pz]
+                    if (x.charAt(0) == "#")      { total = total + 100 }
+                    else { if (x.charAt(0) == ".") { total = total + 10 }
+                    else { if (x != "*")           { total = total + 1 } } }
+                    pz = pz + 1
+                }
             }
             i = i + 1
         }
@@ -776,8 +929,30 @@ export public class GuiRenderer {
             while (ci < chain.length()) { sub.push(chain[ci]); ci = ci + 1 }
             sub.push(this.ancKey(node, tag))
         }
+        // Sitio de cada hijo ELEMENTO entre sus hermanos: posición 1-based, total,
+        // y los descriptores de los que vienen antes (para `+` y `~`).
+        let elems = 0
+        let ke = 0
+        while (ke < kids.length()) {
+            let kn = kids[ke]
+            if (type_of(kn) == "VNode" && kn.getTag() != "__text__") { elems = elems + 1 }
+            ke = ke + 1
+        }
+        let vistos = []
+        let idxElem = 0
         let k = 0
         while (k < kids.length()) {
+            if (type_of(kids[k]) == "VNode" && kids[k].getTag() != "__text__") {
+                idxElem = idxElem + 1
+                let copia = []
+                let vi = 0
+                while (vi < vistos.length()) { copia.push(vistos[vi]); vi = vi + 1 }
+                // Directo sobre kids[k], NO sobre una variable intermedia: los
+                // objetos van por valor, así que `let kn = kids[k]` y después
+                // kn.setSitio() mutaría una copia que se tira.
+                kids[k].setSitio(idxElem, elems, copia)
+                vistos.push(this.ancKey(kids[k], kids[k].getTag()))
+            }
             kids[k] = this.stampAnc(kids[k], sub)
             k = k + 1
         }
@@ -906,6 +1081,48 @@ export public class GuiRenderer {
                 }
             }
             dsel = dsel + 1
+        }
+
+        // Compuestos (`p.a`, `.a.b`): un solo término, pero varias piezas que
+        // tienen que casar todas contra ESTE nodo.
+        let csel = 0
+        while (csel < this.compSel.length()) {
+            let cs = "" + this.compSel[csel]
+            if (this.ancTermMatches(cs, this.ancKey(node, tag))) {
+                let cand = this.styleRaw(cs, prop)
+                if (cand != null) {
+                    let sc = this.especificidad(cs)
+                    if (sc >= mejor) { v = cand; mejor = sc }
+                }
+            }
+            csel = csel + 1
+        }
+
+        // Hermanos (`h1 + p`, `h1 ~ p`) y pseudo-clases de posición
+        // (`li:first-child`, `li:nth-child(2)`): ambos contra el sitio estampado.
+        let ssel = 0
+        while (ssel < this.sibSel.length()) {
+            let ss = "" + this.sibSel[ssel]
+            if (this.hermanoMatches(ss, node, tag)) {
+                let cand = this.styleRaw(ss, prop)
+                if (cand != null) {
+                    let sc = this.especificidad(ss)
+                    if (sc >= mejor) { v = cand; mejor = sc }
+                }
+            }
+            ssel = ssel + 1
+        }
+        let psel = 0
+        while (psel < this.posSel.length()) {
+            let ps = "" + this.posSel[psel]
+            if (this.termMatchesNodo(ps, node, tag)) {
+                let cand = this.styleRaw(ps, prop)
+                if (cand != null) {
+                    let sc = this.especificidad(ps) + 10
+                    if (sc >= mejor) { v = cand; mejor = sc }
+                }
+            }
+            psel = psel + 1
         }
 
         let cls = node.getProp("class")

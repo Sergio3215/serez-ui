@@ -586,6 +586,12 @@ export public class Window {
             if (selAjenos.length() > 0) {
                 out "⚠ .szs: selectores con pseudo-clase no soportada (nunca van a matchear): " + selAjenos.join(", ")
             }
+            // Tercer eje del mismo silencio: los selectores de atributo parsean
+            // bien y no matchean nunca.
+            let attrs = sheet.attributeSelectors()
+            if (attrs.length() > 0) {
+                out "⚠ .szs: selectores de atributo no soportados (nunca van a matchear): " + attrs.join(", ")
+            }
             // Los descendientes NO se avisan acá: dependen del modo de render, y
             // useStylesheet() suele llamarse antes que useNativeRenderer(). El
             // aviso va en runGui, cuando el modo ya está decidido.

@@ -61,8 +61,11 @@ export fn any szsKnownProps() {
 // nada más: ninguno de los dos motores tiene noción de posición entre hermanos,
 // así que `:first-child`, `:last-child`, `:nth-child(…)` y compañía se parsean
 // igual y no matchean nunca. `Stylesheet.unknownSelectors()` los delata.
+// Pseudo-clases que el renderer resuelve. Las cuatro de interacción vienen del
+// estado del widget; las de POSICIÓN se resuelven contra el sitio que estampa
+// stampAnc (posición entre hermanos y total), disponible desde 4.35.
 export fn any szsKnownPseudos() {
-    return ["hover", "focus", "active", "disabled", "active-focus"]
+    return ["first-child", "last-child", "only-child", "nth-child", "hover", "focus", "active", "disabled", "active-focus"]
 }
 
 export fn bool cssIsWs(string c) {
@@ -591,6 +594,98 @@ export public class Stylesheet {
     // por defecto, resuelve por tag/clase/id sueltos y no lleva ancestros. O sea
     // que la misma hoja pinta distinto según el modo, y en el default la regla
     // no hace nada sin decir una palabra.
+    // Selectores de UN término pero COMPUESTO (`p.a`, `.a.b`, `#main.activo`).
+    // Sin espacio, así que no son descendientes; y el lookup por string exacto
+    // no los encuentra porque prueba tag, `.clase` y `#id` por separado.
+    // Se excluyen los que llevan pseudo-estado (`:hover`), que tienen su propio
+    // camino, y los que llevan pseudo-clase no soportada, que ya se avisan.
+    // Selectores de ATRIBUTO (`p[x=1]`): no se soportan y nunca matchean. Van al
+    // mismo aviso que las propiedades y las pseudo-clases, para que no fallen
+    // en silencio — que era el problema real, no la falta de la feature.
+    public any attributeSelectors() {
+        let res = []
+        let i = 0
+        while (i < this.selectors.length()) {
+            let sel = ("" + this.selectors[i]).trim()
+            if (cssIndexOf(sel, "[") >= 0) {
+                let ya = false
+                let j = 0
+                while (j < res.length()) { if (res[j] == sel) { ya = true } j = j + 1 }
+                if (!ya) { res.push(sel) }
+            }
+            i = i + 1
+        }
+        return res
+    }
+
+    public any compoundSelectors() {
+        let res = []
+        let i = 0
+        while (i < this.selectors.length()) {
+            let sel = ("" + this.selectors[i]).trim()
+            // Compuesto = más de UNA pieza. Se cuentan los separadores y se
+            // suma una pieza inicial si el selector arranca con un tag.
+            //   ".a"   → 1 pieza  (no compuesto)
+            //   ".a.b" → 2        (compuesto; el primer '.' está en 0, por eso
+            //                      no alcanza con mirar la posición)
+            //   "p.a"  → 2
+            let seps = 0
+            let ci = 0
+            while (ci < sel.length()) {
+                let ch = sel.charAt(ci)
+                if (ch == "." || ch == "#") { seps = seps + 1 }
+                ci = ci + 1
+            }
+            let piezas = seps
+            if (sel.length() > 0 && sel.charAt(0) != "." && sel.charAt(0) != "#") { piezas = piezas + 1 }
+            if (cssIndexOf(sel, " ") < 0 && cssIndexOf(sel, ":") < 0 && piezas > 1) {
+                let ya = false
+                let j = 0
+                while (j < res.length()) { if (res[j] == sel) { ya = true } j = j + 1 }
+                if (!ya) { res.push(sel) }
+            }
+            i = i + 1
+        }
+        return res
+    }
+
+    // Selectores con combinador de HERMANO (`h1 + p`, `h1 ~ p`).
+    public any siblingSelectors() {
+        let res = []
+        let i = 0
+        while (i < this.selectors.length()) {
+            let sel = ("" + this.selectors[i]).trim()
+            if (cssIndexOf(sel, "+") >= 0 || cssIndexOf(sel, "~") >= 0) {
+                let ya = false
+                let j = 0
+                while (j < res.length()) { if (res[j] == sel) { ya = true } j = j + 1 }
+                if (!ya) { res.push(sel) }
+            }
+            i = i + 1
+        }
+        return res
+    }
+
+    // Selectores con pseudo-clase de POSICIÓN (:first-child, :nth-child(n)…),
+    // que ahora sí se resuelven contra el sitio estampado en el nodo.
+    public any positionSelectors() {
+        let res = []
+        let i = 0
+        while (i < this.selectors.length()) {
+            let sel = ("" + this.selectors[i]).trim()
+            let esPos = cssIndexOf(sel, ":first-child") >= 0 || cssIndexOf(sel, ":last-child") >= 0
+                     || cssIndexOf(sel, ":only-child") >= 0 || cssIndexOf(sel, ":nth-child(") >= 0
+            if (esPos && cssIndexOf(sel, " ") < 0 && cssIndexOf(sel, "+") < 0 && cssIndexOf(sel, "~") < 0) {
+                let ya = false
+                let j = 0
+                while (j < res.length()) { if (res[j] == sel) { ya = true } j = j + 1 }
+                if (!ya) { res.push(sel) }
+            }
+            i = i + 1
+        }
+        return res
+    }
+
     public any descendantSelectors() {
         let ajenos = []
         let i = 0
@@ -625,6 +720,9 @@ export public class Stylesheet {
             let col = cssIndexOf(sel, ":")
             if (col >= 0) {
                 let pseudo = sel.substring(col + 1, sel.length())
+                // `nth-child(2)` se compara por el nombre, sin el argumento.
+                let par = cssIndexOf(pseudo, "(")
+                if (par >= 0) { pseudo = pseudo.substring(0, par) }
                 let esConocida = false
                 let k = 0
                 while (k < conocidas.length()) {
@@ -904,7 +1002,21 @@ export fn any parseCss(string src) {
         // el parser la degradaba al último nombre y CONTAMINABA (p.ej.
         // `section span` estilaba TODOS los span). Corta también en `@`/`}`.
         let selRaw = ""
-        while (i < n && src.charAt(i) != "(" && src.charAt(i) != "\{" && src.charAt(i) != "}" && src.charAt(i) != "@") {
+        while (i < n && src.charAt(i) != "\{" && src.charAt(i) != "}" && src.charAt(i) != "@") {
+            // El `(` normalmente abre la CONDICIÓN de la regla y corta el selector.
+            // Excepción: una pseudo-clase funcional pegada al nombre —
+            // `li:nth-child(2)`— donde el paréntesis es parte del selector. Se
+            // distingue por lo que hay justo antes: si el selector termina en
+            // `nth-child` (sin espacio de por medio), el paréntesis es suyo.
+            if (src.charAt(i) == "(") {
+                if (!selRaw.endsWith("nth-child")) { break }
+                while (i < n && src.charAt(i) != ")") {
+                    selRaw = selRaw + src.charAt(i)
+                    i = i + 1
+                }
+                if (i < n) { selRaw = selRaw + ")"; i = i + 1 }
+                continue
+            }
             selRaw = selRaw + src.charAt(i)
             i = i + 1
         }

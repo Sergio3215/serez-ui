@@ -25,10 +25,26 @@ export public class VNode {
         // "tag|clases|id" del ancestro, del más lejano al más cercano. Va acá y
         // no en props para no tocar diff/render/atributos.
         this.anc      = []
+        // Posición entre hermanos ELEMENTO y descriptores de los anteriores, que
+        // estampa el renderer junto con la cadena de ancestros. Sin esto no hay
+        // forma de resolver `:first-child`, `:nth-child(n)` ni los combinadores
+        // de hermano (`+`, `~`): el nodo no sabía dónde estaba.
+        this.pos      = 0     // 1-based; 0 = sin estampar
+        this.hermanos = 0     // cuántos hermanos elemento hay en total
+        this.prevs    = []    // descriptores "tag|clases|id" de los anteriores
     }
 
     public any getAnc()          { return this.anc }
     public void setAnc(any a)    { this.anc = a }
+
+    public int getPos()              { return this.pos }
+    public int getHermanos()         { return this.hermanos }
+    public any getPrevs()            { return this.prevs }
+    public void setSitio(int p, int n, any anteriores) {
+        this.pos      = p
+        this.hermanos = n
+        this.prevs    = anteriores
+    }
 
     public string getTag() {
         return this.tag

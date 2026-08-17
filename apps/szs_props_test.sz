@@ -85,19 +85,20 @@ c.check("no repite un nombre declarado dos veces", repes.unknownProps().length()
 
 
 
-// ── 3. Pseudo-clases: sólo estados de interaccion ───────────────────────────
-// Ni el interpretado ni el nativo tienen noción de posición entre hermanos, así
-// que :first-child y compañía parsean y NO matchean nunca. Que queden avisadas
-// es lo unico que las distingue de un selector que si funciona.
+// ── 3. Pseudo-clases ────────────────────────────────────────────────────────
+// Desde 4.35 las de POSICIÓN se resuelven contra el sitio que estampa stampAnc
+// (posición entre hermanos y total), así que ya no se avisan. Se sigue avisando
+// de las que de verdad no existen, que era el punto del aviso.
 
-let conPseudo = parseCss(r"Button:hover { color: #0f0; } Button:first-child { color: #f00; } li:last-child { border: 0; } Button:focus { color: #00f; }")
+let conPseudo = parseCss(r"Button:hover { color: #0f0; } Button:first-child { color: #f00; } li:last-child { border: 0; } Button:focus { color: #00f; } p:checked { color: #111; }")
 let selAjenos = conPseudo.unknownSelectors()
 
-c.check("reporta :first-child", selAjenos.includes("Button:first-child"))
-c.check("reporta :last-child", selAjenos.includes("li:last-child"))
+c.check("YA NO reporta :first-child, que ahora funciona", !selAjenos.includes("Button:first-child"))
+c.check("YA NO reporta :last-child", !selAjenos.includes("li:last-child"))
+c.check("SI reporta una que no existe (:checked)", selAjenos.includes("p:checked"))
 c.check("NO reporta :hover, que si funciona", !selAjenos.includes("Button:hover"))
 c.check("NO reporta :focus, que si funciona", !selAjenos.includes("Button:focus"))
-c.check("son exactamente dos", selAjenos.length() == 2)
+c.check("es exactamente una", selAjenos.length() == 1)
 c.check("un selector sin pseudo nunca se reporta", parseCss(r"div { color: #fff; }").unknownSelectors().length() == 0)
 
 

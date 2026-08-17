@@ -192,6 +192,51 @@ this.addEffect(useEffect(() => {
 **Where state lives.** A `Window` holds the state; `Component`s are presentational
 and take props. That is the one structural habit to change — see the limits below.
 
+## Selectors in `.szs`
+
+| Form | |
+|---|---|
+| `tag` · `.class` · `#id` · `*` | ✅ |
+| `h1, h2` (grouping) | ✅ |
+| `.card p` (descendant) | ✅ |
+| `.card > p` (child) | ✅ **real since 4.35** — before, it silently matched grandchildren too |
+| `h1 + p` · `h1 ~ p` (siblings) | ✅ 4.35 |
+| `p.a` · `.a.b` · `#main.on` (compound) | ✅ 4.35 |
+| `:hover` `:focus` `:active` `:disabled` | ✅ |
+| `:first-child` `:last-child` `:only-child` `:nth-child(n\|odd\|even)` | ✅ 4.35 |
+| `[attr=value]` | ❌ — **warns** at `useStylesheet` |
+| any other pseudo-class | ❌ — **warns** |
+| a property the renderer ignores | ❌ — **warns** |
+
+Specificity follows the web: id 100, class 10, tag 1, summed across every piece —
+so `p.a` (11) beats `.a` (10).
+
+**Nothing fails silently.** `useStylesheet()` reports properties it will ignore,
+unsupported pseudo-classes and attribute selectors. Use `useStylesheetQuiet()` to
+mute it.
+
+## Passing state from a `Component` to the CSS
+
+Not just the root `Window` — **any `Component` can publish style variables**, and
+they reach the sheet:
+
+```jsx
+class Badge:Component {
+    styleVars() { return [["nivel", this.props.nivel], ["propio", this.state.n ?? 0]] }
+    render() { return (<span class="badge">{this.props.txt}</span>) }
+}
+```
+
+```css
+.badge (nivel > 2)  { background-color: #f87171; }
+.badge (propio > 0) { border-width: 2; }
+```
+
+The root collects them by walking the tree (`__allStyleVars`), so a condition
+reacts to state that lives deep in a child. Both sources work: values derived from
+`props`, and the component's **own state** — which now persists, so the variable
+tracks it across re-renders.
+
 ## Known limits
 
 Worth knowing before you design around them:
