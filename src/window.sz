@@ -36,6 +36,10 @@ export public class Window {
         this.effects  = []
         // ¿Ya avisamos que `style` no se aplica? Ver __avisarStyle.
         this.__styleAvisado = false
+        // Estado de los Component hijos: una fila por slot, un valor por hook.
+        // Vive ACÁ, no en el componente, porque el componente se re-instancia en
+        // cada frame y esta Window no. Ver Component.useState y __hookPort.
+        this.__hooks = []
         this.__focus    = 0      // índice del enfocable activo (loops GUI)
         this.__caret    = 0      // posición del cursor en el campo de texto enfocado
         this.__selAnchor = -1    // otro extremo de la selección (-1 = sin selección)
@@ -387,6 +391,47 @@ export public class Window {
             this.effects[i].run()
             i = i + 1
         }
+    }
+
+    // ── Store de estado de los Component hijos ───────────────────────────────
+    //
+    // El traductor emite, en cada tag de componente, un closure que llama acá:
+    //
+    //     __renderComponent(new Contador(), props, kids,
+    //                       (op, k, v) => { return this.__hookPort(3, op, k, v) })
+    //
+    // El closure nace DENTRO del render() del dueño, así que captura su celda
+    // viva; ése es el único camino por el que un hijo puede escribir en el padre
+    // (pasarlo como argumento lo copiaría). `slot` lo asigna el traductor por
+    // posición en el código; con `key` en el JSX se usa esa clave, así que una
+    // lista con `.map()` mantiene el estado de cada fila aunque se reordene.
+    //
+    // op: 0 = leer (con inicial), 1 = escribir.
+    public any __hookPort(any slot, int op, int k, any v) {
+        let idx = this.__slotIndex(slot)
+        let fila = this.__hooks[idx][1]
+        if (op == 0) {
+            if (k >= fila.length()) {
+                fila.push(v)
+                this.__hooks[idx] = [slot, fila]
+            }
+            return this.__hooks[idx][1][k]
+        }
+        while (k >= fila.length()) { fila.push(null) }
+        fila[k] = v
+        this.__hooks[idx] = [slot, fila]
+        return v
+    }
+
+    // Fila del slot, creándola si es la primera vez.
+    public int __slotIndex(any slot) {
+        let i = 0
+        while (i < this.__hooks.length()) {
+            if (this.__hooks[i][0] == slot) { return i }
+            i = i + 1
+        }
+        this.__hooks.push([slot, []])
+        return this.__hooks.length() - 1
     }
 
     // Override en subclases para manejar eventos de teclado.

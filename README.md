@@ -169,7 +169,7 @@ day one:
 |---|---|
 | `className="x"` | `class="x"` — `className` is accepted and renamed for you |
 | `style={{color:'red'}}` | not supported; styling lives in a `.szs` sheet (you get a warning if you try) |
-| `useState` | state is a plain field: `this.count = 0`, mutate it in a handler |
+| `useState` | in a `Window`, a plain field: `this.count = 0`. In a `Component`, `this.useState(0)` → `[value, setter]` (v4.31) |
 | `useEffect(fn, [x])` | `useEffect(fn, () => [x])` — deps go as a **function**, see below |
 | `key={id}` | accepted and ignored (reconciliation is by index) |
 | `{/* comment */}` | works |
@@ -196,8 +196,9 @@ and take props. That is the one structural habit to change — see the limits be
 
 Worth knowing before you design around them:
 
-- **`key` is accepted and ignored.** Reconciliation compares children **by index**. Writing
-  `key={x.id}` costs nothing and does nothing. The reason it isn't wired up: the diff is a *change
+- **`key` gives a component stable identity** (v4.31): in a list built with `.map()`, `key={x.id}`
+  is what makes each row keep *its* `useState` when the list reorders. It is still **not** used by
+  the diff — reconciliation compares children by index, see the header of `src/diff.sz`. The reason it isn't wired up: the diff is a *change
   detector*, not an incremental patcher — the renderer repaints the whole tree whenever the patch
   list is non-empty, and nothing ever reads a patch's contents. Under key matching a pure reorder
   produces *no* patches, so the screen would stop repainting. Keys only pay off once the renderer
@@ -207,8 +208,11 @@ Worth knowing before you design around them:
   into an array, stored in another object's field, or returned from a function — the copy is a
   different object and the closure still writes to the original. Build it, bind it to a variable,
   and use it from there.
-- **Instances of `Component` are ephemeral**, recreated every frame. Keep state in the parent
-  `Window` and pass it down as props; a `Component`'s own fields do not survive a re-render.
+- **A `Component`'s own fields still do not survive a re-render** — the instance is recreated every
+  frame. What survives is `this.useState(...)`: the value lives in the owner's store, not in the
+  instance. Plain fields (`this.n = 0` inside a `Component`) reset on every pass.
+- **Hooks go at the top of `render()`**, never inside an `if` or a loop: the slot is the call order,
+  same rule as React.
 
 ## Permissions
 

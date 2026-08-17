@@ -28,12 +28,47 @@ export public class Component:Window {
         super()
         this.props    = __makeProps([])   // dict vacío hasta que el framework inyecte
         this.children = []
+        // Puerto de estado: un closure que el DUEÑO fabrica en su propio render()
+        // y nos pasa. Ver useState más abajo y __renderComponent.
+        this.__port   = null
+        this.__slot   = 0
+        this.__hook   = 0
     }
 
     // Llamado por el framework (vía __renderComponent) tras instanciar.
     public void _init(any props, any children) {
         this.props    = props
         this.children = children
+    }
+
+    // ── useState: estado propio que SOBREVIVE al re-render ───────────────────
+    //
+    // Un Component se re-instancia en cada frame, así que su estado no puede
+    // vivir en sus campos. Vive en el DUEÑO (la Window raíz, que sí persiste) y
+    // se llega a él por `__port`: un closure que el dueño creó DENTRO de su
+    // propio render(), y que por eso captura su celda viva.
+    //
+    // Es el modelo de React: el componente no guarda su estado, lo guarda el
+    // árbol. El índice `k` es el orden de llamada, así que —igual que en React—
+    // los hooks no pueden ir adentro de un if ni de un bucle.
+    //
+    //   let par = this.useState(0)
+    //   let n    = par[0]
+    //   let subir = par[1]
+    //   <Button onClick={() => { subir(n + 1) }}>{n}</Button>
+    public any useState(any inicial) {
+        let k = this.__hook
+        this.__hook = k + 1
+        let port = this.__port
+        if (port == null) {
+            // Sin dueño no hay dónde guardar: pasa si el componente se instancia
+            // a mano en vez de por JSX. Se degrada a un valor fijo en vez de
+            // romper, pero no persiste.
+            return [inicial, (v) => {}]
+        }
+        let s = this.__slot
+        let valor = port(s, 0, k, inicial)
+        return [valor, (v) => { port(s, 1, k, v) }]
     }
 }
 
@@ -126,8 +161,23 @@ export fn any __forwardAttr(any tree, any props, string name, bool merge) {
 // (Window.__allStyleVars), de modo que el CSS reactivo también reacciona al estado
 // que vive en los componentes, no solo en la Window raíz. Solo aplica a styleVars()
 // derivadas de props (el estado interno del componente es efímero por frame).
-export fn any __renderComponent(any comp, any props, any children) {
+// `base` y `port` los emite el traductor. Tienen default para que un call site
+// viejo —de tres argumentos, escrito a mano en un harness— siga funcionando: el
+// componente se renderiza igual, sólo que su useState no persiste.
+export fn any __renderComponent(any comp, any props, any children, any base = 0, any port = null) {
     comp._init(props, children)
+    // El puerto llega desde el call site: un closure creado adentro del render()
+    // del dueño. Sin él, useState no persiste (ver Component.useState).
+    //
+    // `base` es la posición del tag en el archivo fuente: única por tag, estable
+    // entre renders. Con `key` se le agrega la clave, así que un .map() le da a
+    // cada fila su propio estado y lo conserva aunque la lista se reordene —
+    // que es para lo que sirve `key` en React.
+    let slot = base
+    if (__propsHas(props, "key")) { slot = "" + base + "#" + props["key"] }
+    comp.__port = port
+    comp.__slot = slot
+    comp.__hook = 0
     let tree = comp.render()
     let vars = comp.styleVars()
     if (vars.length() > 0) {

@@ -338,7 +338,21 @@ fn any read_props(string src, int i) {
 
 // Parsea un elemento JSX que empieza en '<'.
 // Retorna [h_call_string, nuevo_i].
+// Emite la llamada de un componente de usuario.
+//
+// `base` es la posicion del tag en el fuente: unica por tag y estable entre
+// renders, asi que sirve de identidad del slot de estado. El closure del final
+// nace ADENTRO del render() del duenio, que es la unica forma de que capture su
+// celda viva — pasarlo como argumento lo copiaria y el hijo escribiria en una
+// copia muerta. Ver Component.useState y Window.__hookPort.
+fn string __emitComp(string tag, string props_str, string kids, int base) {
+    let cab = "__renderComponent(new " + tag + "(), __makeProps(" + props_str + "), "
+    let puerto = ", (s, op, k, v) => \{ return this.__hookPort(s, op, k, v) \})"
+    return cab + kids + ", " + base + puerto
+}
+
 fn any parse_element(string src, int i) {
+    let start = i
     let n = src.length()
     let dq = "\""
     i = i + 1  // saltar '<'
@@ -369,7 +383,7 @@ fn any parse_element(string src, int i) {
     if (i + 1 < n && src.charAt(i) == "/" && src.charAt(i + 1) == ">") {
         i = i + 2
         if (is_user_component(tag)) {
-            return ["__renderComponent(new " + tag + "(), __makeProps(" + props_str + "), [])", i]
+            return [__emitComp(tag, props_str, "[]", start), i]
         }
         if (is_builtin_tag(tag)) {
             return [tag + "(" + props_str + ", [])", i]
@@ -438,7 +452,7 @@ fn any parse_element(string src, int i) {
         return ["__hFrag(" + kids + ")", i]
     }
     if (is_user_component(tag)) {
-        return ["__renderComponent(new " + tag + "(), __makeProps(" + props_str + "), " + kids + ")", i]
+        return [__emitComp(tag, props_str, kids, start), i]
     }
     if (is_builtin_tag(tag)) {
         return [tag + "(" + props_str + ", " + kids + ")", i]
