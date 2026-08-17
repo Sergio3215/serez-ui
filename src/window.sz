@@ -408,6 +408,9 @@ export public class Window {
     //
     // op: 0 = leer (con inicial), 1 = escribir.
     public any __hookPort(any slot, int op, int k, any v) {
+        // op 2 = leer un valor de contexto por nombre (v). No usa slot ni k: el
+        // contexto es global al árbol, no por componente.
+        if (op == 2) { return this.context("" + v) }
         let idx = this.__slotIndex(slot)
         let fila = this.__hooks[idx][1]
         if (op == 0) {
@@ -421,6 +424,39 @@ export public class Window {
         fila[k] = v
         this.__hooks[idx] = [slot, fila]
         return v
+    }
+
+    // ── Context: valores que bajan sin pasar por props ───────────────────────
+    //
+    // La Window raíz publica; cualquier componente del árbol lee con
+    // this.useContext(nombre). Vive en la misma fila del store (slot "__ctx"),
+    // así que llega por el mismo puerto que ya reenvían los componentes
+    // anidados — no hace falta un Provider en el árbol.
+    //
+    //   app.provide("tema", "oscuro")        // en la Window
+    //   let t = this.useContext("tema")      // en cualquier Component
+    public void provide(string nombre, any valor) {
+        let idx = this.__slotIndex("__ctx")
+        let fila = this.__hooks[idx][1]
+        let i = 0
+        while (i < fila.length()) {
+            if (fila[i][0] == nombre) { fila[i] = [nombre, valor]; this.__hooks[idx] = ["__ctx", fila]; return; }
+            i = i + 1
+        }
+        fila.push([nombre, valor])
+        this.__hooks[idx] = ["__ctx", fila]
+    }
+
+    // Lee un valor publicado. Devuelve null si nadie lo publicó.
+    public any context(string nombre) {
+        let idx = this.__slotIndex("__ctx")
+        let fila = this.__hooks[idx][1]
+        let i = 0
+        while (i < fila.length()) {
+            if (fila[i][0] == nombre) { return fila[i][1] }
+            i = i + 1
+        }
+        return null
     }
 
     // Fila del slot, creándola si es la primera vez.

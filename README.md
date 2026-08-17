@@ -213,6 +213,12 @@ Worth knowing before you design around them:
   instance. Plain fields (`this.n = 0` inside a `Component`) reset on every pass.
 - **Hooks go at the top of `render()`**, never inside an `if` or a loop: the slot is the call order,
   same rule as React.
+- **The full set is there** (v4.31): `useState`, `useRef`, `useReducer`, `useMemo`, `useCallback`
+  and `useContext` — all methods on `Component`, all backed by the same store. Context is published
+  from the root with `app.provide(name, value)`; no Provider element in the tree.
+- **`useRef` returns `[read, write]`**, not a `.current` box: a mutable field would be a copy under
+  value semantics. `read()` consults the store when called, so a handler always sees the latest —
+  which is the difference that makes it a ref and not a snapshot.
 
 ## Permissions
 

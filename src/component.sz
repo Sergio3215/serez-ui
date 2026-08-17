@@ -41,6 +41,22 @@ export public class Component:Window {
         this.children = children
     }
 
+    // ── El puerto se REENVÍA hacia arriba ────────────────────────────────────
+    //
+    // Un Component hereda __hookPort de Window, pero NO puede usar su propio
+    // store: la instancia es efímera y se tira en cada frame. Cuando este
+    // componente renderiza a otro, el puerto que el traductor emitió captura
+    // ESTA instancia, así que hay que reenviar la llamada al puerto que nos dio
+    // nuestro propio dueño, hasta llegar a la Window raíz, que sí persiste.
+    //
+    // El slot se prefija con el propio para que dos instancias del mismo
+    // componente padre no le pisen el estado a sus hijos.
+    public any __hookPort(any slot, int op, int k, any v) {
+        let port = this.__port
+        if (port == null) { return super.__hookPort(slot, op, k, v) }
+        return port("" + this.__slot + "/" + slot, op, k, v)
+    }
+
     // ── useState: estado propio que SOBREVIVE al re-render ───────────────────
     //
     // Un Component se re-instancia en cada frame, así que su estado no puede
@@ -70,6 +86,87 @@ export public class Component:Window {
         let valor = port(s, 0, k, inicial)
         return [valor, (v) => { port(s, 1, k, v) }]
     }
+
+    // ── useRef: una caja que persiste y NO es una foto ───────────────────────
+    //
+    // useState te da el VALOR del render actual; si lo leés dentro de un handler
+    // que corre después, leés el de entonces. useRef devuelve [leer, escribir]:
+    // `leer()` consulta el store en el momento en que se llama, así que un
+    // handler siempre ve lo último.
+    //
+    //   let r = this.useRef(0)
+    //   let leer = r[0]
+    //   let poner = r[1]
+    //   <Button onClick={() => { poner(leer() + 1) }}>…</Button>
+    public any useRef(any inicial) {
+        let k = this.__hook
+        this.__hook = k + 1
+        let port = this.__port
+        if (port == null) { return [() => { return inicial }, (v) => {}] }
+        let s = this.__slot
+        port(s, 0, k, inicial)
+        return [() => { return port(s, 0, k, inicial) }, (v) => { port(s, 1, k, v) }]
+    }
+
+    // ── useReducer: el mismo estado, con las transiciones en un solo lugar ───
+    //
+    //   fn any bajar(any estado, any accion) { … return nuevo }
+    //   let r = this.useReducer(bajar, 0)
+    //   let n = r[0]
+    //   let enviar = r[1]
+    //   <Button onClick={() => { enviar("mas") }}>{n}</Button>
+    public any useReducer(any reducer, any inicial) {
+        let par = this.useState(inicial)
+        let estado = par[0]
+        let poner = par[1]
+        return [estado, (accion) => { poner(reducer(estado, accion)) }]
+    }
+
+    // ── useMemo: recalcular sólo cuando cambian los deps ─────────────────────
+    //
+    // Los deps van como ARRAY acá (a diferencia de useEffect): este hook corre
+    // dentro del render, así que el array ya trae los valores de esta pasada.
+    public any useMemo(any calcular, any deps) {
+        let k = this.__hook
+        this.__hook = k + 1
+        let port = this.__port
+        if (port == null) { return calcular() }
+        let s = this.__slot
+        let guardado = port(s, 0, k, null)
+        if (guardado != null && __mismosDeps(guardado[0], deps)) { return guardado[1] }
+        let valor = calcular()
+        port(s, 1, k, [deps, valor])
+        return valor
+    }
+
+    // ── useCallback: la misma función mientras no cambien los deps ───────────
+    public any useCallback(any f, any deps) {
+        return this.useMemo(() => { return f }, deps)
+    }
+
+    // ── Context: un valor que baja sin pasar por props ───────────────────────
+    //
+    // La Window raíz lo publica con provide(nombre, valor); cualquier
+    // componente del árbol lo lee con this.useContext(nombre). Evita el
+    // prop-drilling sin necesitar un Provider en el árbol: el valor vive en el
+    // mismo store, en una fila reservada.
+    public any useContext(string nombre) {
+        let port = this.__port
+        if (port == null) { return null }
+        return port("__ctx", 2, 0, nombre)
+    }
+}
+
+// ¿Dos listas de deps son iguales? null en cualquiera fuerza el recálculo.
+export fn bool __mismosDeps(any a, any b) {
+    if (a == null || b == null) { return false }
+    if (a.length() != b.length()) { return false }
+    let i = 0
+    while (i < a.length()) {
+        if (a[i] != b[i]) { return false }
+        i = i + 1
+    }
+    return true
 }
 
 // ── Helpers que emite el translator ───────────────────────────────────────────
